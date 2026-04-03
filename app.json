@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Synapse",
+    "slug": "synapse-adhd",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.synapseadhd.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "Synapse sends you daily planning reminders and check-ins to help you stay on track.",
+        "NSCalendarsUsageDescription": "Synapse adds your project deadlines to your calendar so you never miss them.",
+        "NSCalendarsFullAccessUsageDescription": "Synapse adds your project deadlines to your calendar so you never miss them.",
+        "UIBackgroundModes": ["fetch", "remote-notification"]
+      }
+    },
+    "android": {
+      "package": "com.synapseadhd.app",
+      "versionCode": 1,
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-calendar"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "YOUR_EAS_PROJECT_ID"
+      }
+    }
+  }
+}
