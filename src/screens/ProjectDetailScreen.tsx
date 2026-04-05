@@ -209,9 +209,14 @@ export default function ProjectDetailScreen() {
 
   return (
     <>
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={88}>
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
 
         {/* Domain badge */}
         <View style={styles.badgeRow}>
@@ -362,8 +367,15 @@ export default function ProjectDetailScreen() {
                 </TouchableOpacity>
 
                 {/* Right-side actions */}
-                {editingTaskId === task.id ? (
-                  // While editing: show delete button
+                <View style={styles.taskActions}>
+                  {!task.completed && editingTaskId !== task.id && (
+                    <TouchableOpacity
+                      style={styles.addTodaySmall}
+                      onPress={() => addToToday(task.text, task.estimatedMinutes)}
+                    >
+                      <Text style={styles.addTodaySmallText}>+ Today</Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     style={styles.deleteBtn}
                     onPress={() => {
@@ -373,23 +385,7 @@ export default function ProjectDetailScreen() {
                   >
                     <Text style={styles.deleteBtnText}>✕</Text>
                   </TouchableOpacity>
-                ) : !task.completed ? (
-                  // Normal: show + Today
-                  <TouchableOpacity
-                    style={styles.addTodaySmall}
-                    onPress={() => addToToday(task.text, task.estimatedMinutes)}
-                  >
-                    <Text style={styles.addTodaySmallText}>+ Today</Text>
-                  </TouchableOpacity>
-                ) : (
-                  // Completed: show remove
-                  <TouchableOpacity
-                    style={styles.deleteBtn}
-                    onPress={() => setProjectTasks(project.id, project.tasks.filter(t => t.id !== task.id))}
-                  >
-                    <Text style={styles.deleteBtnText}>✕</Text>
-                  </TouchableOpacity>
-                )}
+                </View>
               </View>
             ))}
           </View>
@@ -437,7 +433,7 @@ export default function ProjectDetailScreen() {
       >
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
-          <ScrollView contentContainerStyle={styles.schedulerScroll} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={styles.schedulerScroll} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
 
             <Text style={styles.schedulerTitle}>Plan the timeline</Text>
             <Text style={styles.schedulerSub}>
@@ -579,10 +575,11 @@ const styles = StyleSheet.create({
   taskDue:        { fontSize: 11, color: Colors.primary, fontWeight: '600' },
   taskEditInput:  { fontSize: 14, color: Colors.textPrimary, borderBottomWidth: 1.5, borderBottomColor: Colors.primary, paddingVertical: 2 },
 
-  addTodaySmall:     { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 6 },
+  taskActions:       { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 6 },
+  addTodaySmall:     { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4 },
   addTodaySmallText: { fontSize: 11, color: Colors.primary, fontWeight: '600' },
-  deleteBtn:         { width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.surfaceSecondary, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
-  deleteBtnText:     { fontSize: 12, color: Colors.textTertiary, fontWeight: '600' },
+  deleteBtn:         { width: 28, height: 28, borderRadius: 14, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center' },
+  deleteBtnText:     { fontSize: 13, color: '#DC2626', fontWeight: '700' },
 
   // Manual add
   addTaskSection:   { marginBottom: Spacing.base },
