@@ -262,7 +262,7 @@ export default function DeepWorkScreen({ navigation }: any) {
             <View style={[
               styles.progressBarFill,
               { width: `${progressPct * 100}%` as any },
-              isOverTarget && styles.progressBarOver,
+              isDone && styles.progressBarOver,
             ]} />
           </View>
 

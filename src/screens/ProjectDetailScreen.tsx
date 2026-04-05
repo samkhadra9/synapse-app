@@ -20,6 +20,13 @@ import { Colors, Spacing, Radius, Shadow, DomainColors } from '../theme';
 import { useStore, ProjectTask } from '../store/useStore';
 import { decomposeProject } from '../services/openai';
 
+// RFC-4122 v4 UUID — matches the guard in useStore sync
+const uid = (): string =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+
 type RouteParams = RouteProp<RootStackParams, 'ProjectDetail'>;
 
 // ── Scheduling helper ─────────────────────────────────────────────────────────
@@ -177,7 +184,7 @@ export default function ProjectDetailScreen() {
     if (!newTaskText.trim()) return;
     setProjectTasks(project.id, [
       ...project.tasks,
-      { id: `m-${Date.now()}`, text: newTaskText.trim(), completed: false },
+      { id: uid(), text: newTaskText.trim(), completed: false },
     ]);
     setNewTaskText('');
     setAddingTask(false);
@@ -201,6 +208,7 @@ export default function ProjectDetailScreen() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -480,6 +488,7 @@ export default function ProjectDetailScreen() {
         </SafeAreaView>
         </KeyboardAvoidingView>
       </Modal>
+    </>
   );
 }
 
