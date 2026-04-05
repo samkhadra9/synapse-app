@@ -5,7 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.synapseadhd.app",
@@ -14,7 +16,12 @@
         "NSUserNotificationsUsageDescription": "Synapse sends you daily planning reminders and check-ins to help you stay on track.",
         "NSCalendarsUsageDescription": "Synapse adds your project deadlines to your calendar so you never miss them.",
         "NSCalendarsFullAccessUsageDescription": "Synapse adds your project deadlines to your calendar so you never miss them.",
-        "UIBackgroundModes": ["fetch", "remote-notification"]
+        "NSMicrophoneUsageDescription": "Synapse uses your microphone so you can voice-record your brain dumps and planning sessions.",
+        "UISpeechRecognitionUsageDescription": "Synapse transcribes your voice notes to help you capture ideas hands-free.",
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -23,7 +30,9 @@
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR"
       ]
     },
     "plugins": [
@@ -32,7 +41,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
+        "projectId": "fd64886a-0ea2-410d-b13b-c00825054f32"
       }
     }
   }

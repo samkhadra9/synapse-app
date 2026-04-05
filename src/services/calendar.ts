@@ -10,7 +10,7 @@ import { Platform } from 'react-native';
 import { Project } from '../store/useStore';
 
 const CALENDAR_NAME = 'Synapse';
-const CALENDAR_COLOR = '#2563EB'; // matches Colors.primary
+const CALENDAR_COLOR = '#1A5C4A'; // matches Colors.primary
 
 // ── Permissions ───────────────────────────────────────────────────────────────
 
@@ -116,6 +116,30 @@ export async function syncAllProjects(
   }
 
   return { synced, failed, calendarId, projectResults };
+}
+
+// ── List all writable calendars on device (Apple + Google + iCloud etc.) ──────
+
+export interface DeviceCalendar {
+  id:    string;
+  title: string;
+  color: string;
+  type:  string;   // 'local' | 'caldav' | 'exchange' | etc.
+}
+
+export async function listWritableCalendars(): Promise<DeviceCalendar[]> {
+  const hasPermission = await requestCalendarPermissions();
+  if (!hasPermission) throw new Error('Calendar permission denied');
+
+  const all = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+  return all
+    .filter(c => c.allowsModifications)
+    .map(c => ({
+      id:    c.id,
+      title: c.title,
+      color: c.color ?? '#1A5C4A',
+      type:  c.type ?? 'local',
+    }));
 }
 
 // ── Remove a project event from Calendar ─────────────────────────────────────

@@ -76,7 +76,20 @@ Then on the VERY NEXT line output a JSON object (nothing else after it) in this 
   "recurringTasks": [
     { "title": "string", "frequency": "daily|weekly|monthly|quarterly", "domain": "work|health|..." }
   ]
-}`;
+}
+
+CRITICAL GOAL WRITING RULES — read carefully:
+Goals must NOT be task descriptions or objectives. They are vivid, present-tense descriptions of who the person IS and how they FEEL at that point in time, synthesised from what they shared about who they're becoming.
+
+Write goals as if the person has already arrived there. Use "I am", "I feel", "My life is" language. Make them aspirational, emotionally resonant, and specific to what the user told you.
+
+Example of a BAD goal: "Launch my business"
+Example of a GOOD goal: "I am running a small business that gives me creative autonomy and earns enough that money is no longer the reason I say no to things"
+
+Example of a BAD goal: "Get fit and healthy"
+Example of a GOOD goal: "My body feels capable and energised — I exercise because it feels good, not out of guilt, and I wake up without dreading the day"
+
+Generate 1-2 goals per active life domain. Spread them across all three horizons (1year, 5year, 10year) so each horizon feels like a coherent chapter of the same story.`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -96,7 +109,7 @@ function parseOnboardingData(text: string) {
 const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
 
 export default function OnboardingChatScreen({ navigation }: any) {
-  const { profile, updateProfile, addArea, addProject, addGoal, addChatMessage } = useStore();
+  const { profile, updateProfile, addArea, addProject, addGoal } = useStore();
   const apiKey = profile.openAiKey || ENV_API_KEY;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -148,10 +161,10 @@ export default function OnboardingChatScreen({ navigation }: any) {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o',
           messages: apiMessages,
           temperature: 0.8,
-          max_tokens: 300,
+          max_tokens: 600,
         }),
       });
 

@@ -15,8 +15,9 @@ import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, ActivityIndicator, View } from 'react-native';
-import { Colors } from '../theme';
+import { Text, View, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Radius } from '../theme';
 import { useStore } from '../store/useStore';
 import { supabase } from '../lib/supabase';
 import { pullAll } from '../services/sync';
@@ -40,7 +41,7 @@ export type RootStackParams = {
   OnboardingChat:  undefined;
   Settings:        undefined;
   Main:            undefined;
-  Chat:            { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weeklyReview' };
+  Chat:            { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' };
   DeepWork:        undefined;
   ProjectDetail:   { projectId: string };
 };
@@ -60,36 +61,135 @@ const Stack     = createNativeStackNavigator<RootStackParams>();
 const AuthStack = createNativeStackNavigator<AuthStackParams>();
 const Tab       = createBottomTabNavigator<TabParams>();
 
-// Tab icons
-const TAB_ICONS: Record<string, string> = {
-  Dashboard: '⚡',
-  Projects:  '📁',
-  Goals:     '🎯',
-  Settings:  '⚙️',
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+const TAB_ICON_DEFAULT: Record<string, IoniconName> = {
+  Dashboard: 'home-outline',
+  Projects:  'folder-outline',
+  Goals:     'compass-outline',
+  Settings:  'ellipsis-horizontal-circle-outline',
 };
+const TAB_ICON_ACTIVE: Record<string, IoniconName> = {
+  Dashboard: 'home',
+  Projects:  'folder',
+  Goals:     'compass',
+  Settings:  'ellipsis-horizontal-circle',
+};
+const TAB_LABELS: Record<string, string> = {
+  Dashboard: 'Home',
+  Projects:  'Projects',
+  Goals:     'Goals',
+  Settings:  'Settings',
+};
+
+// Custom tab bar — Ionicons + floating Synapse button
+function CustomTabBar({ state, navigation }: any) {
+  const tabs = ['Dashboard', 'Projects', 'Goals', 'Settings'];
+
+  return (
+    <View style={tabStyles.container}>
+      {tabs.map((name, i) => {
+        const focused = state.index === i;
+        const iconName = focused ? TAB_ICON_ACTIVE[name] : TAB_ICON_DEFAULT[name];
+
+        return (
+          <React.Fragment key={name}>
+            {/* Synapse centre button sits between Projects and Goals */}
+            {i === 2 && (
+              <TouchableOpacity
+                style={tabStyles.centerWrap}
+                onPress={() => navigation.navigate('Chat', { mode: 'dump' })}
+                activeOpacity={0.82}
+              >
+                {/* Outer amber ring */}
+                <View style={tabStyles.centerRing}>
+                  <View style={tabStyles.centerBtn}>
+                    <Text style={tabStyles.centerLetter}>S</Text>
+                  </View>
+                </View>
+                <Text style={tabStyles.centerLabel}>Synapse</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={tabStyles.tab}
+              onPress={() => navigation.navigate(name)}
+              activeOpacity={0.65}
+            >
+              <Ionicons
+                name={iconName}
+                size={22}
+                color={focused ? Colors.primary : Colors.textTertiary}
+              />
+              <Text style={[tabStyles.label, focused && tabStyles.labelActive]}>
+                {TAB_LABELS[name]}
+              </Text>
+              {focused && <View style={tabStyles.activeDot} />}
+            </TouchableOpacity>
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+const tabStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: Colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.borderLight,
+    paddingBottom: 26,
+    paddingTop: 8,
+    paddingHorizontal: 4,
+  },
+
+  // Regular tab
+  tab:         { flex: 1, alignItems: 'center', gap: 3 },
+  label:       { fontSize: 10, color: Colors.textTertiary, fontWeight: '400', letterSpacing: 0.2 },
+  labelActive: { color: Colors.primary, fontWeight: '600' },
+  activeDot:   { width: 3, height: 3, borderRadius: 1.5, backgroundColor: Colors.primary, marginTop: 1 },
+
+  // Synapse centre button — solid amber ring, dark core, white separator
+  centerWrap: { alignItems: 'center', gap: 3, marginBottom: 2, paddingHorizontal: 2 },
+
+  // Outer amber ring with glow
+  centerRing: {
+    width: 64, height: 64, borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#D4621A',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#D4621A',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    marginBottom: 2,
+  },
+
+  // Inner dark button with white gap ring
+  centerBtn: {
+    width: 54, height: 54, borderRadius: 27,
+    backgroundColor: '#0D0D0D',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: Colors.background,   // white gap between ring and button
+  },
+
+  centerLetter: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  centerLabel: { fontSize: 10, color: Colors.textTertiary, fontWeight: '500', letterSpacing: 0.2 },
+});
 
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: Colors.surface,
-          borderTopColor: Colors.borderLight,
-          paddingBottom: 4,
-          height: 60,
-        },
-        tabBarActiveTintColor:   Colors.primary,
-        tabBarInactiveTintColor: Colors.textTertiary,
-        tabBarLabel: ({ focused, color }) => (
-          <Text style={{ fontSize: 11, color, fontWeight: focused ? '600' : '400', marginBottom: 2 }}>
-            {route.name}
-          </Text>
-        ),
-        tabBarIcon: ({ color }) => (
-          <Text style={{ fontSize: 20 }}>{TAB_ICONS[route.name]}</Text>
-        ),
-      })}
+      tabBar={props => <CustomTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Projects"  component={ProjectsScreen} />
@@ -101,9 +201,46 @@ function MainTabs() {
 
 // ── Auth-gated app navigator ──────────────────────────────────────────────────
 
+/** Background sync — runs after login without blocking the UI */
+async function backgroundSync() {
+  try {
+    const result = await pullAll();
+    console.log('[nav] sync complete:', { tasks: result.tasks.length, habits: result.habits.length });
+
+    const local = useStore.getState();
+
+    // Merge server data into store (server wins if it has records)
+    if (result.profile) local.updateProfile(result.profile);
+    if (result.areas.length > 0)            useStore.setState({ areas: result.areas });
+    if (result.projects.length > 0)         useStore.setState({ projects: result.projects });
+    if (result.tasks.length > 0)            useStore.setState({ tasks: result.tasks });
+    if (result.habits.length > 0)           useStore.setState({ habits: result.habits });
+    if (result.goals.length > 0)            useStore.setState({ goals: result.goals });
+    if (result.deepWorkSessions.length > 0) useStore.setState({ deepWorkSessions: result.deepWorkSessions });
+
+    // If server is empty but local has data → upload (first sync after auth was set up)
+    const { pushAll } = await import('../services/sync');
+    const fresh = useStore.getState();
+    const serverEmpty = result.tasks.length === 0 && result.projects.length === 0;
+    if (serverEmpty && (fresh.tasks.length > 0 || fresh.projects.length > 0)) {
+      console.log('[nav] uploading local data to server');
+      pushAll({
+        profile:          fresh.profile,
+        areas:            fresh.areas,
+        projects:         fresh.projects,
+        tasks:            fresh.tasks,
+        habits:           fresh.habits,
+        goals:            fresh.goals,
+        deepWorkSessions: fresh.deepWorkSessions,
+      }).catch(e => console.warn('[nav] upload failed:', e));
+    }
+  } catch (e) {
+    console.warn('[nav] background sync failed (will retry on next launch):', e);
+  }
+}
+
 function AppNavigator() {
-  const { profile, session, setSession, updateProfile, areas, projects, tasks, habits, goals, deepWorkSessions } = useStore();
-  const [hydrating, setHydrating] = React.useState(false);
+  const { profile, session, setSession } = useStore();
 
   // Listen for Supabase auth state changes (login, logout, token refresh)
   useEffect(() => {
@@ -114,56 +251,19 @@ function AppNavigator() {
 
     // Subscribe to future changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, s) => {
+      (_event, s) => {
+        console.log('[nav] auth event:', _event, 'session:', !!s);
         setSession(s);
 
-        // On login: pull data from Supabase and hydrate store
-        if (s) {
-          setHydrating(true);
-          try {
-            const result = await pullAll();
-            // Only hydrate if server has data (non-empty profile means returning user)
-            if (result.profile) {
-              updateProfile(result.profile);
-            }
-            if (result.areas.length > 0) {
-              useStore.setState({ areas: result.areas });
-            }
-            if (result.projects.length > 0) {
-              useStore.setState({ projects: result.projects });
-            }
-            if (result.tasks.length > 0) {
-              useStore.setState({ tasks: result.tasks });
-            }
-            if (result.habits.length > 0) {
-              useStore.setState({ habits: result.habits });
-            }
-            if (result.goals.length > 0) {
-              useStore.setState({ goals: result.goals });
-            }
-            if (result.deepWorkSessions.length > 0) {
-              useStore.setState({ deepWorkSessions: result.deepWorkSessions });
-            }
-          } catch (e) {
-            console.warn('[nav] pullAll failed:', e);
-          } finally {
-            setHydrating(false);
-          }
+        // Only sync on actual sign-in — not on token refresh (which fires every hour)
+        if (s && _event === 'SIGNED_IN') {
+          backgroundSync();
         }
       }
     );
 
     return () => subscription.unsubscribe();
   }, []);
-
-  // Show spinner while pulling data after login
-  if (hydrating) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={Colors.primary} size="large" />
-      </View>
-    );
-  }
 
   // Not logged in — show auth screen
   if (!session) {

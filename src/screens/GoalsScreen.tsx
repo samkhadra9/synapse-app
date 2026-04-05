@@ -1,17 +1,42 @@
+/**
+ * GoalsScreen — Synapse V2
+ *
+ * Three time horizons: 1 year / 5 years / 10 years
+ * One goal per life domain per horizon.
+ * Clean, no emoji, matches dashboard aesthetic.
+ *
+ * Future: graph view showing goal → project → task connections (v3)
+ */
+
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, TextInput,
+  ScrollView, TextInput, StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors, Spacing, Radius, DomainColors, DomainIcons } from '../theme';
+import { Colors, Spacing, Radius, DomainColors } from '../theme';
 import { useStore, DomainKey, TimeHorizon, ALL_DOMAINS } from '../store/useStore';
 
-const HORIZONS: { key: TimeHorizon; label: string; emoji: string }[] = [
-  { key: '1year',  label: '1 year',   emoji: '🌱' },
-  { key: '5year',  label: '5 years',  emoji: '🚀' },
-  { key: '10year', label: '10 years', emoji: '🌟' },
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const HORIZONS: { key: TimeHorizon; label: string; tagline: string }[] = [
+  { key: '1year',  label: '1 year',   tagline: 'Where will you be in 12 months?' },
+  { key: '5year',  label: '5 years',  tagline: 'What does your life look like at 5 years?' },
+  { key: '10year', label: '10 years', tagline: 'The long game — who are you becoming?' },
 ];
+
+const DOMAIN_LABELS: Record<DomainKey, string> = {
+  work:          'Work',
+  health:        'Health',
+  relationships: 'Relationships',
+  personal:      'Personal',
+  finances:      'Finances',
+  learning:      'Learning',
+  creativity:    'Creativity',
+  community:     'Community',
+};
+
+// ── Goal Card ──────────────────────────────────────────────────────────────────
 
 function GoalCard({ domain, horizon }: { domain: DomainKey; horizon: TimeHorizon }) {
   const goals      = useStore(s => s.goals);
@@ -20,180 +45,244 @@ function GoalCard({ domain, horizon }: { domain: DomainKey; horizon: TimeHorizon
 
   const goal = goals.find(g => g.domain === domain && g.horizon === horizon);
   const dc   = DomainColors[domain] ?? DomainColors.work;
+
   const [editing, setEditing] = useState(false);
   const [text,    setText]    = useState(goal?.text ?? '');
 
   function save() {
-    if (!text.trim()) { setEditing(false); return; }
+    const trimmed = text.trim();
+    if (!trimmed) { setEditing(false); return; }
     if (goal) {
-      updateGoal(goal.id, { text: text.trim() });
+      updateGoal(goal.id, { text: trimmed });
     } else {
-      addGoal({ domain, horizon, text: text.trim(), milestones: [] });
+      addGoal({ domain, horizon, text: trimmed, milestones: [] });
     }
     setEditing(false);
   }
 
-  return (
-    <View style={styles.goalCard}>
-      <View style={styles.goalCardHeader}>
-        <Text style={styles.goalCardIcon}>{DomainIcons[domain] ?? '📁'}</Text>
-        <Text style={[styles.goalCardDomain, { color: dc.text }]}>
-          {domain.charAt(0).toUpperCase() + domain.slice(1)}
-        </Text>
-        <TouchableOpacity onPress={() => { setText(goal?.text ?? ''); setEditing(true); }}>
-          <Text style={styles.editBtn}>{goal ? '✏️' : '+'}</Text>
-        </TouchableOpacity>
-      </View>
+  function startEdit() {
+    setText(goal?.text ?? '');
+    setEditing(true);
+  }
 
-      {editing ? (
-        <View>
-          <TextInput
-            style={styles.goalInput}
-            placeholder={`Your ${domain} goal…`}
-            placeholderTextColor={Colors.textTertiary}
-            value={text}
-            onChangeText={setText}
-            multiline
-            autoFocus
-          />
-          <View style={styles.goalInputActions}>
-            <TouchableOpacity onPress={() => setEditing(false)}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.saveGoalBtn} onPress={save}>
-              <Text style={styles.saveGoalBtnText}>Save</Text>
-            </TouchableOpacity>
-          </View>
+  return (
+    <View style={styles.card}>
+      {/* Domain colour accent — left bar */}
+      <View style={[styles.cardAccent, { backgroundColor: dc.text }]} />
+
+      <View style={styles.cardBody}>
+        {/* Header row */}
+        <View style={styles.cardHeader}>
+          <Text style={[styles.domainLabel, { color: dc.text }]}>
+            {DOMAIN_LABELS[domain]}
+          </Text>
+          <TouchableOpacity onPress={startEdit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={styles.editLink}>{goal ? 'Edit' : '+ Set'}</Text>
+          </TouchableOpacity>
         </View>
-      ) : goal ? (
-        <Text style={styles.goalText}>{goal.text}</Text>
-      ) : (
-        <Text style={styles.goalEmpty}>Tap + to set a goal</Text>
-      )}
+
+        {/* Goal text or edit state */}
+        {editing ? (
+          <>
+            <TextInput
+              style={styles.input}
+              value={text}
+              onChangeText={setText}
+              placeholder={`Your ${DOMAIN_LABELS[domain].toLowerCase()} goal for this horizon…`}
+              placeholderTextColor={Colors.textTertiary}
+              multiline
+              autoFocus
+              textAlignVertical="top"
+            />
+            <View style={styles.inputActions}>
+              <TouchableOpacity onPress={() => setEditing(false)}>
+                <Text style={styles.cancelLink}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={save}>
+                <Text style={styles.saveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : goal ? (
+          <Text style={styles.goalText}>{goal.text}</Text>
+        ) : (
+          <Text style={styles.emptyText}>Not set yet</Text>
+        )}
+      </View>
     </View>
   );
 }
 
-export default function GoalsScreen() {
+// ── Main Screen ────────────────────────────────────────────────────────────────
+
+export default function GoalsScreen({ navigation }: any) {
   const goals   = useStore(s => s.goals);
   const profile = useStore(s => s.profile);
+
   const [selectedHorizon, setSelectedHorizon] = useState<TimeHorizon>('1year');
 
-  // Use domains from profile if set, otherwise show all
   const activeDomains: DomainKey[] =
     profile.selectedDomains?.length > 0 ? profile.selectedDomains : ALL_DOMAINS;
 
-  const horizonGoals = goals.filter(g => g.horizon === selectedHorizon);
+  const currentHorizon = HORIZONS.find(h => h.key === selectedHorizon)!;
+  const setCount       = goals.filter(g => g.horizon === selectedHorizon).length;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.screenTitle}>Goals</Text>
-        <Text style={styles.screenSub}>{horizonGoals.length} set for this horizon</Text>
-      </View>
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" />
+      <SafeAreaView style={styles.safe} edges={['top']}>
 
-      {/* Horizon selector */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.horizonRow}
-      >
-        {HORIZONS.map(h => (
-          <TouchableOpacity
-            key={h.key}
-            style={[styles.horizonTab, selectedHorizon === h.key && styles.horizonTabActive]}
-            onPress={() => setSelectedHorizon(h.key)}
-          >
-            <Text style={styles.horizonEmoji}>{h.emoji}</Text>
-            <Text style={[styles.horizonLabel, selectedHorizon === h.key && styles.horizonLabelActive]}>
-              {h.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.horizonIntro}>
-          <Text style={styles.horizonIntroEmoji}>
-            {HORIZONS.find(h => h.key === selectedHorizon)?.emoji}
-          </Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.horizonIntroTitle}>
-              {HORIZONS.find(h => h.key === selectedHorizon)?.label} goals
-            </Text>
-            <Text style={styles.horizonIntroSub}>
-              {selectedHorizon === '1year'  && 'Where will you be in 12 months?'}
-              {selectedHorizon === '5year'  && 'What does your life look like in 5 years?'}
-              {selectedHorizon === '10year' && 'The big picture — who are you becoming?'}
-            </Text>
-          </View>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Goals</Text>
+          <Text style={styles.subtitle}>{setCount} of {activeDomains.length} set</Text>
         </View>
 
-        {activeDomains.map(domain => (
-          <GoalCard key={domain} domain={domain} horizon={selectedHorizon} />
-        ))}
+        {/* Horizon tabs */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabs}
+        >
+          {HORIZONS.map(h => {
+            const active = selectedHorizon === h.key;
+            return (
+              <TouchableOpacity
+                key={h.key}
+                style={[styles.tab, active && styles.tabActive]}
+                onPress={() => setSelectedHorizon(h.key)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                  {h.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
-        <View style={{ height: Spacing['3xl'] }} />
-      </ScrollView>
-    </SafeAreaView>
+        {/* Body */}
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Horizon tagline */}
+          <Text style={styles.tagline}>{currentHorizon.tagline}</Text>
+
+          {/* Goal cards */}
+          {activeDomains.map(domain => (
+            <GoalCard key={domain} domain={domain} horizon={selectedHorizon} />
+          ))}
+
+          {/* Bottom CTA — open yearly/monthly session to set goals via Synapse */}
+          <TouchableOpacity
+            style={styles.synapseCTA}
+            onPress={() => navigation?.navigate('Chat', {
+              mode: selectedHorizon === '10year' ? 'yearly' : 'monthly',
+            })}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.synapseCTAText}>
+              Set goals with Synapse →
+            </Text>
+          </TouchableOpacity>
+
+          <View style={{ height: 60 }} />
+        </ScrollView>
+
+      </SafeAreaView>
+    </View>
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container:  { flex: 1, backgroundColor: Colors.background },
+  root: { flex: 1, backgroundColor: Colors.background },
+  safe: { flex: 1 },
 
-  // Editorial header
-  header:      { paddingHorizontal: Spacing.base, paddingTop: Spacing.base, paddingBottom: Spacing.md },
-  screenTitle: { fontSize: 38, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1.5, lineHeight: 40 },
-  screenSub:   { fontSize: 13, color: Colors.textTertiary, marginTop: 6, fontWeight: '500' },
+  // Header
+  header: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.base,
+    paddingBottom: Spacing.sm,
+  },
+  title:    { fontSize: 38, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1.5, lineHeight: 42 },
+  subtitle: { fontSize: 13, color: Colors.textTertiary, marginTop: 4, fontWeight: '500' },
 
-  // Horizon pills — black when active
-  horizonRow: { paddingHorizontal: Spacing.base, paddingBottom: Spacing.md, gap: 8 },
-  horizonTab: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 16, paddingVertical: 9,
-    borderRadius: Radius.full, borderWidth: 1.5, borderColor: Colors.border,
+  // Horizon tabs — text pills, no emoji
+  tabs: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.base, gap: 8 },
+  tab: {
+    paddingHorizontal: 18, paddingVertical: 8,
+    borderRadius: Radius.full,
+    borderWidth: 1.5, borderColor: Colors.border,
     backgroundColor: Colors.background,
   },
-  horizonTabActive:   { backgroundColor: Colors.ink, borderColor: Colors.ink },
-  horizonEmoji:       { fontSize: 15 },
-  horizonLabel:       { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
-  horizonLabelActive: { color: '#FFF', fontWeight: '700' },
+  tabActive:     { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  tabText:       { fontSize: 14, fontWeight: '500', color: Colors.textSecondary },
+  tabTextActive: { color: '#fff', fontWeight: '700' },
 
-  scroll: { padding: Spacing.base, paddingBottom: 120 },
-
-  // Horizon intro — editorial card
-  horizonIntro: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.base,
-    backgroundColor: Colors.surfaceSecondary,
-    borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border,
-    padding: Spacing.base, marginBottom: Spacing.base,
+  // Tagline
+  tagline: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.base,
+    lineHeight: 22,
+    fontStyle: 'italic',
   },
-  horizonIntroEmoji: { fontSize: 30 },
-  horizonIntroTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3 },
-  horizonIntroSub:   { fontSize: 13, color: Colors.textSecondary, marginTop: 3, lineHeight: 19 },
 
-  // Goal cards — full border, no left accent stripe
-  goalCard: {
+  scroll: { paddingHorizontal: Spacing.lg },
+
+  // Goal cards
+  card: {
+    flexDirection: 'row',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
     backgroundColor: Colors.surface,
-    borderRadius: Radius.xl, padding: Spacing.base,
-    marginBottom: 10, borderWidth: 1, borderColor: Colors.border,
+    marginBottom: 10,
+    overflow: 'hidden',
   },
-  goalCardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  goalCardIcon:   { fontSize: 16, marginRight: 8 },
-  goalCardDomain: { flex: 1, fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
-  editBtn:        { fontSize: 16, padding: 4, color: Colors.textTertiary },
-  goalText:       { fontSize: 15, color: Colors.textPrimary, lineHeight: 23, fontWeight: '400' },
-  goalEmpty:      { fontSize: 13, color: Colors.textTertiary, fontStyle: 'italic' },
+  cardAccent: { width: 3, alignSelf: 'stretch' },
+  cardBody:   { flex: 1, padding: 14, gap: 8 },
 
-  goalInput: {
-    borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md,
-    padding: 14, fontSize: 15, color: Colors.textPrimary,
-    minHeight: 70, textAlignVertical: 'top', lineHeight: 23,
-    backgroundColor: Colors.surfaceSecondary, marginBottom: 10,
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  goalInputActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, alignItems: 'center' },
-  cancelText:       { color: Colors.textSecondary, fontSize: 14, paddingVertical: 8, fontWeight: '500' },
-  saveGoalBtn:      { backgroundColor: Colors.ink, borderRadius: Radius.full, paddingHorizontal: 20, paddingVertical: 10 },
-  saveGoalBtnText:  { color: '#FFF', fontWeight: '700', fontSize: 14 },
+  domainLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
+  editLink:    { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+
+  goalText:  { fontSize: 15, color: Colors.textPrimary, lineHeight: 22, fontWeight: '400' },
+  emptyText: { fontSize: 14, color: Colors.textTertiary, fontStyle: 'italic' },
+
+  // Inline edit
+  input: {
+    borderWidth: 1, borderColor: Colors.border,
+    borderRadius: Radius.md,
+    padding: 12, fontSize: 15,
+    color: Colors.textPrimary,
+    minHeight: 72,
+    lineHeight: 22,
+    backgroundColor: Colors.surfaceSecondary,
+  },
+  inputActions: {
+    flexDirection: 'row', justifyContent: 'flex-end',
+    alignItems: 'center', gap: 12,
+  },
+  cancelLink:   { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
+  saveBtn:      { backgroundColor: Colors.ink, borderRadius: Radius.full, paddingHorizontal: 20, paddingVertical: 9 },
+  saveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  // Bottom CTA
+  synapseCTA: {
+    marginTop: Spacing.base,
+    paddingVertical: 14, paddingHorizontal: 16,
+    borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: Colors.primaryMid,
+    backgroundColor: Colors.primaryLight,
+  },
+  synapseCTAText: { fontSize: 15, color: Colors.primary, fontWeight: '600' },
 });

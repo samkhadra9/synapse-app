@@ -35,6 +35,17 @@ async function getUserId(): Promise<string> {
   return user.id;
 }
 
+/** Returns true only for RFC-4122 UUID strings — what Supabase uuid columns require */
+function isValidUUID(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+/** Returns the string if it looks like a yyyy-MM-dd date, otherwise null */
+function sanitiseDate(d?: string): string | null {
+  if (!d) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
 // ── Profile ───────────────────────────────────────────────────────────────────
 
 /** Push local profile to Supabase profiles table */
@@ -87,6 +98,7 @@ export async function pullProfile(): Promise<Partial<UserProfile> | null> {
 // ── Areas ─────────────────────────────────────────────────────────────────────
 
 export async function pushArea(area: Area): Promise<void> {
+  if (!isValidUUID(area.id)) { console.warn('[sync] skipping area with non-UUID id:', area.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('areas').upsert({
     id:          area.id,
@@ -123,6 +135,7 @@ export async function pullAreas(): Promise<Area[]> {
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 export async function pushProject(project: Project): Promise<void> {
+  if (!isValidUUID(project.id)) { console.warn('[sync] skipping project with non-UUID id:', project.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('projects').upsert({
     id:               project.id,
@@ -131,7 +144,7 @@ export async function pushProject(project: Project): Promise<void> {
     domain:           project.domain,
     title:            project.title,
     description:      project.description,
-    deadline:         project.deadline ?? null,
+    deadline:         sanitiseDate(project.deadline),
     tasks:            project.tasks,
     milestones:       project.milestones,
     status:           project.status,
@@ -172,6 +185,7 @@ export async function pullProjects(): Promise<Project[]> {
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
 export async function pushTask(task: Task): Promise<void> {
+  if (!isValidUUID(task.id)) { console.warn('[sync] skipping task with non-UUID id:', task.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('tasks').upsert({
     id:                 task.id,
@@ -219,6 +233,7 @@ export async function pullTasks(): Promise<Task[]> {
 // ── Habits ────────────────────────────────────────────────────────────────────
 
 export async function pushHabit(habit: Habit): Promise<void> {
+  if (!isValidUUID(habit.id)) { console.warn('[sync] skipping habit with non-UUID id:', habit.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('habits').upsert({
     id:                habit.id,
@@ -259,6 +274,7 @@ export async function pullHabits(): Promise<Habit[]> {
 // ── Goals ─────────────────────────────────────────────────────────────────────
 
 export async function pushGoal(goal: LifeGoal): Promise<void> {
+  if (!isValidUUID(goal.id)) { console.warn('[sync] skipping goal with non-UUID id:', goal.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('goals').upsert({
     id:         goal.id,
@@ -296,6 +312,7 @@ export async function pullGoals(): Promise<LifeGoal[]> {
 // ── Deep Work Sessions ────────────────────────────────────────────────────────
 
 export async function pushDeepWorkSession(session: DeepWorkSession): Promise<void> {
+  if (!isValidUUID(session.id)) { console.warn('[sync] skipping session with non-UUID id:', session.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('deep_work_sessions').upsert({
     id:               session.id,

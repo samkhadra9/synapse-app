@@ -20,9 +20,13 @@ function ProjectCard({ project }: { project: Project }) {
   const total     = project.tasks.length;
   const pct       = total > 0 ? completed / total : 0;
   const dc        = DomainColors[project.domain] ?? DomainColors.work;
-  const daysLeft  = project.deadline
-    ? differenceInDays(parseISO(project.deadline), new Date())
-    : null;
+  const daysLeft  = (() => {
+    if (!project.deadline) return null;
+    try {
+      const d = parseISO(project.deadline);
+      return isNaN(d.getTime()) ? null : differenceInDays(d, new Date());
+    } catch { return null; }
+  })();
 
   return (
     <TouchableOpacity
@@ -60,7 +64,7 @@ function ProjectCard({ project }: { project: Project }) {
 
       {!project.isDecomposed && (
         <View style={[styles.decomposeBadge, { backgroundColor: Colors.primaryLight }]}>
-          <Text style={[styles.decomposeText, { color: Colors.primary }]}>🤖 Tap to plan with AI</Text>
+          <Text style={[styles.decomposeText, { color: Colors.primary }]}>Plan with AI →</Text>
         </View>
       )}
     </TouchableOpacity>
@@ -180,7 +184,6 @@ export default function ProjectsScreen() {
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>📁</Text>
             <Text style={styles.emptyTitle}>No projects yet</Text>
             <Text style={styles.emptySub}>Projects are things you're building with a clear outcome. Add your first one to get started.</Text>
             <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowAdd(true)}>
@@ -237,7 +240,6 @@ const styles = StyleSheet.create({
 
   // Empty state — warm, editorial
   empty:      { alignItems: 'center', paddingTop: 80, paddingHorizontal: 40 },
-  emptyEmoji: { fontSize: 44, marginBottom: 20 },
   emptyTitle: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, marginBottom: 10, letterSpacing: -0.5 },
   emptySub:   { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24, marginBottom: 28 },
   emptyBtn:   { backgroundColor: Colors.ink, borderRadius: Radius.full, paddingHorizontal: 28, paddingVertical: 16 },

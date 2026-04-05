@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { format } from 'date-fns';
 import { RootStackParams } from '../navigation';
-import { Colors, Spacing, Radius, Shadow, DomainColors, DomainIcons } from '../theme';
+import { Colors, Spacing, Radius, Shadow, DomainColors } from '../theme';
 import { useStore } from '../store/useStore';
 import { decomposeProject } from '../services/openai';
 
@@ -72,7 +72,12 @@ export default function ProjectDetailScreen() {
                 project.deadline,
                 apiKey
               );
-              setProjectTasks(project.id, result.tasks);
+              // Ensure every task has required fields (OpenAI may omit completed)
+              const mappedTasks = result.tasks.map(t => ({
+                ...t,
+                completed: false,
+              }));
+              setProjectTasks(project.id, mappedTasks);
               setNextAction(result.nextAction);
               setEstimatedHours(result.estimatedTotalHours);
               updateProject(project.id, { isDecomposed: true, status: 'active' });
@@ -89,11 +94,14 @@ export default function ProjectDetailScreen() {
 
   const addToToday = (taskText: string, minutes?: number) => {
     addTodo({
-      text: taskText,
-      date: format(new Date(), 'yyyy-MM-dd'),
-      projectId: project.id,
+      text:             taskText,
+      date:             format(new Date(), 'yyyy-MM-dd'),
+      projectId:        project.id,
       estimatedMinutes: minutes,
-      isTopPriority: false,
+      completed:        false,
+      isToday:          true,
+      isMIT:            false,
+      priority:         'medium',
     });
     Alert.alert('Added to today', `"${taskText}" has been added to your today list.`);
   };
@@ -115,7 +123,6 @@ export default function ProjectDetailScreen() {
         {/* Domain badge + back row handled by nav header; just show badge here */}
         <View style={styles.badgeRow}>
           <View style={[styles.domainBadge, { backgroundColor: dc.bg, borderColor: dc.border }]}>
-            <Text style={styles.domainBadgeIcon}>{DomainIcons[project.domain] ?? '📁'}</Text>
             <Text style={[styles.domainBadgeText, { color: dc.text }]}>
               {project.domain.charAt(0).toUpperCase() + project.domain.slice(1)}
             </Text>
@@ -126,8 +133,8 @@ export default function ProjectDetailScreen() {
         {project.description ? (
           <Text style={styles.description}>{project.description}</Text>
         ) : null}
-        {project.deadline && (
-          <Text style={styles.deadline}>📅 Due {format(new Date(project.deadline), 'MMMM d, yyyy')}</Text>
+        {project.deadline && /^\d{4}-\d{2}-\d{2}$/.test(project.deadline) && (
+          <Text style={styles.deadline}>Due {format(new Date(project.deadline + 'T00:00:00'), 'MMMM d, yyyy')}</Text>
         )}
 
         {/* Progress */}
@@ -150,7 +157,7 @@ export default function ProjectDetailScreen() {
         {/* Next action highlight */}
         {nextAction && (
           <View style={[styles.nextActionCard, Shadow.sm]}>
-            <Text style={styles.nextActionLabel}>⚡ NEXT ACTION</Text>
+            <Text style={styles.nextActionLabel}>NEXT ACTION</Text>
             <Text style={styles.nextActionText}>{nextAction}</Text>
             <TouchableOpacity style={styles.addTodayBtn} onPress={() => addToToday(nextAction, 30)}>
               <Text style={styles.addTodayBtnText}>Add to today →</Text>
@@ -159,7 +166,7 @@ export default function ProjectDetailScreen() {
         )}
 
         {/* AI Decompose CTA */}
-        {!project.isDecomposed && (
+        {(!project.isDecomposed || project.tasks.length === 0) && (
           <TouchableOpacity
             style={[styles.decomposeCard, Shadow.sm]}
             onPress={runDecomposition}
@@ -174,16 +181,28 @@ export default function ProjectDetailScreen() {
               </>
             ) : (
               <>
-                <Text style={styles.decomposeEmoji}>🤖</Text>
                 <Text style={styles.decomposeTitle}>Break this down with AI</Text>
                 <Text style={styles.decomposeSub}>
                   Synapse will analyse the project and create a step-by-step plan with time estimates.
                 </Text>
                 <View style={styles.decomposeBtn}>
-                  <Text style={styles.decomposeBtnText}>Decompose project</Text>
+                  <Text style={styles.decomposeBtnText}>Plan with Synapse</Text>
                 </View>
               </>
             )}
+          </TouchableOpacity>
+        )}
+
+        {/* Re-decompose option (project already has tasks) */}
+        {project.isDecomposed && project.tasks.length > 0 && (
+          <TouchableOpacity
+            style={styles.redecomposeRow}
+            onPress={runDecomposition}
+            disabled={decomposing}
+          >
+            <Text style={styles.redecomposeText}>
+              {decomposing ? 'Replanning…' : 'Re-plan with AI →'}
+            </Text>
           </TouchableOpacity>
         )}
 
@@ -282,12 +301,13 @@ const styles = StyleSheet.create({
   addTodayBtn:     { alignSelf: 'flex-start', backgroundColor: Colors.primary, borderRadius: Radius.full, paddingHorizontal: 14, paddingVertical: 6 },
   addTodayBtnText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
 
-  decomposeCard:  { backgroundColor: Colors.surface, borderRadius: Radius.md, padding: Spacing.xl, marginBottom: Spacing.base, alignItems: 'center' },
-  decomposeEmoji: { fontSize: 40, marginBottom: Spacing.sm },
+  decomposeCard:  { backgroundColor: Colors.surface, borderRadius: Radius.md, padding: Spacing.xl, marginBottom: Spacing.base, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
   decomposeTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, textAlign: 'center' },
   decomposeSub:   { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: Spacing.base },
-  decomposeBtn:   { backgroundColor: Colors.primary, borderRadius: Radius.full, paddingHorizontal: 24, paddingVertical: 12 },
+  decomposeBtn:   { backgroundColor: Colors.ink, borderRadius: Radius.full, paddingHorizontal: 24, paddingVertical: 12 },
   decomposeBtnText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
+  redecomposeRow: { alignItems: 'flex-start', marginBottom: Spacing.base },
+  redecomposeText: { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
 
   tasksSection: { marginBottom: Spacing.base },
   sectionTitle: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.sm },

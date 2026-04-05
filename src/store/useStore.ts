@@ -153,7 +153,8 @@ export interface UserProfile {
     postWork: string[];
     evening: string[];
   };
-  synapseCalendarId?: string;
+  synapseCalendarId?:   string;
+  selectedCalendarName?: string;
   systemPhase: 1 | 2 | 3;
 }
 
@@ -238,10 +239,10 @@ const defaultProfile: UserProfile = {
 };
 
 const defaultHabits: Habit[] = [
-  { id: 'h1', name: 'Morning light',     icon: '☀️', domain: 'health', completedDates: [], frequency: 'daily' },
-  { id: 'h2', name: 'Exercise',          icon: '⚡', domain: 'health', completedDates: [], frequency: 'daily' },
-  { id: 'h3', name: 'Deep work block',   icon: '🎯', domain: 'work',   completedDates: [], frequency: 'weekdays' },
-  { id: 'h4', name: 'Wind-down by 10pm', icon: '🌙', domain: 'health', completedDates: [], frequency: 'daily' },
+  { id: 'a1b2c3d4-0001-4000-8000-000000000001', name: 'Morning light',     icon: '☀️', domain: 'health', completedDates: [], frequency: 'daily' },
+  { id: 'a1b2c3d4-0002-4000-8000-000000000002', name: 'Exercise',          icon: '⚡', domain: 'health', completedDates: [], frequency: 'daily' },
+  { id: 'a1b2c3d4-0003-4000-8000-000000000003', name: 'Deep work block',   icon: '🎯', domain: 'work',   completedDates: [], frequency: 'weekdays' },
+  { id: 'a1b2c3d4-0004-4000-8000-000000000004', name: 'Wind-down by 10pm', icon: '🌙', domain: 'health', completedDates: [], frequency: 'daily' },
 ];
 
 // ── Sync helper ───────────────────────────────────────────────────────────────
@@ -255,7 +256,12 @@ function syncIfAuthed(fn: (sync: typeof import('../services/sync')) => Promise<u
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
-const uid = () => Math.random().toString(36).slice(2, 10);
+/** Generate a RFC-4122 v4 UUID — required by Supabase uuid columns */
+const uid = (): string =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 
 export const useStore = create<SynapseState>()(
   persist(
@@ -464,7 +470,7 @@ export const useStore = create<SynapseState>()(
       // ── Deep Work Sessions ────────────────────────────────────────────────────
       deepWorkSessions: [],
       addDeepWorkSession: (session) => {
-        const newSession = { ...session, id: Date.now().toString() };
+        const newSession = { ...session, id: uid() };
         set((s) => ({ deepWorkSessions: [...s.deepWorkSessions, newSession] }));
         syncIfAuthed(s => s.pushDeepWorkSession(newSession), get().session);
       },

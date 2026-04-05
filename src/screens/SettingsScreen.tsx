@@ -7,11 +7,13 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   TextInput, Alert, Switch, KeyboardAvoidingView, Platform,
+  Modal, FlatList, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Colors, Spacing, Radius, Shadow } from '../theme';
 import { useStore } from '../store/useStore';
+import { listWritableCalendars, DeviceCalendar } from '../services/calendar';
 
 // Pull API key from .env if available (set EXPO_PUBLIC_OPENAI_KEY in .env)
 const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
@@ -39,6 +41,29 @@ export default function SettingsScreen() {
   const [morning,     setMorning]     = useState(profile.morningTime);
   const [evening,     setEvening]     = useState(profile.eveningTime);
   const [saved,       setSaved]       = useState(false);
+
+  // Calendar picker
+  const [calendarList,    setCalendarList]    = useState<DeviceCalendar[]>([]);
+  const [showCalPicker,   setShowCalPicker]   = useState(false);
+  const [loadingCals,     setLoadingCals]     = useState(false);
+
+  async function openCalendarPicker() {
+    setLoadingCals(true);
+    try {
+      const cals = await listWritableCalendars();
+      setCalendarList(cals);
+      setShowCalPicker(true);
+    } catch (e: any) {
+      Alert.alert('Calendar access', e.message ?? 'Could not read calendars. Check permissions in iPhone Settings → Privacy → Calendars.');
+    } finally {
+      setLoadingCals(false);
+    }
+  }
+
+  function selectCalendar(cal: DeviceCalendar) {
+    updateProfile({ synapseCalendarId: cal.id, selectedCalendarName: cal.title });
+    setShowCalPicker(false);
+  }
 
   // What key is currently active (env takes precedence if no profile key)
   const activeKey   = profile.openAiKey || ENV_API_KEY;
@@ -189,10 +214,99 @@ export default function SettingsScreen() {
             </SettingRow>
           </View>
 
+          {/* Calendar Sync */}
+          <SectionLabel label="CALENDAR SYNC" />
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.calRow}
+              onPress={openCalendarPicker}
+              activeOpacity={0.75}
+              disabled={loadingCals}
+            >
+              <View style={styles.calLeft}>
+                <View style={[styles.calDot, { backgroundColor: profile.synapseCalendarId ? Colors.primary : Colors.border }]} />
+                <View>
+                  <Text style={styles.calTitle}>
+                    {profile.selectedCalendarName ?? (profile.synapseCalendarId ? 'Calendar selected' : 'Choose a calendar')}
+                  </Text>
+                  <Text style={styles.calSub}>
+                    {profile.synapseCalendarId
+                      ? 'Project deadlines sync here'
+                      : 'Tap to pick where deadlines appear'}
+                  </Text>
+                </View>
+              </View>
+              {loadingCals
+                ? <ActivityIndicator size="small" color={Colors.primary} />
+                : <Text style={styles.resetArrow}>›</Text>}
+            </TouchableOpacity>
+            {profile.synapseCalendarId && (
+              <>
+                <View style={styles.divider} />
+                <TouchableOpacity
+                  style={styles.calRow}
+                  onPress={() => updateProfile({ synapseCalendarId: undefined, selectedCalendarName: undefined })}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.calTitle, { color: Colors.error }]}>Remove calendar link</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+
           {/* Save */}
           <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
             <Text style={styles.saveBtnText}>{saved ? '✓ Saved' : 'Save changes'}</Text>
           </TouchableOpacity>
+
+          {/* Calendar picker modal */}
+          <Modal
+            visible={showCalPicker}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setShowCalPicker(false)}
+          >
+            <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
+              <View style={styles.calModalHeader}>
+                <Text style={styles.calModalTitle}>Choose calendar</Text>
+                <TouchableOpacity onPress={() => setShowCalPicker(false)} style={styles.calModalClose}>
+                  <Text style={styles.calModalCloseText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.calModalSub}>
+                Synapse will add your project deadlines to this calendar. Pick any calendar on your device — Apple, Google, iCloud, all work.
+              </Text>
+              <FlatList
+                data={calendarList}
+                keyExtractor={c => c.id}
+                contentContainerStyle={{ padding: Spacing.base, paddingBottom: 60 }}
+                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                ListEmptyComponent={
+                  <View style={styles.calEmpty}>
+                    <Text style={styles.calEmptyText}>No writable calendars found.</Text>
+                    <Text style={styles.calEmptySub}>Make sure you have at least one calendar app installed and have granted Synapse calendar access in iPhone Settings → Privacy → Calendars.</Text>
+                  </View>
+                }
+                renderItem={({ item }) => {
+                  const isSelected = profile.synapseCalendarId === item.id;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.calPickerRow, isSelected && styles.calPickerRowSelected]}
+                      onPress={() => selectCalendar(item)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.calPickerDot, { backgroundColor: item.color }]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.calPickerTitle}>{item.title}</Text>
+                        <Text style={styles.calPickerType}>{item.type}</Text>
+                      </View>
+                      {isSelected && <Text style={styles.calPickerCheck}>✓</Text>}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            </SafeAreaView>
+          </Modal>
 
           {/* System phase */}
           <SectionLabel label="SYSTEM PHASE" />
@@ -258,7 +372,7 @@ export default function SettingsScreen() {
                 ]
               )}
             >
-              <Text style={[styles.resetText, { color: Colors.primary }]}>Sign out</Text>
+              <Text style={[styles.resetText, { color: Colors.textSecondary }]}>Sign out</Text>
               <Text style={styles.resetArrow}>›</Text>
             </TouchableOpacity>
             <View style={styles.divider} />
@@ -392,4 +506,40 @@ const styles = StyleSheet.create({
   },
   resetText:  { fontSize: 16, color: Colors.error, fontWeight: '500' },
   resetArrow: { fontSize: 20, color: Colors.textTertiary },
+
+  // Calendar sync section
+  calRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.base, paddingVertical: 16,
+  },
+  calLeft:  { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  calDot:   { width: 12, height: 12, borderRadius: 6 },
+  calTitle: { fontSize: 16, color: Colors.textPrimary, fontWeight: '500' },
+  calSub:   { fontSize: 12, color: Colors.textTertiary, marginTop: 2 },
+
+  // Calendar picker modal
+  calModalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.base, paddingTop: Spacing.base, paddingBottom: 8,
+  },
+  calModalTitle:     { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -0.8 },
+  calModalClose:     { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: Colors.ink, borderRadius: Radius.full },
+  calModalCloseText: { fontSize: 14, color: '#FFF', fontWeight: '700' },
+  calModalSub: {
+    fontSize: 14, color: Colors.textSecondary, lineHeight: 21,
+    paddingHorizontal: Spacing.base, paddingBottom: Spacing.base,
+  },
+  calPickerRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface, borderRadius: Radius.xl,
+    padding: 16, borderWidth: 1.5, borderColor: Colors.border,
+  },
+  calPickerRowSelected: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  calPickerDot:         { width: 14, height: 14, borderRadius: 7 },
+  calPickerTitle:       { fontSize: 16, color: Colors.textPrimary, fontWeight: '600' },
+  calPickerType:        { fontSize: 12, color: Colors.textTertiary, marginTop: 2, textTransform: 'capitalize' },
+  calPickerCheck:       { fontSize: 18, color: Colors.primary, fontWeight: '700' },
+  calEmpty:    { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
+  calEmptyText: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 10 },
+  calEmptySub:  { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
 });
