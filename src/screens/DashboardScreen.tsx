@@ -262,7 +262,7 @@ export default function DashboardScreen({ navigation }: any) {
     [tasks, today],
   );
   const otherToday = useMemo(
-    () => tasks.filter(t => t.date === today && !t.isMIT && !t.completed),
+    () => tasks.filter(t => t.date === today && !t.isMIT),
     [tasks, today],
   );
   const activeProjects = useMemo(
@@ -332,18 +332,27 @@ export default function DashboardScreen({ navigation }: any) {
             isSunday={isSunday}
           />
 
-          {/* ── Today's sequence ─────────────────────────────────────────── */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Today</Text>
-            <TouchableOpacity onPress={() => setShowQuickAdd(true)}>
-              <Text style={styles.sectionAction}>+ Add</Text>
-            </TouchableOpacity>
-          </View>
+          {/* ── Today's full plan ────────────────────────────────────────── */}
+          {(() => {
+            const totalToday = mits.length + otherToday.length;
+            const completedToday = tasks.filter(t => t.date === today && t.completed).length;
+            return (
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Today</Text>
+                <View style={styles.sectionHeaderRight}>
+                  {totalToday > 0 && (
+                    <Text style={styles.todayCount}>{completedToday}/{totalToday}</Text>
+                  )}
+                  <TouchableOpacity onPress={() => setShowQuickAdd(true)}>
+                    <Text style={styles.sectionAction}>+ Add</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
 
           <View style={styles.sectionBody}>
-            {mits.length > 0 ? (
-              <TodaySequence tasks={mits} onToggle={id => toggleTask(id)} />
-            ) : (
+            {mits.length === 0 && otherToday.length === 0 ? (
               <TouchableOpacity
                 style={styles.planCTA}
                 onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
@@ -351,25 +360,45 @@ export default function DashboardScreen({ navigation }: any) {
               >
                 <Text style={styles.planCTAText}>Plan my day with Synapse →</Text>
               </TouchableOpacity>
-            )}
-
-            {otherToday.length > 0 && (
-              <View style={styles.otherTasks}>
-                {otherToday.slice(0, 4).map(t => (
-                  <TouchableOpacity
-                    key={t.id}
-                    style={styles.otherRow}
-                    onPress={() => toggleTask(t.id)}
-                    activeOpacity={0.65}
-                  >
-                    <View style={styles.otherDot} />
-                    <Text style={styles.otherText} numberOfLines={1}>{t.text}</Text>
-                  </TouchableOpacity>
-                ))}
-                {otherToday.length > 4 && (
-                  <Text style={styles.moreText}>+{otherToday.length - 4} more</Text>
+            ) : (
+              <>
+                {/* MITs — time-blocked sequence */}
+                {mits.length > 0 && (
+                  <>
+                    <Text style={styles.taskGroupLabel}>TOP PRIORITIES</Text>
+                    <TodaySequence tasks={mits} onToggle={id => toggleTask(id)} />
+                  </>
                 )}
-              </View>
+
+                {/* All other today tasks — full list with checkboxes */}
+                {otherToday.length > 0 && (
+                  <>
+                    <Text style={[styles.taskGroupLabel, mits.length > 0 && { marginTop: Spacing.base }]}>
+                      ALL TASKS TODAY
+                    </Text>
+                    {otherToday.map(t => (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={styles.taskRow}
+                        onPress={() => toggleTask(t.id)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.taskCheck, t.completed && styles.taskCheckDone]}>
+                          {t.completed && <Text style={styles.taskCheckMark}>✓</Text>}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.taskText, t.completed && styles.taskTextDone]} numberOfLines={2}>
+                            {t.text}
+                          </Text>
+                          {t.estimatedMinutes ? (
+                            <Text style={styles.taskMeta}>~{t.estimatedMinutes} min</Text>
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+              </>
             )}
           </View>
 
@@ -514,11 +543,29 @@ const styles = StyleSheet.create({
   },
   planCTAText: { fontSize: 15, color: Colors.primary, fontWeight: '600' },
 
-  otherTasks: { paddingTop: 10, gap: 8 },
-  otherRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  otherDot:   { width: 5, height: 5, borderRadius: 2.5, backgroundColor: Colors.border, flexShrink: 0 },
-  otherText:  { fontSize: 14, color: Colors.textSecondary, flex: 1 },
-  moreText:   { fontSize: 13, color: Colors.textTertiary, paddingTop: 2 },
+  sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  todayCount:  { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
+
+  taskGroupLabel: {
+    fontSize: 10, fontWeight: '700', color: Colors.textTertiary,
+    letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 6, marginTop: 4,
+  },
+  taskRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderLight,
+  },
+  taskCheck: {
+    width: 22, height: 22, borderRadius: 11,
+    borderWidth: 1.5, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  taskCheckDone:  { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  taskCheckMark:  { fontSize: 11, color: '#fff', fontWeight: '700' },
+  taskText:       { fontSize: 15, fontWeight: '500', color: Colors.textPrimary, lineHeight: 20 },
+  taskTextDone:   { textDecorationLine: 'line-through', color: Colors.textTertiary },
+  taskMeta:       { fontSize: 11, color: Colors.textTertiary, marginTop: 2 },
 
   // Habits — no emoji, coloured domain dot
   habitCount: { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
