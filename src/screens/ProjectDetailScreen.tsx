@@ -361,13 +361,33 @@ export default function ProjectDetailScreen() {
                   )}
                 </TouchableOpacity>
 
-                {/* Add to today */}
-                {!task.completed && editingTaskId !== task.id && (
+                {/* Right-side actions */}
+                {editingTaskId === task.id ? (
+                  // While editing: show delete button
+                  <TouchableOpacity
+                    style={styles.deleteBtn}
+                    onPress={() => {
+                      setEditingTaskId(null);
+                      setProjectTasks(project.id, project.tasks.filter(t => t.id !== task.id));
+                    }}
+                  >
+                    <Text style={styles.deleteBtnText}>✕</Text>
+                  </TouchableOpacity>
+                ) : !task.completed ? (
+                  // Normal: show + Today
                   <TouchableOpacity
                     style={styles.addTodaySmall}
                     onPress={() => addToToday(task.text, task.estimatedMinutes)}
                   >
                     <Text style={styles.addTodaySmallText}>+ Today</Text>
+                  </TouchableOpacity>
+                ) : (
+                  // Completed: show remove
+                  <TouchableOpacity
+                    style={styles.deleteBtn}
+                    onPress={() => setProjectTasks(project.id, project.tasks.filter(t => t.id !== task.id))}
+                  >
+                    <Text style={styles.deleteBtnText}>✕</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -561,6 +581,8 @@ const styles = StyleSheet.create({
 
   addTodaySmall:     { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 6 },
   addTodaySmallText: { fontSize: 11, color: Colors.primary, fontWeight: '600' },
+  deleteBtn:         { width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.surfaceSecondary, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
+  deleteBtnText:     { fontSize: 12, color: Colors.textTertiary, fontWeight: '600' },
 
   // Manual add
   addTaskSection:   { marginBottom: Spacing.base },
