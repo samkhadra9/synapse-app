@@ -298,19 +298,34 @@ export default function DashboardScreen({ navigation }: any) {
   async function handleCalendarSync() {
     const withDeadlines = projects.filter(p => p.deadline && p.status === 'active');
     if (!withDeadlines.length) {
-      Alert.alert('Nothing to sync', 'Add deadlines to your active projects first.');
+      Alert.alert('Nothing to sync', 'Add deadlines to your active projects first.\n\nOpen a project and set a deadline to get started.');
+      return;
+    }
+    if (!profile.synapseCalendarId) {
+      Alert.alert(
+        'No calendar selected',
+        'Go to Settings → Calendar Sync and pick which calendar to use.',
+        [{ text: 'OK' }]
+      );
       return;
     }
     setSyncing(true);
     try {
       const result = await syncAllProjects(projects, profile.synapseCalendarId);
-      updateProfile({ synapseCalendarId: result.calendarId });
+      // Save back any updated calendarId (should stay the same)
+      if (result.calendarId && result.calendarId !== profile.synapseCalendarId) {
+        updateProfile({ synapseCalendarId: result.calendarId });
+      }
       result.projectResults.forEach(({ projectId, eventId }: any) =>
         updateProject(projectId, { calendarEventId: eventId }),
       );
-      Alert.alert('Calendar synced', `${result.synced} deadline${result.synced !== 1 ? 's' : ''} added.`);
+      if (result.synced === 0) {
+        Alert.alert('Nothing new to sync', `All ${withDeadlines.length} project deadline${withDeadlines.length !== 1 ? 's' : ''} are already in your calendar.`);
+      } else {
+        Alert.alert('Calendar synced ✓', `${result.synced} project deadline${result.synced !== 1 ? 's' : ''} added to "${profile.selectedCalendarName ?? 'your calendar'}".${result.failed > 0 ? `\n\n${result.failed} failed — check the project has a valid date.` : ''}`);
+      }
     } catch (e: any) {
-      Alert.alert('Sync failed', e.message ?? 'Check calendar permissions in Settings.');
+      Alert.alert('Sync failed', `${e.message ?? 'Unknown error'}\n\nCheck that Synapse has calendar access in iPhone Settings → Privacy → Calendars.`);
     } finally {
       setSyncing(false);
     }

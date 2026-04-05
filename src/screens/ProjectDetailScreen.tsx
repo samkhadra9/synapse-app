@@ -74,12 +74,13 @@ export default function ProjectDetailScreen() {
   const { params }       = useRoute<RouteParams>();
   const { projectId }    = params;
 
-  const project          = useStore(s => s.projects.find(p => p.id === projectId));
-  const updateProject    = useStore(s => s.updateProject);
-  const setProjectTasks  = useStore(s => s.setProjectTasks);
+  const project           = useStore(s => s.projects.find(p => p.id === projectId));
+  const updateProject     = useStore(s => s.updateProject);
+  const deleteProject     = useStore(s => s.deleteProject);
+  const setProjectTasks   = useStore(s => s.setProjectTasks);
   const toggleProjectTask = useStore(s => s.toggleProjectTask);
-  const addTodo          = useStore(s => s.addTodo);
-  const profile          = useStore(s => s.profile);
+  const addTodo           = useStore(s => s.addTodo);
+  const profile           = useStore(s => s.profile);
 
   // Decompose flow
   const [decomposing,    setDecomposing]    = useState(false);
@@ -419,6 +420,30 @@ export default function ProjectDetailScreen() {
           )}
         </View>
 
+        {/* Delete project */}
+        <TouchableOpacity
+          style={styles.deleteProjectBtn}
+          onPress={() =>
+            Alert.alert(
+              'Delete project?',
+              `"${project.title}" and all its tasks will be permanently removed. This cannot be undone.`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () => {
+                    deleteProject(project.id);
+                    navigation.goBack();
+                  },
+                },
+              ]
+            )
+          }
+        >
+          <Text style={styles.deleteProjectText}>Delete project</Text>
+        </TouchableOpacity>
+
         <View style={{ height: Spacing['3xl'] }} />
       </ScrollView>
     </SafeAreaView>
@@ -618,4 +643,7 @@ const styles = StyleSheet.create({
   scheduleConfirmText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
   scheduleSkipBtn:     { alignItems: 'center', paddingVertical: 12 },
   scheduleSkipText:    { fontSize: 14, color: Colors.textTertiary },
+
+  deleteProjectBtn:  { alignItems: 'center', paddingVertical: 16, marginTop: Spacing.lg },
+  deleteProjectText: { fontSize: 15, color: Colors.error, fontWeight: '500' },
 });

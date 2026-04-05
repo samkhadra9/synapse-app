@@ -121,6 +121,15 @@ When you have enough to act, output exactly:
   {"type":"goal","horizon":"1year|5year|10year","text":"goal text"}
 ],"summary":"One sentence plan summary","sessionNote":"optional note for logs"}
 
+CRITICAL — project vs area distinction:
+A PROJECT has a clear end state and a deadline — something that gets DONE (e.g. "Launch website by June", "Write dissertation", "Complete home renovation").
+An AREA is an ongoing domain of life — health, fitness, relationships, finances, creativity. Areas do NOT become projects.
+- "I want to get healthier" → GOAL + suggest habits to build, NOT a project called "Health"
+- "I want to run a marathon in October" → PROJECT with deadline
+- "I want to improve my finances" → GOAL, not a project
+- "I need to clear £5k of debt by December" → PROJECT with deadline
+Never create a project for something that has no clear end state or deadline.
+
 Only output [SYNAPSE_ACTIONS] when you have enough context. Don't rush it.`;
 
   const prompts: Record<ChatMode, string> = {
