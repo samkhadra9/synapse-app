@@ -25,6 +25,7 @@ import { Audio } from 'expo-av';
 import { format } from 'date-fns';
 import { Colors, Spacing, Radius } from '../theme';
 import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile } from '../store/useStore';
+import { buildTodayCalendarContext } from '../services/calendar';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ ${goals10yr.length ? goals10yr.map(g => `  • ${g.text}`).join('\n') : '  • n
 
 // ── System Prompts ─────────────────────────────────────────────────────────────
 
-function getSystemPrompt(mode: ChatMode, contextBlock: string, name: string): string {
+function getSystemPrompt(mode: ChatMode, contextBlock: string, name: string, calendarContext = ''): string {
   const firstName = name ? name.split(' ')[0] : 'there';
 
   const sharedRules = `
@@ -142,18 +143,21 @@ ${sharedRules}`,
 
 ${contextBlock}
 
+${calendarContext ? `LIVE DEVICE DATA (pulled from ${firstName}'s phone right now):\n${calendarContext}\n\nUse this to plan around their actual day — don't schedule deep work during meetings, account for travel/buffer time around appointments.` : ''}
+
 Your job — run this in sequence:
 1. Open with: "Morning, ${firstName}." Then ask what's alive in their mind RIGHT NOW. Brain dump first, structure second.
-2. After they dump, cross-reference with: their overdue tasks (surface the ones that matter), active project needs, and their 1-year goals. Name what you notice.
+2. After they dump, cross-reference with: their overdue tasks (surface the ones that matter), active project needs, their 1-year goals, and today's calendar events and reminders above. Name what you notice.
 3. Help them pick their MITs ruthlessly. Ask: "If you only got ONE thing done today, what would make it a real win?"
-4. Build a time-blocked sequence. Use estimatedMinutes. Include buffer — ADHD brains need transition time. Be realistic, not aspirational.
+4. Build a time-blocked sequence. Use estimatedMinutes. Include buffer — ADHD brains need transition time. Work around any calendar events. Be realistic, not aspirational.
 5. Confirm the plan. Then output.
 
 ${outputFormat}
 ${sharedRules}
 - Surface overdue work. Don't let it hide.
 - If they have 10 things, help them cut to 3. That's the job.
-- If today has no plan yet, start from scratch with them.`,
+- If today has no plan yet, start from scratch with them.
+- Reference specific calendar events by name when building the day plan — it shows you've actually looked.`,
 
     evening: `You are Synapse. It's evening. ${firstName} is doing their end-of-day review.
 
@@ -279,10 +283,21 @@ export default function ChatScreen({ navigation, route }: any) {
     [profile.name, tasks.length, projects.length, goals.length],
   );
 
+  const [calendarContext, setCalendarContext] = useState('');
+
   const systemPrompt = useMemo(
-    () => getSystemPrompt(mode, contextBlock, profile.name),
-    [mode, contextBlock, profile.name],
+    () => getSystemPrompt(mode, contextBlock, profile.name, calendarContext),
+    [mode, contextBlock, profile.name, calendarContext],
   );
+
+  // Fetch today's calendar + reminders for morning and evening sessions
+  useEffect(() => {
+    if (mode === 'morning' || mode === 'evening') {
+      buildTodayCalendarContext()
+        .then(ctx => setCalendarContext(ctx))
+        .catch(() => {}); // fail silently — planning still works without it
+    }
+  }, [mode]);
 
   const [messages,     setMessages]     = useState<ChatMessage[]>([]);
   const [input,        setInput]        = useState('');

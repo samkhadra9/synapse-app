@@ -151,3 +151,121 @@ export async function removeCalendarEvent(eventId: string): Promise<void> {
     // Already deleted — ignore
   }
 }
+
+// ── Read today's calendar events + reminders for morning context ──────────────
+
+export interface TodayEvent {
+  title:    string;
+  start:    string;   // "HH:MM" or "all-day"
+  end?:     string;
+  allDay:   boolean;
+  calendar: string;
+}
+
+export interface TodayReminder {
+  title:    string;
+  dueDate?: string;   // ISO string if set, undefined if no time
+  calendar: string;
+}
+
+export async function getTodayCalendarEvents(): Promise<TodayEvent[]> {
+  const hasPermission = await requestCalendarPermissions();
+  if (!hasPermission) return [];
+
+  const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+  const calIds    = calendars.map(c => c.id);
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const events = await Calendar.getEventsAsync(calIds, startOfDay, endOfDay);
+
+  return events.map(e => {
+    const start = e.allDay
+      ? 'all-day'
+      : new Date(e.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const end = e.allDay
+      ? undefined
+      : new Date(e.endDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    return {
+      title:    e.title ?? '(no title)',
+      start,
+      end,
+      allDay:   !!e.allDay,
+      calendar: calendars.find(c => c.id === e.calendarId)?.title ?? '',
+    };
+  }).sort((a, b) => {
+    if (a.allDay && !b.allDay) return 1;
+    if (!a.allDay && b.allDay) return -1;
+    return a.start.localeCompare(b.start);
+  });
+}
+
+export async function getTodayReminders(): Promise<TodayReminder[]> {
+  try {
+    const { status } = await Calendar.requestRemindersPermissionsAsync();
+    if (status !== 'granted') return [];
+
+    const reminderCals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.REMINDER);
+    const calIds       = reminderCals.map(c => c.id);
+    if (!calIds.length) return [];
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Fetch incomplete reminders due on or before end of today
+    const reminders = await Calendar.getRemindersAsync(
+      calIds,
+      Calendar.ReminderStatus.INCOMPLETE,
+      undefined as any,
+      endOfDay,
+    );
+
+    return reminders.map(r => ({
+      title:    r.title ?? '(no title)',
+      dueDate:  r.dueDate ? new Date(r.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : undefined,
+      calendar: reminderCals.find(c => c.id === r.calendarId)?.title ?? 'Reminders',
+    }));
+  } catch {
+    // Reminders may not be available on all devices/simulators
+    return [];
+  }
+}
+
+// ── Format calendar + reminders into a context string for the AI ──────────────
+
+export async function buildTodayCalendarContext(): Promise<string> {
+  const [events, reminders] = await Promise.all([
+    getTodayCalendarEvents(),
+    getTodayReminders(),
+  ]);
+
+  const lines: string[] = [];
+
+  if (events.length) {
+    lines.push('CALENDAR TODAY:');
+    events.forEach(e => {
+      const time = e.allDay ? 'all-day' : `${e.start}${e.end ? ` – ${e.end}` : ''}`;
+      lines.push(`  • ${e.title} (${time})`);
+    });
+  } else {
+    lines.push('CALENDAR TODAY:\n  • No events scheduled');
+  }
+
+  lines.push('');
+
+  if (reminders.length) {
+    lines.push(`REMINDERS DUE TODAY (${reminders.length}):`);
+    reminders.forEach(r => {
+      lines.push(`  • ${r.title}${r.dueDate ? ` @ ${r.dueDate}` : ''}`);
+    });
+  } else {
+    lines.push('REMINDERS DUE TODAY:\n  • None');
+  }
+
+  return lines.join('\n');
+}
