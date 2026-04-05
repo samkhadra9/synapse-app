@@ -15,7 +15,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  Alert, AppState, AppStateStatus, Linking, Vibration,
+  Alert, AppState, AppStateStatus, Linking, Vibration, ScrollView,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -35,15 +36,20 @@ function formatTime(secs: number) {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
+// 10-minute increments from 10 min to 4 hours
+const TIME_OPTIONS = [
+  10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 150, 180, 210, 240,
+];
+
 export default function DeepWorkScreen({ navigation }: any) {
   const { profile, addDeepWorkSession } = useStore();
-  const blockMins = profile.deepWorkBlockLength ?? 60;
 
-  const [phase,        setPhase]        = useState<Phase>('set');
-  const [goal,         setGoal]         = useState('');
-  const [artifact,     setArtifact]     = useState('');
-  const [nextAction,   setNextAction]   = useState('');
-  const [elapsed,      setElapsed]      = useState(0);          // seconds
+  const [phase,         setPhase]        = useState<Phase>('set');
+  const [goal,          setGoal]         = useState('');
+  const [artifact,      setArtifact]     = useState('');
+  const [nextAction,    setNextAction]   = useState('');
+  const [elapsed,       setElapsed]      = useState(0);          // seconds counted up
+  const [selectedMins,  setSelectedMins] = useState(profile.deepWorkBlockLength ?? 60);
   const [interruptions, setInterruptions] = useState(0);
 
   const sessionIdRef  = useRef<string>(Date.now().toString());
@@ -58,14 +64,25 @@ export default function DeepWorkScreen({ navigation }: any) {
     return () => { deactivateKeepAwake(); };
   }, []);
 
-  // ── Timer ─────────────────────────────────────────────────────────────────
+  // ── Timer — counts up; we display countdown from selectedMins ────────────
   useEffect(() => {
     if (phase === 'active') {
       startTimeRef.current = new Date();
-      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+      timerRef.current = setInterval(() => {
+        setElapsed(e => {
+          const next = e + 1;
+          if (next >= selectedMins * 60) {
+            // Time's up — vibrate and end
+            Vibration.vibrate([0, 400, 200, 400]);
+            clearInterval(timerRef.current!);
+            setPhase('capture');
+          }
+          return next;
+        });
+      }, 1000);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [phase]);
+  }, [phase, selectedMins]);
 
   // ── AppState — detect when user leaves ───────────────────────────────────
   useEffect(() => {
@@ -116,9 +133,10 @@ export default function DeepWorkScreen({ navigation }: any) {
   }, []);
 
   const confirmEnd = useCallback(() => {
+    const focusedTime = formatTime(elapsed);
     Alert.alert(
       'End session?',
-      `You've been focused for ${formatTime(elapsed)}. Ready to wrap up?`,
+      `You've been focused for ${focusedTime}. Ready to wrap up?`,
       [
         { text: 'Keep going', style: 'cancel' },
         { text: 'End session', onPress: endSession },
@@ -154,24 +172,29 @@ export default function DeepWorkScreen({ navigation }: any) {
     navigation.goBack();
   }, [elapsed, goal, interruptions, addDeepWorkSession, navigation]);
 
-  // ── Target time indicator ─────────────────────────────────────────────────
-  const targetSecs   = blockMins * 60;
-  const progressPct  = Math.min(elapsed / targetSecs, 1);
-  const isOverTarget = elapsed >= targetSecs;
+  // ── Timer display — countdown ─────────────────────────────────────────────
+  const targetSecs  = selectedMins * 60;
+  const remaining   = Math.max(0, targetSecs - elapsed);
+  const progressPct = Math.min(elapsed / targetSecs, 1);
+  const isDone      = remaining === 0;
 
   // ── Renders ───────────────────────────────────────────────────────────────
 
   if (phase === 'set') {
     return (
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.setContainer}>
-        {/* C.Lab-style warm amber orb — decorative background element */}
         <View style={styles.orbDecor} />
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
           <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
             <Text style={styles.closeBtnText}>✕</Text>
           </TouchableOpacity>
 
-          <View style={styles.setContent}>
+          <ScrollView
+            contentContainerStyle={styles.setContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={styles.setLabel}>DEEP WORK</Text>
             <Text style={styles.setTitle}>What will you{'\n'}produce?</Text>
             <Text style={styles.setSub}>
@@ -189,11 +212,30 @@ export default function DeepWorkScreen({ navigation }: any) {
               autoFocus
             />
 
-            <View style={styles.blockInfo}>
-              <Text style={styles.blockInfoText}>
-                {blockMins} min block
-              </Text>
-            </View>
+            {/* Time picker */}
+            <Text style={styles.timePickerLabel}>SESSION LENGTH</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timePickerScroll} contentContainerStyle={styles.timePickerRow}>
+              {TIME_OPTIONS.map(mins => {
+                const isSelected = selectedMins === mins;
+                const label = mins < 60
+                  ? `${mins}m`
+                  : mins % 60 === 0
+                    ? `${mins / 60}h`
+                    : `${Math.floor(mins / 60)}h${mins % 60}m`;
+                return (
+                  <TouchableOpacity
+                    key={mins}
+                    style={[styles.timeChip, isSelected && styles.timeChipActive]}
+                    onPress={() => setSelectedMins(mins)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.timeChipText, isSelected && styles.timeChipTextActive]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
             <TouchableOpacity
               style={[styles.startBtn, !goal.trim() && styles.startBtnDisabled]}
@@ -201,11 +243,12 @@ export default function DeepWorkScreen({ navigation }: any) {
               disabled={!goal.trim()}
               activeOpacity={0.88}
             >
-              <Text style={styles.startBtnText}>Start session</Text>
+              <Text style={styles.startBtnText}>Start {selectedMins < 60 ? `${selectedMins}m` : selectedMins % 60 === 0 ? `${selectedMins / 60}h` : `${Math.floor(selectedMins / 60)}h${selectedMins % 60}m`} session</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </View>
+      </KeyboardAvoidingView>
     );
   }
 
@@ -224,15 +267,15 @@ export default function DeepWorkScreen({ navigation }: any) {
           </View>
 
           <View style={styles.activeContent}>
-            {/* Timer */}
+            {/* Timer — countdown */}
             <View style={styles.timerWrap}>
-              <Text style={[styles.timerText, isOverTarget && styles.timerTextOver]}>
-                {formatTime(elapsed)}
+              <Text style={[styles.timerText, isDone && styles.timerTextOver]}>
+                {formatTime(remaining)}
               </Text>
               <Text style={styles.timerTarget}>
-                {isOverTarget
-                  ? `✓ Target reached (${blockMins} min)`
-                  : `Target: ${blockMins} min`}
+                {isDone
+                  ? `✓ Time's up`
+                  : `${selectedMins < 60 ? `${selectedMins}m` : `${Math.floor(selectedMins / 60)}h${selectedMins % 60 > 0 ? `${selectedMins % 60}m` : ''}`} session`}
               </Text>
             </View>
 
@@ -355,7 +398,7 @@ const styles = StyleSheet.create({
   closeBtnText: { fontSize: 18, color: Colors.textTertiary, fontWeight: '500' },
 
   // ── SET phase ── editorial, airy
-  setContent: { flex: 1, padding: Spacing.lg, justifyContent: 'center' },
+  setContent: { padding: Spacing.lg, paddingTop: Spacing.xl * 2, paddingBottom: 60 },
   setLabel: {
     fontSize: 11, fontWeight: '700', color: Colors.accent,
     letterSpacing: 1.5, marginBottom: 12, textTransform: 'uppercase',
@@ -374,8 +417,21 @@ const styles = StyleSheet.create({
     padding: 18, fontSize: 16, color: Colors.textPrimary, minHeight: 100,
     textAlignVertical: 'top', lineHeight: 24, marginBottom: Spacing.base,
   },
-  blockInfo:     { marginBottom: Spacing.xl },
-  blockInfoText: { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
+  timePickerLabel: {
+    fontSize: 11, fontWeight: '700', color: Colors.textTertiary,
+    letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 12, marginTop: Spacing.sm,
+  },
+  timePickerScroll: { marginBottom: Spacing.xl },
+  timePickerRow:    { flexDirection: 'row', gap: 8, paddingRight: Spacing.base },
+  timeChip: {
+    paddingHorizontal: 16, paddingVertical: 11,
+    borderRadius: Radius.full, borderWidth: 1.5, borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  timeChipActive:     { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  timeChipText:       { fontSize: 14, color: Colors.textSecondary, fontWeight: '600' },
+  timeChipTextActive: { color: '#FFF' },
+
   startBtn: {
     backgroundColor: Colors.ink, borderRadius: Radius.full,
     paddingVertical: 20, alignItems: 'center',

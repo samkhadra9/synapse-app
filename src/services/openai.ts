@@ -133,7 +133,8 @@ export async function decomposeProject(
   title: string,
   description: string,
   deadline: string | undefined,
-  apiKey: string
+  apiKey: string,
+  extraContext?: string,
 ): Promise<DecomposedProject> {
 
   const client = getClient(apiKey);
@@ -142,6 +143,7 @@ export async function decomposeProject(
     `Project: ${title}`,
     description ? `Description: ${description}` : '',
     deadline ? `Deadline: ${deadline}` : 'No deadline set',
+    extraContext?.trim() ? `\nAdditional context from the user:\n${extraContext.trim()}` : '',
   ].filter(Boolean).join('\n');
 
   const response = await client.chat.completions.create({
