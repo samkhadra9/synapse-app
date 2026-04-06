@@ -26,6 +26,7 @@ import { format } from 'date-fns';
 import { Colors, Spacing, Radius } from '../theme';
 import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile } from '../store/useStore';
 import { buildTodayCalendarContext, buildSkeletonContext } from '../services/calendar';
+import { updatePortrait } from '../services/portrait';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -101,8 +102,12 @@ ${goals10yr.length ? goals10yr.map(g => `  • ${g.text}`).join('\n') : '  • n
 
 // ── System Prompts ─────────────────────────────────────────────────────────────
 
-function getSystemPrompt(mode: ChatMode, contextBlock: string, name: string, calendarContext = ''): string {
+function getSystemPrompt(mode: ChatMode, contextBlock: string, name: string, calendarContext = '', portrait = ''): string {
   const firstName = name ? name.split(' ')[0] : 'there';
+
+  const portraitSection = portrait
+    ? `\nWHO ${firstName.toUpperCase()} IS — your persistent memory of this person (use this to calibrate your tone and approach, not to repeat back to them):\n${portrait}\n`
+    : '';
 
   const sharedRules = `
 RULES:
@@ -135,7 +140,7 @@ Only output [SYNAPSE_ACTIONS] when you have enough context. Don't rush it.`;
   const prompts: Record<ChatMode, string> = {
 
     dump: `You are Synapse, an intelligent ADHD productivity assistant. ${firstName} is doing a brain dump — anything on their mind, at any time.
-
+${portraitSection}
 ${contextBlock}
 
 Your job:
@@ -149,7 +154,7 @@ ${outputFormat}
 ${sharedRules}`,
 
     morning: `You are Synapse. ${firstName} is doing their morning planning session.
-
+${portraitSection}
 ${contextBlock}
 
 ${calendarContext ? `LIVE DEVICE DATA (pulled from ${firstName}'s phone right now):\n${calendarContext}\n\nUse this to plan around their actual day:\n- Don't schedule deep work during meetings or protected blocks\n- Account for travel/buffer time around appointments\n- If they have a PLANNED TIME BLOCK for deep work today, use that time slot for their MIT\n- Suggest that recurring area commitments (exercise, reading, etc.) already in the skeleton don't need to be added as tasks — they're baked in` : ''}
@@ -169,7 +174,7 @@ ${sharedRules}
 - Reference specific calendar events and skeleton blocks by name when building the day plan — it shows you've actually looked.`,
 
     evening: `You are Synapse. It's evening. ${firstName} is doing their end-of-day review.
-
+${portraitSection}
 ${contextBlock}
 
 Your job:
@@ -187,7 +192,7 @@ ${sharedRules}
 - Be warm and closing. Help them feel done.`,
 
     weekly: `You are Synapse acting as a strategic weekly reviewer. It's probably Sunday. ${firstName} is recalibrating.
-
+${portraitSection}
 ${contextBlock}
 
 Run this review in sequence — one question at a time:
@@ -205,7 +210,7 @@ ${outputFormat}
 ${sharedRules}`,
 
     monthly: `You are Synapse running a monthly strategic review with ${firstName}.
-
+${portraitSection}
 ${contextBlock}
 
 This is a zoom-out session. Run in sequence:
@@ -223,7 +228,7 @@ ${outputFormat}
 ${sharedRules}`,
 
     yearly: `You are Synapse running an annual life design session with ${firstName}. This is like re-onboarding — a full redesign of the superstructure.
-
+${portraitSection}
 ${contextBlock}
 
 This is a big, important conversation. Take your time. Run in sequence:
@@ -242,7 +247,7 @@ ${outputFormat}
 ${sharedRules}`,
 
     project: `You are Synapse helping ${firstName} plan a new project.
-
+${portraitSection}
 ${contextBlock}
 
 Your job:
@@ -284,7 +289,7 @@ export default function ChatScreen({ navigation, route }: any) {
   const meta = MODE_META[mode];
   const insets = useSafeAreaInsets();
 
-  const { profile, tasks, projects, goals, addTask, addProject, addGoal, updateTodayLog, setProjectTasks } = useStore();
+  const { profile, tasks, projects, goals, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait } = useStore();
   const apiKey = profile.openAiKey || ENV_API_KEY;
 
   const contextBlock = useMemo(
@@ -296,8 +301,8 @@ export default function ChatScreen({ navigation, route }: any) {
   const [calendarContext, setCalendarContext] = useState('');
 
   const systemPrompt = useMemo(
-    () => getSystemPrompt(mode, contextBlock, profile.name, calendarContext),
-    [mode, contextBlock, profile.name, calendarContext],
+    () => getSystemPrompt(mode, contextBlock, profile.name, calendarContext, profile.portrait ?? ''),
+    [mode, contextBlock, profile.name, calendarContext, profile.portrait],
   );
 
   // Fetch today's calendar + reminders + skeleton blocks for morning/evening
@@ -325,8 +330,26 @@ export default function ChatScreen({ navigation, route }: any) {
   const [recording,    setRecording]    = useState<Audio.Recording | null>(null);
   const [isRecording,  setIsRecording]  = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const listRef   = useRef<FlatList>(null);
+  const pulseAnim    = useRef(new Animated.Value(1)).current;
+  const listRef      = useRef<FlatList>(null);
+  const messagesRef  = useRef<ChatMessage[]>([]);  // always up-to-date for unmount closure
+
+  // Keep messagesRef in sync so the unmount effect can read latest messages
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // On unmount: fire portrait update silently in background
+  useEffect(() => {
+    return () => {
+      const msgs = messagesRef.current;
+      if (msgs.length >= 4 && apiKey) {
+        updatePortrait(msgs, useStore.getState().profile.portrait ?? '', apiKey, mode)
+          .then(newPortrait => {
+            if (newPortrait) useStore.getState().setPortrait(newPortrait);
+          })
+          .catch(() => {}); // always silent
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { startConversation(); }, []);
 

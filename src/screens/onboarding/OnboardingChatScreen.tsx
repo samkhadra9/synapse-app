@@ -96,7 +96,8 @@ Then on the VERY NEXT line output a JSON object (nothing else after it) in this 
   },
   "recurringCommitments": [
     { "title": "string", "frequency": "daily|weekly|monthly", "domain": "work|health|..." }
-  ]
+  ],
+  "portrait": "A 100-150 word third-person portrait of this person synthesised from everything they shared. Cover: how they communicate and think, what motivates or blocks them, their working patterns and energy, known friction points, personality, what they are building toward. Be specific and human — not a personality test result."
 }
 
 CRITICAL GOAL WRITING RULES — read carefully:
@@ -130,7 +131,7 @@ function parseOnboardingData(text: string) {
 const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
 
 export default function OnboardingChatScreen({ navigation }: any) {
-  const { profile, updateProfile, addArea, addProject, addGoal } = useStore();
+  const { profile, updateProfile, addArea, addProject, addGoal, setPortrait } = useStore();
   const apiKey = profile.openAiKey || ENV_API_KEY;
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -286,6 +287,9 @@ export default function OnboardingChatScreen({ navigation }: any) {
     data.goals?.forEach((g: any) => {
       addGoal({ domain: g.domain, horizon: g.horizon, text: g.text, milestones: [] });
     });
+
+    // Seed the portrait from onboarding — this becomes the starting memory
+    if (data.portrait) setPortrait(data.portrait);
   }
 
   async function handleComplete() {

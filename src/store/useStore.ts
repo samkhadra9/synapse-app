@@ -180,6 +180,7 @@ export interface UserProfile {
   systemPhase: 1 | 2 | 3;
   weekTemplate: TimeBlock[];
   skeletonBuilt: boolean;
+  portrait: string;       // evolving AI-written summary of who this person is
 }
 
 // ── State Interface ───────────────────────────────────────────────────────────
@@ -241,6 +242,7 @@ interface SynapseState {
   updateDeepWorkSession: (id: string, patch: Partial<DeepWorkSession>) => void;
 
   setWeekTemplate: (blocks: TimeBlock[]) => void;
+  setPortrait: (portrait: string) => void;
 
   resetOnboarding: () => void;
   wipeAllData: () => Promise<void>;
@@ -264,6 +266,7 @@ const defaultProfile: UserProfile = {
   systemPhase: 1,
   weekTemplate: [],
   skeletonBuilt: false,
+  portrait: '',
 };
 
 const defaultHabits: Habit[] = [
@@ -511,6 +514,10 @@ export const useStore = create<SynapseState>()(
       },
 
       // ── Week Template ─────────────────────────────────────────────────────────
+      setPortrait: (portrait) => {
+        set((s) => ({ profile: { ...s.profile, portrait } }));
+      },
+
       setWeekTemplate: (blocks) => {
         set((s) => ({
           profile: { ...s.profile, weekTemplate: blocks, skeletonBuilt: blocks.length > 0 }
