@@ -121,25 +121,42 @@ RULES:
 When you have enough to act, output exactly:
 [SYNAPSE_ACTIONS]
 {"actions":[
-  {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":45,"dueDate":"today|tomorrow|YYYY-MM-DD"},
-  {"type":"project","projectType":"sequential|recurring","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":30}],"recurringTask":{"text":"session description","estimatedMinutes":60,"frequency":"daily|weekdays|weekly","preferredSlot":"morning|afternoon|evening"}},
+  {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","reason":"why this task, why now — one short sentence"},
+  {"type":"project","projectType":"sequential|recurring","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":60,"reason":"why this step"}],"recurringTask":{"text":"session description","estimatedMinutes":60,"frequency":"daily|weekdays|weekly","preferredSlot":"morning|afternoon|evening"}},
   {"type":"goal","horizon":"1year|5year|10year","text":"goal text"}
 ],"summary":"One sentence plan summary","sessionNote":"optional note for logs"}
 
-TASK RULES — enforce strictly:
-- estimatedMinutes: ALWAYS a number. Never null. Use 15/30/45/60/90/120. Default 45 if genuinely uncertain.
-- isMIT: true for MAXIMUM 3 tasks total — the ruthless few that must happen today. Prefer 1–2. Never mark 4+ as MIT.
-- dueDate: use "today", "tomorrow", or YYYY-MM-DD. If no clear date, use "today" for captured tasks.
+TASK SIZING — the 30-minute block rule (enforce strictly):
+- estimatedMinutes MUST be a multiple of 30: use 30, 60, 90, or 120 only. Never 15, 45, or any other number.
+- 30 min = a focused single-output session (brainstorm, quick review, one decision)
+- 60 min = a standard work block (reading, drafting, planning)
+- 90 min = a deep work block (complex writing, coding, analysis)
+- 120 min = a full deep work session (rough draft, build sprint, major deliverable)
+- If a task needs more than 120 min → split it into two separate tasks
+- NEVER create a task under 30 min. Combine tiny steps into a single meaningful block.
 
-PROJECT vs AREA — critical distinction:
-A PROJECT has a clear end state — something that gets DONE. An AREA is an ongoing domain (health, finances). Areas never become projects.
+TASK NAMING — be concrete, never vague:
+- BAD: "Research topic", "Open document", "Start essay", "Look into X"
+- GOOD: "Read 5 core papers and annotate key arguments" (60 min)
+- GOOD: "Write rough draft — get everything out, no editing" (120 min)
+- GOOD: "Syllabus review — list all topics, identify weighting and exam format" (60 min)
+- Every task text must contain: what you're doing + what you're producing/deciding
+
+TASK REASON field — always include a short, honest reason:
+- "This is the planning session that makes everything else possible"
+- "You've been avoiding this — 60 mins is enough to break the back of it"
+- "Do this first so the rest of the week has a clear target"
+
+isMIT: true for MAXIMUM 3 tasks total — the ruthless few that must happen today. Prefer 1–2.
+
+PROJECT vs AREA:
+A PROJECT has a clear end state. An AREA is ongoing. Areas never become projects.
 - "I want to get healthier" → GOAL, not a project
-- "I want to run a marathon in October" → PROJECT with deadline
-- "I need to clear £5k of debt by December" → PROJECT with deadline
+- "Run a marathon in October" → PROJECT with deadline
 
 PROJECT TYPES:
-- sequential: tasks happen once in order toward a single end state (app launch, dissertation, home renovation, event planning). Break into 5–10 ordered concrete tasks.
-- recurring: needs a repeated practice schedule (studying for an exam, training for a race, learning a language). Create the project + a recurringTask defining the repeating session. Include milestone tasks for each phase (Week 1, Week 2, etc.).
+- sequential: one-time tasks in order toward a single end state
+- recurring: needs a repeated practice schedule over time (exam prep, training, skill-building)
 
 Only output [SYNAPSE_ACTIONS] when you have enough context. Don't rush it.`;
 
@@ -257,25 +274,72 @@ ${sharedRules}`,
 ${portraitSection}
 ${contextBlock}
 
-Your job — run in sequence:
-1. Ask what the project is — the outcome, not the tasks. "What's the end result when this is done?"
-2. CLASSIFY it immediately in your head: is this SEQUENTIAL (clear end state, one-time tasks in order) or RECURRING (needs a repeated practice schedule)?
-3. Get the key facts:
-   - For SEQUENTIAL: deadline, what success looks like, any blockers already known.
-   - For RECURRING: what does one session look like? How often should it happen? When does it need to be done by (exam date, race date)?
-4. Connect it to their goals above if relevant. "This maps to your 1-year goal of X."
-5. Break it down — be specific and realistic:
-   - SEQUENTIAL: 5–10 ordered tasks covering the full arc from start to done (no vague tasks like "do research" — be concrete).
-   - RECURRING: milestone tasks per phase (Week 1: X, Week 2: Y) + a clear recurring session definition.
-6. Ask: "Anything about this that feels hard or where you might get stuck?" — surface blockers early.
-7. Output when you have what you need.
+STEP 1 — CLASSIFY the project (do this first, before asking anything else):
+
+RECURRING — repeated practice toward a future test or level:
+  Triggers: exam, study, certification, course, training, fitness, language learning, instrument, skill-building
+  → Build a milestone structure + a recurring session template
+  → First ask: exam/test date? How many weeks? How many sessions per week can they realistically do?
+
+SEQUENTIAL — one-time deliverable with a clear end state:
+  → Sub-classify to pick the right template:
+
+  WRITING (essay, report, thesis, article):
+    Phase 1 — Setup: question analysis + brainstorm (30min) · source gathering and annotation (60min) · outline and argument structure (30min)
+    Phase 2 — Production: rough draft, get it all out without editing (120min)
+    Phase 3 — Refinement: evidence pass, strengthen weak points (60min) · structural review, does argument flow? (30min) · final edit and polish (60min)
+    Key principle: rough draft first, perfectionism second. The AI should name this explicitly.
+
+  PRODUCT / APP / TECH BUILD:
+    Phase 1 — Define: scope and MVP definition (60min) · user stories or requirements (60min)
+    Phase 2 — Design: wireframes or architecture (90min) · review and decide on stack/approach (60min)
+    Phase 3 — Build: broken into feature sprints (90–120min each)
+    Phase 4 — Ship: testing (60min) · bug fixes (60min) · launch checklist (30min)
+
+  EVENT / LAUNCH (talk, presentation, product launch, wedding, move):
+    Phase 1 — Plan: define outcome, audience, constraints (30min) · build master checklist (60min)
+    Phase 2 — Prepare: content/logistics tasks (60min each)
+    Phase 3 — Finalise: dry run or review (60min) · contingency check (30min)
+
+  FINANCIAL / ADMIN (tax return, legal matter, insurance, debt clear):
+    Phase 1 — Gather: collect all documents and info needed (60min)
+    Phase 2 — Work: the actual processing (60–90min)
+    Phase 3 — Submit/Close: review, send, file, confirm (30min)
+
+  CREATIVE (music, art, design, video):
+    Phase 1 — Explore: moodboard, references, ideas dump (60min)
+    Phase 2 — Prototype: rough version, don't care about quality (90min)
+    Phase 3 — Develop: iterate on the best ideas (60min each)
+    Phase 4 — Finish: final production and delivery (90–120min)
+
+STEP 2 — Gather what you need (one question at a time):
+  - Deadline or target date
+  - For RECURRING: sessions per week, preferred time slot, test/exam date
+  - For WRITING: word count, subject, what they already know about it
+  - Any known blockers or things that feel daunting
+
+STEP 3 — Build the plan using the template above. Apply the 30-min block rule strictly:
+  - Every task = 30, 60, 90, or 120 min. No other sizes.
+  - No vague tasks. Every task name says what you're doing AND what you're producing.
+  - BAD: "Research", "Open document", "Start working on it"
+  - GOOD: "Read 5 papers and annotate which arguments support your thesis" (60min)
+  - GOOD: "Rough draft — write everything out in one go, no editing" (120min)
+
+STEP 4 — For RECURRING: define the repeating session clearly.
+  Example for exam prep:
+    - Phase tasks: "Syllabus review — list all topics, identify weighting and format" (60min) · "Build study tracker in a spreadsheet — map topics to weeks" (60min)
+    - Recurring session: "Content study block — [topic]" (60min, e.g. 3x per week)
+    - Revision session: "Mixed practice questions + review of that week's topics" (60min, weekly)
+  Ask: "When in your week would the study sessions actually happen?" before outputting.
+
+STEP 5 — Name one thing that will be hardest. Acknowledge it. Then output.
 
 ${outputFormat}
 ${sharedRules}
-- Create the project AND its tasks in one output block.
-- Every task needs estimatedMinutes — be honest, most things take longer than planned.
-- For recurring projects, always include a recurringTask with preferredSlot. Ask them when they'd want to schedule the sessions if it's not obvious.
-- SEQUENTIAL projects should feel like a real execution roadmap — ordered, concrete, complete.`,
+- Create both the project AND its tasks in one output block.
+- RECURRING projects: always include recurringTask + milestone setup tasks in the tasks array.
+- SEQUENTIAL projects: tasks must tell the full story from zero to done. No gaps.
+- Every task needs a reason field — a one-line honest explanation of why this step exists.`,
 
   };
 
@@ -345,6 +409,9 @@ function EditableTaskRow({ action, onChange, onRemove, mitCount }: {
         ) : (
           <TouchableOpacity onPress={() => setEditing(true)} activeOpacity={0.7}>
             <Text style={rv.taskText} numberOfLines={2}>{action.text}</Text>
+            {action.reason ? (
+              <Text style={rv.taskReason} numberOfLines={1}>{action.reason}</Text>
+            ) : null}
           </TouchableOpacity>
         )}
       </View>
@@ -505,6 +572,7 @@ const rv = StyleSheet.create({
   mitStar:      { fontSize: 12, color: '#FFF', fontWeight: '700' },
 
   taskText:      { fontSize: 15, color: '#111', fontWeight: '400', lineHeight: 20 },
+  taskReason:    { fontSize: 12, color: '#888', marginTop: 2, lineHeight: 16, fontStyle: 'italic' },
   taskEditInput: {
     fontSize: 15, color: '#111', fontWeight: '400',
     borderBottomWidth: 1.5, borderBottomColor: '#111',
@@ -662,7 +730,7 @@ export default function ChatScreen({ navigation, route }: any) {
             ...history.map(m => ({ role: m.role, content: m.content })),
           ],
           temperature: 0.7,
-          max_tokens: 600,
+          max_tokens: 900,
         }),
       });
       const data = await res.json();
@@ -729,7 +797,8 @@ export default function ChatScreen({ navigation, route }: any) {
           date:              dueDate,
           completed:         false,
           priority:          action.isMIT ? 'high' : 'medium',
-          estimatedMinutes:  action.estimatedMinutes ?? 45,
+          estimatedMinutes:  action.estimatedMinutes ?? 60,
+          reason:            action.reason ?? undefined,
         });
       }
 

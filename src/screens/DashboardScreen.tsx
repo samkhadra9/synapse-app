@@ -156,9 +156,14 @@ function TodaySequence({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: stri
           <View style={[styles.seqCheck, task.completed && styles.seqCheckDone]}>
             {task.completed && <Text style={styles.seqCheckMark}>✓</Text>}
           </View>
-          <Text style={[styles.seqLabel, task.completed && styles.seqLabelDone]} numberOfLines={2}>
-            {task.text}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.seqLabel, task.completed && styles.seqLabelDone]} numberOfLines={2}>
+              {task.text}
+            </Text>
+            {task.reason && !task.completed ? (
+              <Text style={styles.seqReason} numberOfLines={1}>{task.reason}</Text>
+            ) : null}
+          </View>
         </TouchableOpacity>
       ))}
     </View>
@@ -792,8 +797,9 @@ const styles = StyleSheet.create({
   },
   seqCheckDone:  { backgroundColor: Colors.ink, borderColor: Colors.ink },
   seqCheckMark:  { fontSize: 11, color: '#fff', fontWeight: '700' },
-  seqLabel:      { flex: 1, fontSize: 15, fontWeight: '500', color: Colors.textPrimary, lineHeight: 20 },
+  seqLabel:      { fontSize: 15, fontWeight: '500', color: Colors.textPrimary, lineHeight: 20 },
   seqLabelDone:  { textDecorationLine: 'line-through', color: Colors.textTertiary },
+  seqReason:     { fontSize: 12, color: Colors.textTertiary, marginTop: 2, fontStyle: 'italic', lineHeight: 16 },
 
   planCTA: {
     paddingVertical: 16, paddingHorizontal: 16,

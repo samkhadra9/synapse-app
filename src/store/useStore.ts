@@ -74,6 +74,7 @@ export interface Task {
   isMIT: boolean;
   isInbox?: boolean;      // true = captured but not yet scheduled
   estimatedMinutes?: number;
+  reason?: string;        // AI-generated one-liner: why this task, why now
   priority: 'high' | 'medium' | 'low';
 }
 
