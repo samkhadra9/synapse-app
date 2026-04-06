@@ -23,33 +23,38 @@ import { supabase } from '../lib/supabase';
 import { pullAll } from '../services/sync';
 
 // Screens
-import LoginScreen            from '../screens/auth/LoginScreen';
-import WelcomeScreen          from '../screens/onboarding/WelcomeScreen';
-import OnboardingChatScreen   from '../screens/onboarding/OnboardingChatScreen';
-import DashboardScreen        from '../screens/DashboardScreen';
+import LoginScreen              from '../screens/auth/LoginScreen';
+import WelcomeScreen            from '../screens/onboarding/WelcomeScreen';
+import OnboardingChatScreen     from '../screens/onboarding/OnboardingChatScreen';
+import SkeletonBuilderScreen    from '../screens/onboarding/SkeletonBuilderScreen';
+import CalendarExportScreen     from '../screens/onboarding/CalendarExportScreen';
+import DashboardScreen          from '../screens/DashboardScreen';
 import ChatScreen             from '../screens/ChatScreen';
 import ProjectsScreen         from '../screens/ProjectsScreen';
 import ProjectDetailScreen    from '../screens/ProjectDetailScreen';
 import GoalsScreen            from '../screens/GoalsScreen';
+import AreasScreen            from '../screens/AreasScreen';
 import SettingsScreen         from '../screens/SettingsScreen';
 import DeepWorkScreen         from '../screens/DeepWorkScreen';
 
 // ── Param types ───────────────────────────────────────────────────────────────
 
 export type RootStackParams = {
-  Welcome:         undefined;
-  OnboardingChat:  undefined;
-  Settings:        undefined;
-  Main:            undefined;
-  Chat:            { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' };
-  DeepWork:        undefined;
-  ProjectDetail:   { projectId: string };
+  Welcome:          undefined;
+  OnboardingChat:   undefined;
+  SkeletonBuilder:  undefined;
+  CalendarExport:   undefined;
+  Settings:         undefined;
+  Main:             undefined;
+  Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' };
+  DeepWork:         undefined;
+  ProjectDetail:    { projectId: string };
 };
 
 export type TabParams = {
   Dashboard: undefined;
   Projects:  undefined;
-  Goals:     undefined;
+  Areas:     undefined;
   Settings:  undefined;
 };
 
@@ -66,25 +71,25 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 const TAB_ICON_DEFAULT: Record<string, IoniconName> = {
   Dashboard: 'home-outline',
   Projects:  'folder-outline',
-  Goals:     'compass-outline',
+  Areas:     'layers-outline',
   Settings:  'ellipsis-horizontal-circle-outline',
 };
 const TAB_ICON_ACTIVE: Record<string, IoniconName> = {
   Dashboard: 'home',
   Projects:  'folder',
-  Goals:     'compass',
+  Areas:     'layers',
   Settings:  'ellipsis-horizontal-circle',
 };
 const TAB_LABELS: Record<string, string> = {
   Dashboard: 'Home',
   Projects:  'Projects',
-  Goals:     'Goals',
+  Areas:     'Areas',
   Settings:  'Settings',
 };
 
 // Custom tab bar — Ionicons + floating Synapse button
 function CustomTabBar({ state, navigation }: any) {
-  const tabs = ['Dashboard', 'Projects', 'Goals', 'Settings'];
+  const tabs = ['Dashboard', 'Projects', 'Areas', 'Settings'];
 
   return (
     <View style={tabStyles.container}>
@@ -94,7 +99,7 @@ function CustomTabBar({ state, navigation }: any) {
 
         return (
           <React.Fragment key={name}>
-            {/* Synapse centre button sits between Projects and Goals */}
+            {/* Synapse centre button sits between Projects and Areas */}
             {i === 2 && (
               <TouchableOpacity
                 style={tabStyles.centerWrap}
@@ -193,7 +198,7 @@ function MainTabs() {
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Projects"  component={ProjectsScreen} />
-      <Tab.Screen name="Goals"     component={GoalsScreen} />
+      <Tab.Screen name="Areas"     component={AreasScreen} />
       <Tab.Screen name="Settings"  component={SettingsScreen} />
     </Tab.Navigator>
   );
@@ -296,6 +301,24 @@ function AppNavigator() {
           headerTintColor: Colors.primary,
           headerStyle: { backgroundColor: Colors.surface },
           headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="SkeletonBuilder"
+        component={SkeletonBuilderScreen}
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: false,
+        }}
+      />
+      <Stack.Screen
+        name="CalendarExport"
+        component={CalendarExportScreen}
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: false,
         }}
       />
 

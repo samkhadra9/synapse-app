@@ -18,10 +18,10 @@ function NotificationHandler() {
     const cleanup = addNotificationResponseListener((screen) => {
       switch (screen) {
         case 'MorningPlanning':
-          navigation.navigate('MorningPlanning');
+          navigation.navigate('Chat', { mode: 'morning' });
           break;
         case 'EveningReview':
-          navigation.navigate('EveningReview');
+          navigation.navigate('Chat', { mode: 'evening' });
           break;
         default:
           break;
@@ -37,9 +37,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar style="auto" />
-      <RootNavigator>
-        <NotificationHandler />
-      </RootNavigator>
+      <RootNavigator />
     </GestureHandlerRootView>
   );
 }

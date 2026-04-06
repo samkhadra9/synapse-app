@@ -25,7 +25,7 @@ import { Audio } from 'expo-av';
 import { format } from 'date-fns';
 import { Colors, Spacing, Radius } from '../theme';
 import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile } from '../store/useStore';
-import { buildTodayCalendarContext } from '../services/calendar';
+import { buildTodayCalendarContext, buildSkeletonContext } from '../services/calendar';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -152,13 +152,13 @@ ${sharedRules}`,
 
 ${contextBlock}
 
-${calendarContext ? `LIVE DEVICE DATA (pulled from ${firstName}'s phone right now):\n${calendarContext}\n\nUse this to plan around their actual day — don't schedule deep work during meetings, account for travel/buffer time around appointments.` : ''}
+${calendarContext ? `LIVE DEVICE DATA (pulled from ${firstName}'s phone right now):\n${calendarContext}\n\nUse this to plan around their actual day:\n- Don't schedule deep work during meetings or protected blocks\n- Account for travel/buffer time around appointments\n- If they have a PLANNED TIME BLOCK for deep work today, use that time slot for their MIT\n- Suggest that recurring area commitments (exercise, reading, etc.) already in the skeleton don't need to be added as tasks — they're baked in` : ''}
 
 Your job — run this in sequence:
 1. Open with: "Morning, ${firstName}." Then ask what's alive in their mind RIGHT NOW. Brain dump first, structure second.
 2. After they dump, cross-reference with: their overdue tasks (surface the ones that matter), active project needs, their 1-year goals, and today's calendar events and reminders above. Name what you notice.
 3. Help them pick their MITs ruthlessly. Ask: "If you only got ONE thing done today, what would make it a real win?"
-4. Build a time-blocked sequence. Use estimatedMinutes. Include buffer — ADHD brains need transition time. Work around any calendar events. Be realistic, not aspirational.
+4. Build a time-blocked sequence. Use estimatedMinutes. Include buffer — ADHD brains need transition time. Work around any calendar events and skeleton blocks. Be realistic, not aspirational.
 5. Confirm the plan. Then output.
 
 ${outputFormat}
@@ -166,7 +166,7 @@ ${sharedRules}
 - Surface overdue work. Don't let it hide.
 - If they have 10 things, help them cut to 3. That's the job.
 - If today has no plan yet, start from scratch with them.
-- Reference specific calendar events by name when building the day plan — it shows you've actually looked.`,
+- Reference specific calendar events and skeleton blocks by name when building the day plan — it shows you've actually looked.`,
 
     evening: `You are Synapse. It's evening. ${firstName} is doing their end-of-day review.
 
@@ -299,12 +299,21 @@ export default function ChatScreen({ navigation, route }: any) {
     [mode, contextBlock, profile.name, calendarContext],
   );
 
-  // Fetch today's calendar + reminders for morning and evening sessions
+  // Fetch today's calendar + reminders + skeleton blocks for morning/evening
   useEffect(() => {
     if (mode === 'morning' || mode === 'evening') {
       buildTodayCalendarContext()
-        .then(ctx => setCalendarContext(ctx))
-        .catch(() => {}); // fail silently — planning still works without it
+        .then(ctx => {
+          // Also inject today's skeleton blocks (synchronous)
+          const skeletonCtx = buildSkeletonContext(profile.weekTemplate ?? []);
+          const combined = [skeletonCtx, ctx].filter(Boolean).join('\n\n');
+          setCalendarContext(combined);
+        })
+        .catch(() => {
+          // Fall back to skeleton only if calendar fails
+          const skeletonCtx = buildSkeletonContext(profile.weekTemplate ?? []);
+          if (skeletonCtx) setCalendarContext(skeletonCtx);
+        });
     }
   }, [mode]);
 

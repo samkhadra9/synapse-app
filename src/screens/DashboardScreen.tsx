@@ -2,24 +2,27 @@
  * DashboardScreen — Synapse V2
  *
  * Layout:
- *   Greeting
- *   Top actions — Deep Work + Plan/Review (always visible at top)
- *   Today's Sequence — time-blocked MITs
- *   Habits — domain-coloured dots, no emoji
- *   Projects — standalone card section
+ *   Horizontal pager (pagingEnabled):
+ *     Page 0 (left):  Today — Greeting / Deep Work / Plan / Tasks / Habits / Projects
+ *     Page 1 (right): Goals — 1yr / 5yr / 10yr aspirational goals (aesthetic panel)
+ *   Dot page indicator between header and content
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, Modal, TextInput,
   KeyboardAvoidingView, Platform, Switch,
+  Dimensions, NativeScrollEvent, NativeSyntheticEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { Colors, Spacing, Radius, DomainColors } from '../theme';
-import { useStore, DomainKey, Task } from '../store/useStore';
+import { useStore, DomainKey, Task, LifeGoal, TimeHorizon } from '../store/useStore';
 import { syncAllProjects } from '../services/calendar';
+
+const { width: SCREEN_W } = Dimensions.get('window');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -137,7 +140,6 @@ function HabitChip({ habit, onToggle }: { habit: any; onToggle: () => void }) {
       onPress={onToggle}
       activeOpacity={0.78}
     >
-      {/* Coloured domain dot — replaces emoji */}
       <View style={[
         styles.habitDot,
         { backgroundColor: done ? 'rgba(255,255,255,0.6)' : dc.text },
@@ -247,12 +249,118 @@ function QuickAddModal({ visible, onClose, onAdd }: {
   );
 }
 
+// ── Goals Panel ───────────────────────────────────────────────────────────────
+
+const HORIZONS: { key: TimeHorizon; label: string; emoji: string }[] = [
+  { key: '1year',  label: '1 year',   emoji: '🌱' },
+  { key: '5year',  label: '5 years',  emoji: '🌳' },
+  { key: '10year', label: '10 years', emoji: '🏔' },
+];
+
+function GoalsPanelPage({ navigation }: { navigation: any }) {
+  const goals   = useStore(s => s.goals);
+  const profile = useStore(s => s.profile);
+
+  return (
+    <ScrollView
+      style={{ width: SCREEN_W }}
+      contentContainerStyle={gp.scroll}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Header */}
+      <View style={gp.header}>
+        <Text style={gp.title}>Your vision</Text>
+        <Text style={gp.subtitle}>Where you're going</Text>
+      </View>
+
+      {/* Horizon blocks */}
+      {HORIZONS.map(h => {
+        const horizonGoals = goals.filter(g => g.horizon === h.key);
+        return (
+          <View key={h.key} style={gp.horizonBlock}>
+            <View style={gp.horizonHeader}>
+              <Text style={gp.horizonEmoji}>{h.emoji}</Text>
+              <Text style={gp.horizonLabel}>{h.label}</Text>
+            </View>
+
+            {horizonGoals.length === 0 ? (
+              <Text style={gp.empty}>Not set yet</Text>
+            ) : (
+              horizonGoals.map(goal => {
+                const dc = DomainColors[goal.domain] ?? DomainColors.work;
+                return (
+                  <View key={goal.id} style={gp.goalRow}>
+                    <View style={[gp.goalDot, { backgroundColor: dc.text }]} />
+                    <Text style={gp.goalText}>{goal.text}</Text>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        );
+      })}
+
+      {/* CTA */}
+      <TouchableOpacity
+        style={gp.cta}
+        onPress={() => navigation?.navigate('Chat', { mode: 'yearly' })}
+        activeOpacity={0.82}
+      >
+        <Text style={gp.ctaText}>Set goals with Synapse →</Text>
+      </TouchableOpacity>
+
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+const gp = StyleSheet.create({
+  scroll:   { paddingBottom: 40 },
+  header: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  title:    { fontSize: 38, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1.5, lineHeight: 42 },
+  subtitle: { fontSize: 14, color: Colors.textTertiary, marginTop: 4, fontWeight: '500', fontStyle: 'italic' },
+
+  horizonBlock: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.base,
+    borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    padding: 18,
+    gap: 10,
+  },
+  horizonHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  horizonEmoji:  { fontSize: 20 },
+  horizonLabel:  { fontSize: 13, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 0.5, textTransform: 'uppercase' },
+
+  goalRow:  { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  goalDot:  { width: 7, height: 7, borderRadius: 3.5, marginTop: 7, flexShrink: 0 },
+  goalText: { flex: 1, fontSize: 16, color: Colors.textPrimary, lineHeight: 24, fontWeight: '400' },
+
+  empty: { fontSize: 14, color: Colors.textTertiary, fontStyle: 'italic' },
+
+  cta: {
+    marginHorizontal: Spacing.lg,
+    marginTop: 8,
+    paddingVertical: 14, paddingHorizontal: 16,
+    borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: Colors.primaryMid,
+    backgroundColor: Colors.primaryLight,
+  },
+  ctaText: { fontSize: 15, color: Colors.primary, fontWeight: '600' },
+});
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardScreen({ navigation }: any) {
   const { profile, tasks, habits, projects, toggleTask, toggleHabitToday, updateProject, updateProfile, addTask } = useStore();
   const [syncing,      setSyncing]      = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [activePage,   setActivePage]   = useState(0);
 
   const today      = format(new Date(), 'yyyy-MM-dd');
   const isSunday   = new Date().getDay() === 0;
@@ -281,6 +389,11 @@ export default function DashboardScreen({ navigation }: any) {
   }, [habits]);
 
   const habitsDone = todayHabits.filter(h => h.completedDates.includes(today)).length;
+
+  function handlePageChange(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+    setActivePage(page);
+  }
 
   function handleQuickAdd(text: string, isMIT: boolean) {
     const mitCount = tasks.filter(t => t.date === today && t.isMIT).length;
@@ -312,7 +425,6 @@ export default function DashboardScreen({ navigation }: any) {
     setSyncing(true);
     try {
       const result = await syncAllProjects(projects, profile.synapseCalendarId);
-      // Save back any updated calendarId (should stay the same)
       if (result.calendarId && result.calendarId !== profile.synapseCalendarId) {
         updateProfile({ synapseCalendarId: result.calendarId });
       }
@@ -335,141 +447,165 @@ export default function DashboardScreen({ navigation }: any) {
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-          {/* ── Greeting ─────────────────────────────────────────────────── */}
-          <Greeting name={profile.name} />
+        {/* ── Page dots ──────────────────────────────────────────────────── */}
+        <View style={styles.dotRow}>
+          <View style={[styles.dot, activePage === 0 && styles.dotActive]} />
+          <View style={[styles.dot, activePage === 1 && styles.dotActive]} />
+        </View>
 
-          {/* ── Top action cards ─────────────────────────────────────────── */}
-          <TopActions
-            onDeepWork={() => navigation.navigate('DeepWork')}
-            onPlan={() => navigation.navigate('Chat', { mode: isSunday ? 'weekly' : 'morning' })}
-            isSunday={isSunday}
-          />
+        {/* ── Horizontal pager ───────────────────────────────────────────── */}
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={handlePageChange}
+          style={{ flex: 1 }}
+          scrollEventThrottle={16}
+          decelerationRate="fast"
+        >
 
-          {/* ── Today's full plan ────────────────────────────────────────── */}
-          {(() => {
-            const totalToday = mits.length + otherToday.length;
-            const completedToday = tasks.filter(t => t.date === today && t.completed).length;
-            return (
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Today</Text>
-                <View style={styles.sectionHeaderRight}>
-                  {totalToday > 0 && (
-                    <Text style={styles.todayCount}>{completedToday}/{totalToday}</Text>
-                  )}
-                  <TouchableOpacity onPress={() => setShowQuickAdd(true)}>
-                    <Text style={styles.sectionAction}>+ Add</Text>
-                  </TouchableOpacity>
+          {/* ── Page 0: Dashboard ─────────────────────────────────────────── */}
+          <ScrollView
+            style={{ width: SCREEN_W }}
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Greeting */}
+            <Greeting name={profile.name} />
+
+            {/* Top action cards */}
+            <TopActions
+              onDeepWork={() => navigation.navigate('DeepWork')}
+              onPlan={() => navigation.navigate('Chat', { mode: isSunday ? 'weekly' : 'morning' })}
+              isSunday={isSunday}
+            />
+
+            {/* Today section */}
+            {(() => {
+              const totalToday     = mits.length + otherToday.length;
+              const completedToday = tasks.filter(t => t.date === today && t.completed).length;
+              return (
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Today</Text>
+                  <View style={styles.sectionHeaderRight}>
+                    {totalToday > 0 && (
+                      <Text style={styles.todayCount}>{completedToday}/{totalToday}</Text>
+                    )}
+                    <TouchableOpacity onPress={() => setShowQuickAdd(true)}>
+                      <Text style={styles.sectionAction}>+ Add</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            );
-          })()}
+              );
+            })()}
 
-          <View style={styles.sectionBody}>
-            {mits.length === 0 && otherToday.length === 0 ? (
-              <TouchableOpacity
-                style={styles.planCTA}
-                onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
-                activeOpacity={0.82}
-              >
-                <Text style={styles.planCTAText}>Plan my day with Synapse →</Text>
-              </TouchableOpacity>
-            ) : (
+            <View style={styles.sectionBody}>
+              {mits.length === 0 && otherToday.length === 0 ? (
+                <TouchableOpacity
+                  style={styles.planCTA}
+                  onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+                  activeOpacity={0.82}
+                >
+                  <Text style={styles.planCTAText}>Plan my day with Synapse →</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  {mits.length > 0 && (
+                    <>
+                      <Text style={styles.taskGroupLabel}>TOP PRIORITIES</Text>
+                      <TodaySequence tasks={mits} onToggle={id => toggleTask(id)} />
+                    </>
+                  )}
+                  {otherToday.length > 0 && (
+                    <>
+                      <Text style={[styles.taskGroupLabel, mits.length > 0 && { marginTop: Spacing.base }]}>
+                        ALL TASKS TODAY
+                      </Text>
+                      {otherToday.map(t => (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={styles.taskRow}
+                          onPress={() => toggleTask(t.id)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[styles.taskCheck, t.completed && styles.taskCheckDone]}>
+                            {t.completed && <Text style={styles.taskCheckMark}>✓</Text>}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.taskText, t.completed && styles.taskTextDone]} numberOfLines={2}>
+                              {t.text}
+                            </Text>
+                            {t.estimatedMinutes ? (
+                              <Text style={styles.taskMeta}>~{t.estimatedMinutes} min</Text>
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </View>
+
+            {/* Habits */}
+            {todayHabits.length > 0 && (
               <>
-                {/* MITs — time-blocked sequence */}
-                {mits.length > 0 && (
-                  <>
-                    <Text style={styles.taskGroupLabel}>TOP PRIORITIES</Text>
-                    <TodaySequence tasks={mits} onToggle={id => toggleTask(id)} />
-                  </>
-                )}
-
-                {/* All other today tasks — full list with checkboxes */}
-                {otherToday.length > 0 && (
-                  <>
-                    <Text style={[styles.taskGroupLabel, mits.length > 0 && { marginTop: Spacing.base }]}>
-                      ALL TASKS TODAY
-                    </Text>
-                    {otherToday.map(t => (
-                      <TouchableOpacity
-                        key={t.id}
-                        style={styles.taskRow}
-                        onPress={() => toggleTask(t.id)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={[styles.taskCheck, t.completed && styles.taskCheckDone]}>
-                          {t.completed && <Text style={styles.taskCheckMark}>✓</Text>}
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.taskText, t.completed && styles.taskTextDone]} numberOfLines={2}>
-                            {t.text}
-                          </Text>
-                          {t.estimatedMinutes ? (
-                            <Text style={styles.taskMeta}>~{t.estimatedMinutes} min</Text>
-                          ) : null}
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                  </>
-                )}
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Habits</Text>
+                  <Text style={styles.habitCount}>{habitsDone}/{todayHabits.length}</Text>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.habitScroll}
+                >
+                  {todayHabits.map(h => (
+                    <HabitChip key={h.id} habit={h} onToggle={() => toggleHabitToday(h.id)} />
+                  ))}
+                </ScrollView>
               </>
             )}
-          </View>
 
-          {/* ── Habits ───────────────────────────────────────────────────── */}
-          {todayHabits.length > 0 && (
-            <>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Habits</Text>
-                <Text style={styles.habitCount}>{habitsDone}/{todayHabits.length}</Text>
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.habitScroll}
+            {/* Projects */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Projects</Text>
+              <TouchableOpacity
+                style={[styles.calBtn, syncing && { opacity: 0.5 }]}
+                onPress={handleCalendarSync}
+                disabled={syncing}
+                activeOpacity={0.8}
               >
-                {todayHabits.map(h => (
-                  <HabitChip key={h.id} habit={h} onToggle={() => toggleHabitToday(h.id)} />
-                ))}
-              </ScrollView>
-            </>
-          )}
-
-          {/* ── Projects ─────────────────────────────────────────────────── */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Projects</Text>
-            <TouchableOpacity
-              style={[styles.calBtn, syncing && { opacity: 0.5 }]}
-              onPress={handleCalendarSync}
-              disabled={syncing}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.calBtnText}>{syncing ? 'Syncing…' : 'Sync cal'}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {activeProjects.length > 0 ? (
-            <View style={styles.projectsCard}>
-              {activeProjects.map((p, i) => (
-                <ProjectRow
-                  key={p.id}
-                  project={p}
-                  onPress={() => navigation.navigate('ProjectDetail', { projectId: p.id })}
-                />
-              ))}
+                <Text style={styles.calBtnText}>{syncing ? 'Syncing…' : 'Sync cal'}</Text>
+              </TouchableOpacity>
             </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.emptyCard}
-              onPress={() => navigation.navigate('Chat', { mode: 'project' })}
-              activeOpacity={0.82}
-            >
-              <Text style={styles.emptyCardText}>Plan a project with Synapse →</Text>
-            </TouchableOpacity>
-          )}
 
-          <View style={{ height: 40 }} />
+            {activeProjects.length > 0 ? (
+              <View style={styles.projectsCard}>
+                {activeProjects.map(p => (
+                  <ProjectRow
+                    key={p.id}
+                    project={p}
+                    onPress={() => navigation.navigate('ProjectDetail', { projectId: p.id })}
+                  />
+                ))}
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.emptyCard}
+                onPress={() => navigation.navigate('Chat', { mode: 'project' })}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.emptyCardText}>Plan a project with Synapse →</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={{ height: 40 }} />
+          </ScrollView>
+
+          {/* ── Page 1: Goals panel ───────────────────────────────────────── */}
+          <GoalsPanelPage navigation={navigation} />
+
         </ScrollView>
       </SafeAreaView>
 
@@ -491,8 +627,23 @@ const styles = StyleSheet.create({
   safe:  { flex: 1 },
   scroll:{ paddingBottom: 40 },
 
+  // Page dots
+  dotRow: {
+    flexDirection: 'row', justifyContent: 'center',
+    alignItems: 'center', gap: 6,
+    paddingVertical: 8,
+  },
+  dot: {
+    width: 5, height: 5, borderRadius: 2.5,
+    backgroundColor: Colors.borderLight,
+  },
+  dotActive: {
+    backgroundColor: Colors.textTertiary,
+    width: 14, borderRadius: 2.5,
+  },
+
   // Greeting
-  greetingWrap:  { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.sm },
+  greetingWrap:  { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, paddingBottom: Spacing.sm },
   dateText:      { fontSize: 12, color: Colors.textTertiary, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 },
   greetingText:  { fontSize: 38, fontWeight: '800', color: Colors.textPrimary, lineHeight: 44, letterSpacing: -1.5 },
 
@@ -516,7 +667,7 @@ const styles = StyleSheet.create({
   topCardTitleHighlight: { color: AMBER },
   topCardArrow:          { fontSize: 16, color: Colors.textTertiary, marginTop: 4 },
 
-  // Section headers — bold editorial
+  // Section headers
   sectionHeader: {
     flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
@@ -582,7 +733,7 @@ const styles = StyleSheet.create({
   taskTextDone:   { textDecorationLine: 'line-through', color: Colors.textTertiary },
   taskMeta:       { fontSize: 11, color: Colors.textTertiary, marginTop: 2 },
 
-  // Habits — no emoji, coloured domain dot
+  // Habits
   habitCount: { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
   habitScroll:{ paddingLeft: Spacing.lg, paddingRight: Spacing.lg, paddingVertical: 4, gap: 8 },
   habitChip: {
@@ -598,12 +749,11 @@ const styles = StyleSheet.create({
   habitNameDone:  { color: '#fff' },
   habitTick:      { fontSize: 11, color: '#fff', fontWeight: '700' },
 
-  // Projects — standalone card
+  // Projects
   projectsCard: {
     marginHorizontal: Spacing.lg,
     borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderWidth: 1, borderColor: Colors.border,
     backgroundColor: Colors.surface,
     overflow: 'hidden',
   },

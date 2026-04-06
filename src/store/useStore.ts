@@ -108,6 +108,28 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export type TimeBlockType =
+  | 'deep_work'
+  | 'area_work'
+  | 'social'
+  | 'admin'
+  | 'protected'
+  | 'personal';
+
+export interface TimeBlock {
+  id: string;
+  label: string;
+  type: TimeBlockType;
+  /** 0 = Sunday … 6 = Saturday */
+  dayOfWeek: number[];
+  /** "HH:MM" 24-hour */
+  startTime: string;
+  durationMinutes: number;
+  areaId?: string;
+  calendarEventId?: string;
+  isProtected: boolean;
+}
+
 export interface DeepWorkSession {
   id: string;
   startedAt: string;
@@ -153,9 +175,11 @@ export interface UserProfile {
     postWork: string[];
     evening: string[];
   };
-  synapseCalendarId?:   string;
+  synapseCalendarId?:    string;
   selectedCalendarName?: string;
   systemPhase: 1 | 2 | 3;
+  weekTemplate: TimeBlock[];
+  skeletonBuilt: boolean;
 }
 
 // ── State Interface ───────────────────────────────────────────────────────────
@@ -216,6 +240,8 @@ interface SynapseState {
   addDeepWorkSession: (s: Omit<DeepWorkSession, 'id'>) => void;
   updateDeepWorkSession: (id: string, patch: Partial<DeepWorkSession>) => void;
 
+  setWeekTemplate: (blocks: TimeBlock[]) => void;
+
   resetOnboarding: () => void;
   wipeAllData: () => Promise<void>;
 }
@@ -236,6 +262,8 @@ const defaultProfile: UserProfile = {
   deepWorkBlockLength: 60,
   deepWorkBlocksPerWeek: 2,
   systemPhase: 1,
+  weekTemplate: [],
+  skeletonBuilt: false,
 };
 
 const defaultHabits: Habit[] = [
@@ -480,6 +508,13 @@ export const useStore = create<SynapseState>()(
         }));
         const updated = get().deepWorkSessions.find(s => s.id === id);
         if (updated) syncIfAuthed(s => s.pushDeepWorkSession(updated), get().session);
+      },
+
+      // ── Week Template ─────────────────────────────────────────────────────────
+      setWeekTemplate: (blocks) => {
+        set((s) => ({
+          profile: { ...s.profile, weekTemplate: blocks, skeletonBuilt: blocks.length > 0 }
+        }));
       },
 
       // ── Dev / Reset ───────────────────────────────────────────────────────────

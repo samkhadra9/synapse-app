@@ -42,12 +42,30 @@ Rules:
 Conversation arc (follow this order):
 1. Warm greeting. Ask their name.
 2. Ask: "Before we get into schedules — who are you becoming? What are you building in your life over the next few years?" Accept whatever they say. This sets the motivational frame — don't probe further or analyse their answer.
-3. Ask about what they're actively working on right now — projects, things with momentum.
-4. Ask about the ongoing areas of their life that never really finish — health, relationships, creative work, finances, learning.
+3. Ask about what they're actively working on right now — things with a finish line, a deadline, or a clear outcome.
+4. Ask about the ongoing parts of their life that never really finish — health, relationships, creative work, finances, learning.
 5. Ask what a typical week looks like for them right now.
 6. Ask about focus capacity: roughly an hour of deep focus, or can they go longer?
 7. Ask what time they wake up and wind down.
 8. Close warmly: "Perfect — I've got what I need. Let me build your system."
+
+CRITICAL — AREAS vs PROJECTS (this is the most important distinction):
+
+A PROJECT has a clear end state and a deadline — something that gets DONE and then is over.
+  Examples: "Launch the app by June", "Move to London", "Run the Sydney Half-Marathon in October"
+  Signs it's a project: You can imagine completing it. There's a finish line. It has a deadline.
+
+An AREA is an ongoing domain of life — it never gets done, it gets maintained.
+  Examples: "Health", "Relationship with family", "Financial wellbeing", "Career growth"
+  Signs it's an area: There's no finish line. It's something you tend to forever.
+
+NEVER create a project for something that has no clear end state or deadline:
+  - "Get healthier" → AREA (health), not a project
+  - "Be more social" → AREA (relationships), not a project
+  - "Exercise more" → Area habit, suggest as a recurring routine
+  - "Train for a marathon in October" → PROJECT (has deadline + end state)
+
+When you output the JSON, every project MUST have a specific title describing a concrete end state, and every area must be a life domain, not a deliverable.
 
 When you have enough information (after at least 6-8 exchanges), end your message with:
 [ONBOARDING_COMPLETE]
@@ -63,7 +81,7 @@ Then on the VERY NEXT line output a JSON object (nothing else after it) in this 
     { "domain": "work|health|relationships|personal|finances|learning|creativity|community", "name": "string", "description": "string" }
   ],
   "projects": [
-    { "domain": "work|health|...", "title": "string", "description": "string", "deadline": "YYYY-MM-DD or null" }
+    { "domain": "work|health|...", "title": "string (concrete end state)", "description": "string", "deadline": "YYYY-MM-DD or null" }
   ],
   "goals": [
     { "domain": "work|health|...", "horizon": "1year|5year|10year", "text": "string" }
@@ -73,8 +91,8 @@ Then on the VERY NEXT line output a JSON object (nothing else after it) in this 
     "postWork": ["string"],
     "evening": ["string"]
   },
-  "recurringTasks": [
-    { "title": "string", "frequency": "daily|weekly|monthly|quarterly", "domain": "work|health|..." }
+  "recurringCommitments": [
+    { "title": "string", "frequency": "daily|weekly|monthly", "domain": "work|health|..." }
   ]
 }
 
@@ -266,13 +284,14 @@ export default function OnboardingChatScreen({ navigation }: any) {
   }
 
   async function handleComplete() {
-    updateProfile({ onboardingCompleted: true, onboardingStep: 'done' });
+    // Don't mark onboardingCompleted yet — skeleton step comes next
+    updateProfile({ onboardingStep: 'chat' });
 
-    // Push everything to Supabase (fire and forget — don't block UI)
+    // Push what we have so far (fire and forget)
     const store = useStore.getState();
     if (store.session) {
       pushAll({
-        profile:          { ...store.profile, onboardingCompleted: true, onboardingStep: 'done' },
+        profile:          store.profile,
         areas:            store.areas,
         projects:         store.projects,
         tasks:            store.tasks,
@@ -282,7 +301,8 @@ export default function OnboardingChatScreen({ navigation }: any) {
       }).catch(e => console.warn('[onboarding] pushAll failed:', e));
     }
 
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    // Next: build the weekly time skeleton
+    navigation.navigate('SkeletonBuilder');
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -347,7 +367,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
         {isComplete && (
           <Animated.View style={[styles.completeArea, { opacity: completeBtnAnim }]}>
             <TouchableOpacity style={styles.completeBtn} onPress={handleComplete} activeOpacity={0.88}>
-              <Text style={styles.completeBtnText}>Enter Synapse →</Text>
+              <Text style={styles.completeBtnText}>Build my weekly structure →</Text>
             </TouchableOpacity>
           </Animated.View>
         )}

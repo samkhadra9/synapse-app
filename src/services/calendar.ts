@@ -7,7 +7,7 @@
 
 import * as Calendar from 'expo-calendar';
 import { Platform } from 'react-native';
-import { Project } from '../store/useStore';
+import { Project, TimeBlock, TimeBlockType } from '../store/useStore';
 
 const CALENDAR_NAME = 'Synapse';
 const CALENDAR_COLOR = '#1A5C4A'; // matches Colors.primary
@@ -234,6 +234,53 @@ export async function getTodayReminders(): Promise<TodayReminder[]> {
     // Reminders may not be available on all devices/simulators
     return [];
   }
+}
+
+// ── Format today's time skeleton blocks into AI context ───────────────────────
+
+const BLOCK_TYPE_LABELS: Record<TimeBlockType, string> = {
+  deep_work: 'Deep work',
+  area_work: 'Area work',
+  social:    'Social',
+  admin:     'Admin',
+  protected: 'Protected',
+  personal:  'Personal',
+};
+
+function formatHHMM(t: string): string {
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${hour}${m > 0 ? `:${m.toString().padStart(2, '0')}` : ''} ${ampm}`;
+}
+
+function addMinutes(hhmm: string, mins: number): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  const total = h * 60 + m + mins;
+  return `${Math.floor(total / 60).toString().padStart(2, '0')}:${(total % 60).toString().padStart(2, '0')}`;
+}
+
+/** Returns a plain-text description of today's planned blocks from the week skeleton */
+export function buildSkeletonContext(weekTemplate: TimeBlock[]): string {
+  if (!weekTemplate || weekTemplate.length === 0) return '';
+
+  const todayJsDay = new Date().getDay(); // 0=Sun … 6=Sat
+
+  const todayBlocks = weekTemplate
+    .filter(b => b.dayOfWeek.includes(todayJsDay))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  if (todayBlocks.length === 0) return '';
+
+  const lines = ['PLANNED TIME BLOCKS FOR TODAY (from weekly skeleton):'];
+  todayBlocks.forEach(b => {
+    const endTime = addMinutes(b.startTime, b.durationMinutes);
+    lines.push(
+      `  • ${b.label} (${BLOCK_TYPE_LABELS[b.type]}) — ${formatHHMM(b.startTime)} to ${formatHHMM(endTime)}${b.isProtected ? ' 🔒' : ''}`,
+    );
+  });
+
+  return lines.join('\n');
 }
 
 // ── Format calendar + reminders into a context string for the AI ──────────────
