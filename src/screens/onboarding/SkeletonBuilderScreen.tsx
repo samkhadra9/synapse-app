@@ -16,7 +16,7 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, Animated,
   ActivityIndicator, StatusBar, ScrollView, Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore, TimeBlock, TimeBlockType } from '../../store/useStore';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -284,6 +284,7 @@ const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
 export default function SkeletonBuilderScreen({ navigation }: any) {
   const { profile, areas, setWeekTemplate } = useStore();
   const apiKey = profile.openAiKey || ENV_API_KEY;
+  const insets = useSafeAreaInsets();
 
   const [messages,    setMessages]    = useState<Msg[]>([]);
   const [input,       setInput]       = useState('');
@@ -503,9 +504,9 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
 
       </SafeAreaView>
 
-      {/* Input — sibling to SafeAreaView so outer KAV lifts it cleanly */}
+      {/* Input — plain View with dynamic insets so outer KAV lifts it cleanly */}
       {!isComplete && (
-        <SafeAreaView edges={['bottom']} style={s.inputSafe}>
+        <View style={[s.inputSafe, { paddingBottom: insets.bottom }]}>
           <View style={s.inputRow}>
             <TextInput
               style={s.input}
@@ -527,7 +528,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
               <Text style={s.sendBtnText}>↑</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
       )}
     </KeyboardAvoidingView>
   );

@@ -20,7 +20,7 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
   StatusBar, Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import { format } from 'date-fns';
 import { Colors, Spacing, Radius } from '../theme';
@@ -282,6 +282,7 @@ function parseActions(text: string): any | null {
 export default function ChatScreen({ navigation, route }: any) {
   const mode: ChatMode = route?.params?.mode ?? 'dump';
   const meta = MODE_META[mode];
+  const insets = useSafeAreaInsets();
 
   const { profile, tasks, projects, goals, addTask, addProject, addGoal, updateTodayLog, setProjectTasks } = useStore();
   const apiKey = profile.openAiKey || ENV_API_KEY;
@@ -602,8 +603,8 @@ export default function ChatScreen({ navigation, route }: any) {
         )}
       </SafeAreaView>
 
-      {/* Input bar — outside SafeAreaView so KAV lifts it cleanly */}
-      <SafeAreaView edges={['bottom']} style={styles.inputSafe}>
+      {/* Input bar — plain View + dynamic insets so KAV lifts it cleanly */}
+      <View style={[styles.inputSafe, { paddingBottom: insets.bottom }]}>
         <View style={styles.inputRow}>
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
             <TouchableOpacity
@@ -646,7 +647,7 @@ export default function ChatScreen({ navigation, route }: any) {
             <Text style={styles.sendBtnText}>↑</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
 
     </KeyboardAvoidingView>
   );
@@ -658,9 +659,9 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base, paddingVertical: 14,
+    paddingHorizontal: Spacing.base, paddingVertical: 10,
     borderBottomWidth: 1, borderBottomColor: Colors.border,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surfaceSecondary,
   },
   backBtn:      { width: 60 },
   backText:     { fontSize: 15, color: Colors.primary, fontWeight: '600' },

@@ -19,7 +19,7 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, Animated,
   ActivityIndicator, StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../theme';
 import { useStore, ChatMessage, DomainKey } from '../../store/useStore';
 import { pushAll } from '../../services/sync';
@@ -131,6 +131,7 @@ const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
 export default function OnboardingChatScreen({ navigation }: any) {
   const { profile, updateProfile, addArea, addProject, addGoal } = useStore();
   const apiKey = profile.openAiKey || ENV_API_KEY;
+  const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -379,9 +380,9 @@ export default function OnboardingChatScreen({ navigation }: any) {
         )}
       </SafeAreaView>
 
-      {/* Input — outside SafeAreaView so KAV lifts it correctly */}
+      {/* Input — plain View with dynamic insets so KAV lifts it correctly */}
       {!isComplete && (
-        <SafeAreaView edges={['bottom']} style={styles.inputSafe}>
+        <View style={[styles.inputSafe, { paddingBottom: insets.bottom }]}>
           <View style={styles.inputRow}>
             <TextInput
               ref={inputRef}
@@ -404,7 +405,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
               <Text style={styles.sendBtnText}>↑</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
       )}
     </KeyboardAvoidingView>
   );
