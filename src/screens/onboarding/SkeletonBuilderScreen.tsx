@@ -395,7 +395,11 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <View style={s.root}>
+    <KeyboardAvoidingView
+      style={s.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
+    >
       <StatusBar barStyle="light-content" />
       <SafeAreaView style={s.safe} edges={['top']}>
 
@@ -499,35 +503,33 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
 
       </SafeAreaView>
 
-      {/* Input */}
+      {/* Input — sibling to SafeAreaView so outer KAV lifts it cleanly */}
       {!isComplete && (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <SafeAreaView edges={['bottom']} style={s.inputSafe}>
-            <View style={s.inputRow}>
-              <TextInput
-                style={s.input}
-                value={input}
-                onChangeText={setInput}
-                placeholder="Type your reply…"
-                placeholderTextColor={TEAL.textFaint}
-                multiline
-                returnKeyType="send"
-                onSubmitEditing={handleSend}
-                editable={!loading}
-              />
-              <TouchableOpacity
-                style={[s.sendBtn, (!input.trim() || loading) && s.sendBtnOff]}
-                onPress={handleSend}
-                disabled={!input.trim() || loading}
-                activeOpacity={0.8}
-              >
-                <Text style={s.sendBtnText}>↑</Text>
-              </TouchableOpacity>
-            </View>
-          </SafeAreaView>
-        </KeyboardAvoidingView>
+        <SafeAreaView edges={['bottom']} style={s.inputSafe}>
+          <View style={s.inputRow}>
+            <TextInput
+              style={s.input}
+              value={input}
+              onChangeText={setInput}
+              placeholder="Type your reply…"
+              placeholderTextColor={TEAL.textFaint}
+              multiline
+              returnKeyType="send"
+              onSubmitEditing={handleSend}
+              editable={!loading}
+            />
+            <TouchableOpacity
+              style={[s.sendBtn, (!input.trim() || loading) && s.sendBtnOff]}
+              onPress={handleSend}
+              disabled={!input.trim() || loading}
+              activeOpacity={0.8}
+            >
+              <Text style={s.sendBtnText}>↑</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -554,10 +554,12 @@ export default function ChatScreen({ navigation, route }: any) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
     >
       <StatusBar barStyle="dark-content" />
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
 
+      {/* Top-edge safe area + scrollable content */}
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text style={styles.backText}>‹ Back</Text>
@@ -598,53 +600,54 @@ export default function ChatScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </View>
         )}
-
-        <View style={styles.inputSafe}>
-          <View style={styles.inputRow}>
-            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-              <TouchableOpacity
-                style={[styles.micBtn, isRecording && styles.micBtnActive]}
-                onPress={isRecording ? stopRecording : startRecording}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.micLabel}>{isRecording ? '■' : 'mic'}</Text>
-              </TouchableOpacity>
-            </Animated.View>
-
-            <TextInput
-              style={styles.input}
-              value={input}
-              onChangeText={(text) => {
-                if (text.endsWith('\n')) {
-                  const trimmed = text.replace(/\n+$/, '').trim();
-                  if (trimmed && !loading) {
-                    const userMsg = appendMessage('user', trimmed);
-                    setInput('');
-                    sendToLLM([...messages, userMsg]);
-                  }
-                } else {
-                  setInput(text);
-                }
-              }}
-              placeholder={isRecording ? 'Recording…' : 'Message…'}
-              placeholderTextColor={Colors.textTertiary}
-              multiline
-              returnKeyType="send"
-              blurOnSubmit={false}
-              editable={!loading && !isRecording}
-            />
-
-            <TouchableOpacity
-              style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
-              onPress={handleSend}
-              disabled={!input.trim() || loading}
-            >
-              <Text style={styles.sendBtnText}>↑</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
       </SafeAreaView>
+
+      {/* Input bar — outside SafeAreaView so KAV lifts it cleanly */}
+      <SafeAreaView edges={['bottom']} style={styles.inputSafe}>
+        <View style={styles.inputRow}>
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <TouchableOpacity
+              style={[styles.micBtn, isRecording && styles.micBtnActive]}
+              onPress={isRecording ? stopRecording : startRecording}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.micLabel}>{isRecording ? '■' : 'mic'}</Text>
+            </TouchableOpacity>
+          </Animated.View>
+
+          <TextInput
+            style={styles.input}
+            value={input}
+            onChangeText={(text) => {
+              if (text.endsWith('\n')) {
+                const trimmed = text.replace(/\n+$/, '').trim();
+                if (trimmed && !loading) {
+                  const userMsg = appendMessage('user', trimmed);
+                  setInput('');
+                  sendToLLM([...messages, userMsg]);
+                }
+              } else {
+                setInput(text);
+              }
+            }}
+            placeholder={isRecording ? 'Recording…' : 'Message…'}
+            placeholderTextColor={Colors.textTertiary}
+            multiline
+            returnKeyType="send"
+            blurOnSubmit={false}
+            editable={!loading && !isRecording}
+          />
+
+          <TouchableOpacity
+            style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
+            onPress={handleSend}
+            disabled={!input.trim() || loading}
+          >
+            <Text style={styles.sendBtnText}>↑</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+
     </KeyboardAvoidingView>
   );
 }
