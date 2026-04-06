@@ -34,23 +34,6 @@ const PILLARS = [
   },
 ];
 
-const CONCEPTS = [
-  {
-    icon: '🎯',
-    label: 'PROJECTS',
-    title: 'Things that get done.',
-    body: "A project has a clear end state and a deadline. Launch the app. Move to a new city. Run a marathon in October. When it's done, it's done.",
-    examples: ['Launch the Synapse app by June', 'Move to London by September', 'Run the Sydney Half-Marathon'],
-  },
-  {
-    icon: '🌿',
-    label: 'AREAS',
-    title: 'Parts of life you maintain.',
-    body: "An area is ongoing — it never has a finish line. Health. Relationships. Career. These are domains you tend to, not tasks you complete.",
-    examples: ['Physical health', 'Relationship with family', 'Financial wellbeing'],
-  },
-];
-
 export default function WelcomeScreen({ navigation }: any) {
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -95,30 +78,6 @@ export default function WelcomeScreen({ navigation }: any) {
                   <Text style={s.pillarLabel}>{p.label}</Text>
                   <Text style={s.pillarTitle}>{p.title}</Text>
                   <Text style={s.pillarText}>{p.body}</Text>
-                </View>
-              </View>
-            ))}
-          </Animated.View>
-
-          {/* ── Concepts: Projects vs Areas ───────────────────────────── */}
-          <Animated.View style={[s.conceptsWrap, { opacity: fadeAnim }]}>
-            <Text style={s.conceptsHeading}>Two things Synapse tracks</Text>
-            {CONCEPTS.map((c, i) => (
-              <View key={i} style={s.conceptCard}>
-                <View style={s.conceptHeader}>
-                  <Text style={s.conceptIcon}>{c.icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.conceptLabel}>{c.label}</Text>
-                    <Text style={s.conceptTitle}>{c.title}</Text>
-                  </View>
-                </View>
-                <Text style={s.conceptBody}>{c.body}</Text>
-                <View style={s.examplesRow}>
-                  {c.examples.map((ex, j) => (
-                    <View key={j} style={s.exampleChip}>
-                      <Text style={s.exampleText}>{ex}</Text>
-                    </View>
-                  ))}
                 </View>
               </View>
             ))}
@@ -239,29 +198,6 @@ const s = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 20,
   },
-
-  // ── Concepts ──────────────────────────────────────────────────────────────
-  conceptsWrap:    { marginBottom: 28 },
-  conceptsHeading: {
-    fontSize: 13, fontWeight: '700', color: Colors.textTertiary,
-    letterSpacing: 0.5, textTransform: 'uppercase',
-    marginBottom: 12,
-  },
-  conceptCard: {
-    borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border,
-    backgroundColor: Colors.surface, padding: 16, gap: 10, marginBottom: 10,
-  },
-  conceptHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  conceptIcon:   { fontSize: 28 },
-  conceptLabel:  { fontSize: 10, fontWeight: '700', color: Colors.primary, letterSpacing: 1.4, textTransform: 'uppercase' },
-  conceptTitle:  { fontSize: 16, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3 },
-  conceptBody:   { fontSize: 14, color: Colors.textSecondary, lineHeight: 22 },
-  examplesRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  exampleChip: {
-    backgroundColor: Colors.surfaceSecondary, borderRadius: Radius.full,
-    paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: Colors.borderLight,
-  },
-  exampleText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
 
   // ── How it works ──────────────────────────────────────────────────────────
   howItWorks: {
