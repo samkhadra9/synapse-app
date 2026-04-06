@@ -22,6 +22,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -125,6 +127,34 @@ export async function scheduleDailyNotifications(
   console.log('Notifications scheduled:', { morning: morningTime, midday: '12:30', evening: eveningTime });
 }
 
+// ── Forgiveness / Lapse Recovery Notifications ────────────────────────────────
+// Scheduled once when a lapse is detected. Cancelled if user returns.
+
+const LAPSE_NOTIFICATION_ID = 'synapse-lapse-recovery';
+
+export async function scheduleLapseNotification(daysSilent: number): Promise<void> {
+  // Don't double-schedule
+  await Notifications.cancelScheduledNotificationAsync(LAPSE_NOTIFICATION_ID).catch(() => {});
+
+  const isWeekPlus = daysSilent >= 7;
+  await Notifications.scheduleNotificationAsync({
+    identifier: LAPSE_NOTIFICATION_ID,
+    content: {
+      title: isWeekPlus ? 'Still here when you\'re ready.' : 'No pressure.',
+      body: isWeekPlus
+        ? 'No backlog, no catch-up. Just one small win today if you want it.'
+        : 'Want to plan one small thing? That\'s all. Tap to open.',
+      data: { screen: 'QuickWin' },
+      sound: true,
+    },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 60 * 60 * 3 } as Notifications.TimeIntervalTriggerInput,
+  });
+}
+
+export async function cancelLapseNotification(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(LAPSE_NOTIFICATION_ID).catch(() => {});
+}
+
 // ── One-Off Notification (for testing) ────────────────────────────────────────
 
 export async function sendTestNotification(): Promise<void> {
@@ -134,7 +164,7 @@ export async function sendTestNotification(): Promise<void> {
       body: 'You will receive your morning planning prompt every day at your set time.',
       sound: true,
     },
-    trigger: { seconds: 2 },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 2 } as Notifications.TimeIntervalTriggerInput,
   });
 }
 

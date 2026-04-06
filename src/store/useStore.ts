@@ -183,6 +183,7 @@ export interface UserProfile {
   weekTemplate: TimeBlock[];
   skeletonBuilt: boolean;
   portrait: string;       // evolving AI-written summary of who this person is
+  lastActiveDate?: string; // YYYY-MM-DD — used for lapse detection
 }
 
 // ── State Interface ───────────────────────────────────────────────────────────
@@ -245,6 +246,7 @@ interface SynapseState {
 
   setWeekTemplate: (blocks: TimeBlock[]) => void;
   setPortrait: (portrait: string) => void;
+  touchLastActive: () => void;
 
   resetOnboarding: () => void;
   wipeAllData: () => Promise<void>;
@@ -518,6 +520,11 @@ export const useStore = create<SynapseState>()(
       // ── Week Template ─────────────────────────────────────────────────────────
       setPortrait: (portrait) => {
         set((s) => ({ profile: { ...s.profile, portrait } }));
+      },
+
+      touchLastActive: () => {
+        const today = new Date().toISOString().slice(0, 10);
+        set((s) => ({ profile: { ...s.profile, lastActiveDate: today } }));
       },
 
       setWeekTemplate: (blocks) => {

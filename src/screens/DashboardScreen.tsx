@@ -8,7 +8,7 @@
  *   Dot page indicator between header and content
  */
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, Modal, TextInput,
@@ -428,10 +428,18 @@ const gp = StyleSheet.create({
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardScreen({ navigation }: any) {
-  const { profile, tasks, projects, toggleTask, updateProject, updateProfile, addTask } = useStore();
-  const [syncing,      setSyncing]      = useState(false);
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [activePage,   setActivePage]   = useState(0);
+  const { profile, tasks, projects, toggleTask, updateProject, updateProfile, addTask, touchLastActive } = useStore();
+  const [syncing,       setSyncing]       = useState(false);
+  const [showQuickAdd,  setShowQuickAdd]  = useState(false);
+  const [activePage,    setActivePage]    = useState(0);
+  const [showAllToday,  setShowAllToday]  = useState(false);
+
+  // Mark today as active & cancel any pending lapse notification on open
+  useEffect(() => {
+    touchLastActive();
+    import('../services/notifications').then(n => n.cancelLapseNotification()).catch(() => {});
+  }, []);
+
 
   const today = format(new Date(), 'yyyy-MM-dd');
 
@@ -464,6 +472,32 @@ export default function DashboardScreen({ navigation }: any) {
     () => projects.filter(p => p.status === 'active').slice(0, 4),
     [projects],
   );
+
+  // Lapse detection — days since last recorded active session
+  const daysSinceActive = useMemo(() => {
+    if (!profile.lastActiveDate) return 0;
+    try {
+      return differenceInDays(new Date(today), parseISO(profile.lastActiveDate));
+    } catch { return 0; }
+  }, [profile.lastActiveDate, today]);
+
+  // Focused today: first 2 incomplete tasks (MITs first), expand on demand
+  const FOCUSED_LIMIT = 2;
+  const allIncompleteMITs  = mits.filter(t => !t.completed);
+  const allIncompleteOther = otherToday.filter(t => !t.completed);
+  const focusedTasks = [...allIncompleteMITs, ...allIncompleteOther].slice(0, FOCUSED_LIMIT);
+  const totalIncomplete = allIncompleteMITs.length + allIncompleteOther.length;
+  const hiddenCount = Math.max(0, totalIncomplete - FOCUSED_LIMIT);
+
+  // If returning after a lapse, schedule a gentle follow-up notification
+  // (fires 3h later in case they close the app again without planning)
+  useEffect(() => {
+    if (daysSinceActive >= 3) {
+      import('../services/notifications')
+        .then(n => n.scheduleLapseNotification(daysSinceActive))
+        .catch(() => {});
+    }
+  }, [daysSinceActive]);
 
   function handlePageChange(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
@@ -549,6 +583,24 @@ export default function DashboardScreen({ navigation }: any) {
             contentContainerStyle={styles.scroll}
             showsVerticalScrollIndicator={false}
           >
+            {/* Lapse recovery card — shown after 3+ days away */}
+            {daysSinceActive >= 3 && (
+              <TouchableOpacity
+                style={styles.lapseCard}
+                onPress={() => navigation.navigate('Chat', { mode: 'quick' })}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.lapseTitle}>
+                  {daysSinceActive >= 7 ? "Still here when you're ready." : 'No pressure.'}
+                </Text>
+                <Text style={styles.lapseBody}>
+                  {daysSinceActive >= 7
+                    ? 'No backlog, no catch-up. One small win today? →'
+                    : "Want to plan one small thing? That's all it takes. →"}
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {/* Greeting + quick capture */}
             <View style={styles.greetingRow}>
               <Greeting name={profile.name} />
@@ -576,8 +628,8 @@ export default function DashboardScreen({ navigation }: any) {
 
             {/* Today section */}
             {(() => {
-              const totalToday     = mits.length + otherToday.length;
               const completedToday = tasks.filter(t => t.date === today && t.completed).length;
+              const totalToday     = mits.length + otherToday.length;
               return (
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Today</Text>
@@ -601,38 +653,34 @@ export default function DashboardScreen({ navigation }: any) {
                 </TouchableOpacity>
               ) : (
                 <>
-                  {mits.length > 0 && (
-                    <>
-                      <Text style={styles.taskGroupLabel}>TOP PRIORITIES</Text>
-                      <TodaySequence tasks={mits} onToggle={id => toggleTask(id)} />
-                    </>
-                  )}
-                  {otherToday.length > 0 && (
-                    <>
-                      <Text style={[styles.taskGroupLabel, mits.length > 0 && { marginTop: Spacing.base }]}>
-                        ALL TASKS TODAY
+                  {/* Focused view: first 2 incomplete tasks */}
+                  <TodaySequence
+                    tasks={showAllToday
+                      ? [...mits, ...otherToday]
+                      : focusedTasks}
+                    onToggle={id => toggleTask(id)}
+                  />
+
+                  {/* Completed tasks (always collapsed behind "see all") */}
+                  {!showAllToday && hiddenCount > 0 && (
+                    <TouchableOpacity
+                      style={styles.seeAllBtn}
+                      onPress={() => setShowAllToday(true)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.seeAllText}>
+                        +{hiddenCount} more task{hiddenCount !== 1 ? 's' : ''} today →
                       </Text>
-                      {otherToday.map(t => (
-                        <TouchableOpacity
-                          key={t.id}
-                          style={styles.taskRow}
-                          onPress={() => toggleTask(t.id)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.taskCheck, t.completed && styles.taskCheckDone]}>
-                            {t.completed && <Text style={styles.taskCheckMark}>✓</Text>}
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.taskText, t.completed && styles.taskTextDone]} numberOfLines={2}>
-                              {t.text}
-                            </Text>
-                            {t.estimatedMinutes ? (
-                              <Text style={styles.taskMeta}>~{t.estimatedMinutes} min</Text>
-                            ) : null}
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    </>
+                    </TouchableOpacity>
+                  )}
+                  {showAllToday && (
+                    <TouchableOpacity
+                      style={styles.seeAllBtn}
+                      onPress={() => setShowAllToday(false)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.seeAllText}>Show less ↑</Text>
+                    </TouchableOpacity>
                   )}
                 </>
               )}
@@ -808,6 +856,19 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   planCTAText: { fontSize: 15, color: Colors.primary, fontWeight: '600' },
+
+  seeAllBtn:  { paddingVertical: 12, alignItems: 'center' },
+  seeAllText: { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
+
+  // Lapse recovery card
+  lapseCard: {
+    marginHorizontal: Spacing.lg, marginTop: Spacing.base, marginBottom: 4,
+    borderRadius: Radius.lg, padding: 18,
+    backgroundColor: Colors.primaryLight,
+    borderWidth: 1, borderColor: Colors.primaryMid,
+  },
+  lapseTitle: { fontSize: 16, fontWeight: '700', color: Colors.primary, marginBottom: 4 },
+  lapseBody:  { fontSize: 14, color: Colors.primary, lineHeight: 20, fontWeight: '400' },
 
   sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   todayCount:  { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },

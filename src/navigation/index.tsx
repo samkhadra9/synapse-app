@@ -46,7 +46,7 @@ export type RootStackParams = {
   CalendarExport:   undefined;
   Settings:         undefined;
   Main:             undefined;
-  Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' };
+  Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'quick' };
   DeepWork:         undefined;
   ProjectDetail:    { projectId: string };
 };

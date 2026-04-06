@@ -23,6 +23,9 @@ function NotificationHandler() {
         case 'EveningReview':
           navigation.navigate('Chat', { mode: 'evening' });
           break;
+        case 'QuickWin':
+          navigation.navigate('Chat', { mode: 'quick' });
+          break;
         default:
           break;
       }

@@ -30,7 +30,7 @@ import { updatePortrait } from '../services/portrait';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type ChatMode = 'dump' | 'morning' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'project';
+export type ChatMode = 'dump' | 'morning' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'project' | 'quick';
 
 const MODE_META: Record<ChatMode, { title: string; subtitle: string }> = {
   dump:    { title: 'Brain dump',      subtitle: "What's on your mind?" },
@@ -40,6 +40,7 @@ const MODE_META: Record<ChatMode, { title: string; subtitle: string }> = {
   monthly: { title: 'Monthly review',  subtitle: 'Zoom out. Recalibrate.' },
   yearly:  { title: 'Annual review',   subtitle: 'Redesign your life.' },
   project: { title: 'New project',     subtitle: "Tell me what you're working on" },
+  quick:   { title: 'One small win',   subtitle: 'No pressure. Just one thing.' },
 };
 
 const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
@@ -379,6 +380,24 @@ ${sharedRules}
 - RECURRING projects: always include recurringTask + milestone setup tasks in the tasks array.
 - SEQUENTIAL projects: tasks must tell the full story from zero to done. No gaps.
 - Every task needs a reason field — a one-line honest explanation of why this step exists.`,
+
+    quick: `You are Synapse. ${firstName} hasn't been around for a few days. This is a no-guilt re-entry.
+${portraitSection}
+${contextBlock}
+
+Your job — keep this extremely short and warm:
+1. Open with one sentence. Acknowledge the gap without dwelling on it. No guilt, no "where have you been". Something like: "Good to see you. Let's not worry about the backlog — just today."
+2. Ask ONE question only: "What's one thing, if you did it today, would make you feel like you've moved forward?"
+3. Let them answer. Don't push for more.
+4. Take whatever they say — even if it's tiny — and help them commit to it as a single task with a time estimate.
+5. Output. Keep the task list to 1–3 items MAX. Do not try to catch up everything. The goal is momentum, not completeness.
+
+${outputFormat}
+${sharedRules}
+- Tone: warm, unhurried, zero judgment. Like a good friend who just checks in.
+- Do NOT reference the overdue tasks or backlog unless they bring it up.
+- If they say something big, scale it down: "Let's just do the first 60 minutes of that today."
+- Max 3 tasks in the output. Usually 1 is perfect.`,
 
   };
 
@@ -864,6 +883,19 @@ export default function ChatScreen({ navigation, route }: any) {
     applyActions(edited);
     setPendingActions(null);
     setActionTaken(true);
+
+    // After first morning/quick plan: ask for notification permissions and schedule reminders
+    if (mode === 'morning' || mode === 'quick') {
+      import('../services/notifications').then(async (n) => {
+        const granted = await n.requestPermissions();
+        if (granted) {
+          const morningTime = profile.morningTime || '08:00';
+          const eveningTime = profile.eveningTime || '20:00';
+          await n.scheduleDailyNotifications(morningTime, eveningTime);
+          await n.cancelLapseNotification();
+        }
+      }).catch(() => {});
+    }
   }
 
   function handleReviewDiscard() {
