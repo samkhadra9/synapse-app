@@ -26,6 +26,44 @@ const { width: SCREEN_W } = Dimensions.get('window');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Detect natural-language date hints in captured task text.
+ *  Returns { date: 'YYYY-MM-DD', label: 'Friday 11 Apr' } or null. */
+function parseNaturalDate(text: string): { date: string; label: string } | null {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  const now   = new Date();
+
+  // "tomorrow"
+  if (/\btomorrow\b/.test(lower)) {
+    const d = new Date(now.getTime() + 86400000);
+    return { date: format(d, 'yyyy-MM-dd'), label: format(d, 'EEE d MMM') };
+  }
+
+  // "next week" / "this week"
+  if (/\bnext week\b/.test(lower)) {
+    const d = new Date(now.getTime() + 7 * 86400000);
+    return { date: format(d, 'yyyy-MM-dd'), label: `Week of ${format(d, 'EEE d MMM')}` };
+  }
+
+  // "by/on/next <day>" e.g. "by friday", "on monday", "next wednesday"
+  const DAY_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const dayMatch = lower.match(/\b(?:by|on|next)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  if (dayMatch) {
+    const target   = DAY_NAMES.indexOf(dayMatch[1]);
+    const current  = now.getDay();
+    let   daysAway = target - current;
+    if (daysAway <= 0) daysAway += 7;
+    // "next <day>" adds another week
+    if (/\bnext\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/.test(lower)) {
+      daysAway += 7;
+    }
+    const d = new Date(now.getTime() + daysAway * 86400000);
+    return { date: format(d, 'yyyy-MM-dd'), label: format(d, 'EEE d MMM') };
+  }
+
+  return null;
+}
+
 function formatMinutes(total: number): string {
   const h    = Math.floor(total / 60);
   const m    = total % 60;
@@ -209,15 +247,18 @@ function ProjectRow({ project, onPress }: { project: any; onPress: () => void })
 function QuickAddModal({ visible, onClose, onAdd }: {
   visible: boolean;
   onClose: () => void;
-  onAdd: (text: string, addToToday: boolean) => void;
+  onAdd: (text: string, addToToday: boolean, detectedDate?: string) => void;
 }) {
-  const [text,       setText]       = useState('');
-  const [addToToday, setAddToToday] = useState(false);
+  const [text,         setText]         = useState('');
+  const [addToToday,   setAddToToday]   = useState(false);
+  const [ignoredDate,  setIgnoredDate]  = useState(false);
+
+  const detectedDate = ignoredDate ? null : parseNaturalDate(text);
 
   function submit() {
     if (!text.trim()) return;
-    onAdd(text.trim(), addToToday);
-    setText(''); setAddToToday(false); onClose();
+    onAdd(text.trim(), addToToday, detectedDate?.date);
+    setText(''); setAddToToday(false); setIgnoredDate(false); onClose();
   }
 
   return (
@@ -230,13 +271,26 @@ function QuickAddModal({ visible, onClose, onAdd }: {
           <TextInput
             style={qa.input}
             value={text}
-            onChangeText={setText}
+            onChangeText={t => { setText(t); setIgnoredDate(false); }}
             placeholder="What's on your mind?"
             placeholderTextColor={Colors.textTertiary}
             autoFocus
             returnKeyType="done"
             onSubmitEditing={submit}
           />
+
+          {/* Natural-language date chip */}
+          {detectedDate && (
+            <View style={qa.dateChipRow}>
+              <View style={qa.dateChip}>
+                <Text style={qa.dateChipText}>📅 {detectedDate.label}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIgnoredDate(true)} style={qa.dateChipRemove}>
+                <Text style={qa.dateChipRemoveText}>×</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={qa.mitRow}>
             <View>
               <Text style={qa.mitLabel}>Add to today</Text>
@@ -411,15 +465,17 @@ export default function DashboardScreen({ navigation }: any) {
     setActivePage(page);
   }
 
-  function handleQuickAdd(text: string, addToToday: boolean) {
-    const mitCount = tasks.filter(t => t.date === today && t.isMIT).length;
+  function handleQuickAdd(text: string, addToToday: boolean, detectedDate?: string) {
+    // If a natural-language date was detected, use it as the due date (and skip inbox)
+    const resolvedDate = detectedDate ?? (addToToday ? today : '');
+    const isScheduled  = resolvedDate !== '';
     addTask({
       text,
       isMIT:     false,
       completed: false,
-      date:      addToToday ? today : '',
-      isInbox:   !addToToday,
-      isToday:   addToToday,
+      date:      resolvedDate,
+      isInbox:   !isScheduled,
+      isToday:   resolvedDate === today,
       priority:  'medium',
       domain:    (profile.selectedDomains?.[0] as DomainKey) ?? 'work',
     });
@@ -880,6 +936,19 @@ const qa = StyleSheet.create({
     borderRadius: Radius.md, paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 16, color: Colors.textPrimary, marginBottom: 16,
   },
+  dateChipRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+  },
+  dateChip: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.primaryLight, borderRadius: Radius.full,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: Colors.primaryMid,
+  },
+  dateChipText:       { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+  dateChipRemove:     { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  dateChipRemoveText: { fontSize: 18, color: Colors.textTertiary, lineHeight: 22 },
+
   mitRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     backgroundColor: Colors.background, borderRadius: Radius.md,

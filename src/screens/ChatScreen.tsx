@@ -18,7 +18,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
-  StatusBar, Animated,
+  StatusBar, Animated, Modal, ScrollView, Switch,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
@@ -121,19 +121,25 @@ RULES:
 When you have enough to act, output exactly:
 [SYNAPSE_ACTIONS]
 {"actions":[
-  {"type":"task","text":"task description","projectId":"project-id-or-null","tags":[],"isMIT":true,"estimatedMinutes":45,"dueDate":"today|tomorrow|YYYY-MM-DD"},
-  {"type":"project","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":30}]},
+  {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":45,"dueDate":"today|tomorrow|YYYY-MM-DD"},
+  {"type":"project","projectType":"sequential|recurring","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":30}],"recurringTask":{"text":"session description","estimatedMinutes":60,"frequency":"daily|weekdays|weekly","preferredSlot":"morning|afternoon|evening"}},
   {"type":"goal","horizon":"1year|5year|10year","text":"goal text"}
 ],"summary":"One sentence plan summary","sessionNote":"optional note for logs"}
 
-CRITICAL — project vs area distinction:
-A PROJECT has a clear end state and a deadline — something that gets DONE (e.g. "Launch website by June", "Write dissertation", "Complete home renovation").
-An AREA is an ongoing domain of life — health, fitness, relationships, finances, creativity. Areas do NOT become projects.
-- "I want to get healthier" → GOAL + suggest habits to build, NOT a project called "Health"
+TASK RULES — enforce strictly:
+- estimatedMinutes: ALWAYS a number. Never null. Use 15/30/45/60/90/120. Default 45 if genuinely uncertain.
+- isMIT: true for MAXIMUM 3 tasks total — the ruthless few that must happen today. Prefer 1–2. Never mark 4+ as MIT.
+- dueDate: use "today", "tomorrow", or YYYY-MM-DD. If no clear date, use "today" for captured tasks.
+
+PROJECT vs AREA — critical distinction:
+A PROJECT has a clear end state — something that gets DONE. An AREA is an ongoing domain (health, finances). Areas never become projects.
+- "I want to get healthier" → GOAL, not a project
 - "I want to run a marathon in October" → PROJECT with deadline
-- "I want to improve my finances" → GOAL, not a project
 - "I need to clear £5k of debt by December" → PROJECT with deadline
-Never create a project for something that has no clear end state or deadline.
+
+PROJECT TYPES:
+- sequential: tasks happen once in order toward a single end state (app launch, dissertation, home renovation, event planning). Break into 5–10 ordered concrete tasks.
+- recurring: needs a repeated practice schedule (studying for an exam, training for a race, learning a language). Create the project + a recurringTask defining the repeating session. Include milestone tasks for each phase (Week 1, Week 2, etc.).
 
 Only output [SYNAPSE_ACTIONS] when you have enough context. Don't rush it.`;
 
@@ -162,16 +168,17 @@ ${calendarContext ? `LIVE DEVICE DATA (pulled from ${firstName}'s phone right no
 Your job — run this in sequence:
 1. Open with: "Morning, ${firstName}." Then ask what's alive in their mind RIGHT NOW. Brain dump first, structure second.
 2. After they dump, cross-reference with: their overdue tasks (surface the ones that matter), active project needs, their 1-year goals, and today's calendar events and reminders above. Name what you notice.
-3. Help them pick their MITs ruthlessly. Ask: "If you only got ONE thing done today, what would make it a real win?"
-4. Build a time-blocked sequence. Use estimatedMinutes. Include buffer — ADHD brains need transition time. Work around any calendar events and skeleton blocks. Be realistic, not aspirational.
-5. Confirm the plan. Then output.
+3. Help them pick their MITs ruthlessly. Hard cap: MAX 3 MITs, ideally 1–2. Ask: "If you only got ONE thing done today, what would make it a real win?" Only escalate to 3 if they genuinely need it.
+4. Build a time-blocked sequence. Every task MUST have estimatedMinutes. Add 15-min buffer between tasks — ADHD brains need transition time. Work around calendar events. Be realistic, not aspirational.
+5. Check the inbox: if they have unscheduled inbox tasks (no date), ask if any should come into today's plan.
+6. Confirm the plan. Then output.
 
 ${outputFormat}
 ${sharedRules}
 - Surface overdue work. Don't let it hide.
-- If they have 10 things, help them cut to 3. That's the job.
-- If today has no plan yet, start from scratch with them.
-- Reference specific calendar events and skeleton blocks by name when building the day plan — it shows you've actually looked.`,
+- If they have 10 things, help them cut to 3 MITs. That's the job.
+- Every task in the output MUST have estimatedMinutes — never omit it.
+- Reference specific calendar events and skeleton blocks by name when building the day plan.`,
 
     evening: `You are Synapse. It's evening. ${firstName} is doing their end-of-day review.
 ${portraitSection}
@@ -250,17 +257,25 @@ ${sharedRules}`,
 ${portraitSection}
 ${contextBlock}
 
-Your job:
-1. Ask what the project is — the outcome, not the tasks.
-2. Get curious: what does success look like? When is it due? Why does it matter?
-3. Check if it connects to any of their existing goals.
-4. Help decompose it into tasks with realistic time estimates.
-5. When you have enough, output.
+Your job — run in sequence:
+1. Ask what the project is — the outcome, not the tasks. "What's the end result when this is done?"
+2. CLASSIFY it immediately in your head: is this SEQUENTIAL (clear end state, one-time tasks in order) or RECURRING (needs a repeated practice schedule)?
+3. Get the key facts:
+   - For SEQUENTIAL: deadline, what success looks like, any blockers already known.
+   - For RECURRING: what does one session look like? How often should it happen? When does it need to be done by (exam date, race date)?
+4. Connect it to their goals above if relevant. "This maps to your 1-year goal of X."
+5. Break it down — be specific and realistic:
+   - SEQUENTIAL: 5–10 ordered tasks covering the full arc from start to done (no vague tasks like "do research" — be concrete).
+   - RECURRING: milestone tasks per phase (Week 1: X, Week 2: Y) + a clear recurring session definition.
+6. Ask: "Anything about this that feels hard or where you might get stuck?" — surface blockers early.
+7. Output when you have what you need.
 
 ${outputFormat}
 ${sharedRules}
-- Create both the project AND its tasks in one output.
-- Keep task estimates honest — most things take longer than planned.`,
+- Create the project AND its tasks in one output block.
+- Every task needs estimatedMinutes — be honest, most things take longer than planned.
+- For recurring projects, always include a recurringTask with preferredSlot. Ask them when they'd want to schedule the sessions if it's not obvious.
+- SEQUENTIAL projects should feel like a real execution roadmap — ordered, concrete, complete.`,
 
   };
 
@@ -281,6 +296,251 @@ function parseActions(text: string): any | null {
     return JSON.parse(after.slice(start, end + 1));
   } catch { return null; }
 }
+
+// ── Plan Review Sheet ──────────────────────────────────────────────────────────
+// Shown before any AI-generated actions are committed to the store.
+// Users can toggle MIT, remove tasks, and edit estimates before applying.
+
+const ESTIMATE_PRESETS = [15, 30, 45, 60, 90, 120];
+
+function nextEstimate(current: number): number {
+  const idx = ESTIMATE_PRESETS.indexOf(current);
+  return ESTIMATE_PRESETS[(idx + 1) % ESTIMATE_PRESETS.length];
+}
+
+function EditableTaskRow({ action, onChange, onRemove, mitCount }: {
+  action: any;
+  onChange: (updated: any) => void;
+  onRemove: () => void;
+  mitCount: number;  // how many MITs are currently marked in the full list
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft,   setDraft]   = useState(action.text);
+
+  const canMarkMIT = action.isMIT || mitCount < 3;
+
+  return (
+    <View style={rv.taskRow}>
+      {/* MIT indicator — tap to toggle */}
+      <TouchableOpacity
+        style={[rv.mitDot, action.isMIT && rv.mitDotActive]}
+        onPress={() => canMarkMIT && onChange({ ...action, isMIT: !action.isMIT })}
+        activeOpacity={0.7}
+      >
+        {action.isMIT && <Text style={rv.mitStar}>★</Text>}
+      </TouchableOpacity>
+
+      {/* Task text — tap to edit inline */}
+      <View style={{ flex: 1 }}>
+        {editing ? (
+          <TextInput
+            style={rv.taskEditInput}
+            value={draft}
+            onChangeText={setDraft}
+            autoFocus
+            onBlur={() => { onChange({ ...action, text: draft }); setEditing(false); }}
+            returnKeyType="done"
+            onSubmitEditing={() => { onChange({ ...action, text: draft }); setEditing(false); }}
+          />
+        ) : (
+          <TouchableOpacity onPress={() => setEditing(true)} activeOpacity={0.7}>
+            <Text style={rv.taskText} numberOfLines={2}>{action.text}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Time estimate — tap to cycle presets */}
+      <TouchableOpacity
+        style={rv.minsBadge}
+        onPress={() => onChange({ ...action, estimatedMinutes: nextEstimate(action.estimatedMinutes ?? 45) })}
+        activeOpacity={0.7}
+      >
+        <Text style={rv.minsText}>{action.estimatedMinutes ?? 45}m</Text>
+      </TouchableOpacity>
+
+      {/* Remove */}
+      <TouchableOpacity onPress={onRemove} style={rv.removeBtn} activeOpacity={0.7}>
+        <Text style={rv.removeBtnText}>×</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function PlanReviewSheet({ parsed, onApply, onDiscard }: {
+  parsed: { actions: any[]; summary?: string; sessionNote?: string };
+  onApply: (edited: typeof parsed) => void;
+  onDiscard: () => void;
+}) {
+  const [actions, setActions] = useState<any[]>(parsed.actions);
+
+  const mitCount = actions.filter(a => a.type === 'task' && a.isMIT).length;
+
+  function updateAction(idx: number, updated: any) {
+    setActions(prev => prev.map((a, i) => i === idx ? updated : a));
+  }
+  function removeAction(idx: number) {
+    setActions(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  const taskCount    = actions.filter(a => a.type === 'task').length;
+  const projectCount = actions.filter(a => a.type === 'project').length;
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onDiscard}>
+      <View style={rv.overlay}>
+        <TouchableOpacity style={rv.backdrop} activeOpacity={1} onPress={onDiscard} />
+        <View style={rv.sheet}>
+          <View style={rv.handle} />
+
+          <View style={rv.headerRow}>
+            <Text style={rv.title}>Review plan</Text>
+            <Text style={rv.meta}>
+              {mitCount > 0 ? `★ ${mitCount} MIT${mitCount > 1 ? 's' : ''}  ` : ''}{taskCount} task{taskCount !== 1 ? 's' : ''}{projectCount > 0 ? `  +${projectCount} project${projectCount !== 1 ? 's' : ''}` : ''}
+            </Text>
+          </View>
+
+          {parsed.summary ? (
+            <Text style={rv.summary}>{parsed.summary}</Text>
+          ) : null}
+
+          {mitCount >= 3 && (
+            <View style={rv.mitWarning}>
+              <Text style={rv.mitWarningText}>★ MIT cap reached — tap ★ to unmark a task before adding more</Text>
+            </View>
+          )}
+
+          <ScrollView style={rv.scroll} showsVerticalScrollIndicator={false}>
+            {actions.map((action, idx) => {
+              if (action.type === 'task') {
+                return (
+                  <EditableTaskRow
+                    key={idx}
+                    action={action}
+                    onChange={updated => updateAction(idx, updated)}
+                    onRemove={() => removeAction(idx)}
+                    mitCount={mitCount}
+                  />
+                );
+              }
+              if (action.type === 'project') {
+                const isRecurring = action.projectType === 'recurring';
+                return (
+                  <View key={idx} style={rv.projectRow}>
+                    <View style={rv.projectBadge}>
+                      <Text style={rv.projectBadgeText}>{isRecurring ? 'RECURRING' : 'PROJECT'}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={rv.projectTitle}>{action.title}</Text>
+                      {isRecurring && action.recurringTask ? (
+                        <Text style={rv.projectSub}>
+                          {action.recurringTask.text} · {action.recurringTask.estimatedMinutes}m · {action.recurringTask.frequency} · {action.recurringTask.preferredSlot}
+                        </Text>
+                      ) : null}
+                      {action.tasks?.length > 0 ? (
+                        <Text style={rv.projectSub}>{action.tasks.length} subtasks</Text>
+                      ) : null}
+                    </View>
+                    <TouchableOpacity onPress={() => removeAction(idx)} style={rv.removeBtn}>
+                      <Text style={rv.removeBtnText}>×</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }
+              return null;
+            })}
+            <View style={{ height: 16 }} />
+          </ScrollView>
+
+          <TouchableOpacity
+            style={[rv.applyBtn, actions.length === 0 && rv.applyBtnOff]}
+            onPress={() => onApply({ ...parsed, actions })}
+            disabled={actions.length === 0}
+            activeOpacity={0.85}
+          >
+            <Text style={rv.applyBtnText}>Apply to plan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={rv.discardBtn} onPress={onDiscard} activeOpacity={0.75}>
+            <Text style={rv.discardText}>Discard</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const rv = StyleSheet.create({
+  overlay:  { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingTop: 12, paddingHorizontal: 20, paddingBottom: 36,
+    maxHeight: '88%',
+  },
+  handle:    { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E0E0E0', alignSelf: 'center', marginBottom: 16 },
+  headerRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 },
+  title:     { fontSize: 20, fontWeight: '700', color: '#111', letterSpacing: -0.5 },
+  meta:      { fontSize: 12, color: '#888', fontWeight: '500' },
+  summary:   { fontSize: 14, color: '#555', marginBottom: 12, lineHeight: 20 },
+
+  mitWarning: {
+    backgroundColor: '#FFF8E1', borderRadius: 8, padding: 10, marginBottom: 10,
+  },
+  mitWarningText: { fontSize: 12, color: '#B8860B', fontWeight: '500' },
+
+  scroll: { flexGrow: 0, marginHorizontal: -4 },
+
+  // Task row
+  taskRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 12, paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EEE',
+  },
+  mitDot: {
+    width: 26, height: 26, borderRadius: 13,
+    borderWidth: 1.5, borderColor: '#CCC',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  mitDotActive: { backgroundColor: '#111', borderColor: '#111' },
+  mitStar:      { fontSize: 12, color: '#FFF', fontWeight: '700' },
+
+  taskText:      { fontSize: 15, color: '#111', fontWeight: '400', lineHeight: 20 },
+  taskEditInput: {
+    fontSize: 15, color: '#111', fontWeight: '400',
+    borderBottomWidth: 1.5, borderBottomColor: '#111',
+    paddingVertical: 2, paddingHorizontal: 0,
+  },
+
+  minsBadge: {
+    backgroundColor: '#F0F0F0', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 5, flexShrink: 0,
+  },
+  minsText: { fontSize: 12, color: '#555', fontWeight: '600' },
+
+  removeBtn:     { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  removeBtnText: { fontSize: 20, color: '#CCC', lineHeight: 24 },
+
+  // Project row
+  projectRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    paddingVertical: 12, paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EEE',
+  },
+  projectBadge: {
+    backgroundColor: '#EEF2FF', borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3, flexShrink: 0, marginTop: 2,
+  },
+  projectBadgeText: { fontSize: 10, fontWeight: '700', color: '#4F6EF7', letterSpacing: 0.5 },
+  projectTitle:     { fontSize: 15, color: '#111', fontWeight: '600' },
+  projectSub:       { fontSize: 12, color: '#888', marginTop: 2 },
+
+  // Apply / discard
+  applyBtn:    { backgroundColor: '#111', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 16, marginBottom: 10 },
+  applyBtnOff: { opacity: 0.4 },
+  applyBtnText:{ color: '#FFF', fontSize: 16, fontWeight: '700' },
+  discardBtn:  { alignItems: 'center', paddingVertical: 10 },
+  discardText: { color: '#999', fontSize: 15 },
+});
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
@@ -323,13 +583,14 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   }, [mode]);
 
-  const [messages,     setMessages]     = useState<ChatMessage[]>([]);
-  const [input,        setInput]        = useState('');
-  const [loading,      setLoading]      = useState(false);
-  const [actionTaken,  setActionTaken]  = useState(false);
-  const [recording,    setRecording]    = useState<Audio.Recording | null>(null);
-  const [isRecording,  setIsRecording]  = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
+  const [messages,        setMessages]        = useState<ChatMessage[]>([]);
+  const [input,           setInput]           = useState('');
+  const [loading,         setLoading]         = useState(false);
+  const [actionTaken,     setActionTaken]     = useState(false);
+  const [pendingActions,  setPendingActions]  = useState<any | null>(null);
+  const [recording,       setRecording]       = useState<Audio.Recording | null>(null);
+  const [isRecording,     setIsRecording]     = useState(false);
+  const [transcribing,    setTranscribing]    = useState(false);
   const pulseAnim    = useRef(new Animated.Value(1)).current;
   const listRef      = useRef<FlatList>(null);
   const messagesRef  = useRef<ChatMessage[]>([]);  // always up-to-date for unmount closure
@@ -409,16 +670,21 @@ export default function ChatScreen({ navigation, route }: any) {
 
       if (reply.includes('[SYNAPSE_ACTIONS]')) {
         const parsed = parseActions(reply);
-        const displayText = reply.split('[SYNAPSE_ACTIONS]')[0].trim() || "Done — added to your list.";
+        const displayText = reply.split('[SYNAPSE_ACTIONS]')[0].trim() || "Here's what I've put together — review and tweak before it's applied.";
         appendMessage('assistant', displayText);
-        if (parsed?.actions) applyActions(parsed);
-        if (parsed?.sessionNote && mode === 'evening') {
-          updateTodayLog({ eveningCompleted: true, eveningNote: parsed.sessionNote });
+        if (parsed?.actions?.length > 0) {
+          // Show review sheet instead of immediately applying
+          setPendingActions(parsed);
+        } else {
+          // No editable actions (e.g. just a session note) — apply immediately
+          if (parsed?.sessionNote && mode === 'evening') {
+            updateTodayLog({ eveningCompleted: true, eveningNote: parsed.sessionNote });
+          }
+          if (parsed?.sessionNote && mode === 'morning') {
+            updateTodayLog({ morningCompleted: true });
+          }
+          setActionTaken(true);
         }
-        if (parsed?.sessionNote && mode === 'morning') {
-          updateTodayLog({ morningCompleted: true });
-        }
-        setActionTaken(true);
       } else {
         appendMessage('assistant', reply);
       }
@@ -429,12 +695,12 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   }
 
-  function applyActions(parsed: { actions: any[] }) {
+  function applyActions(parsed: { actions: any[]; sessionNote?: string }) {
     const today    = format(new Date(), 'yyyy-MM-dd');
     const tomorrow = format(new Date(Date.now() + 86400000), 'yyyy-MM-dd');
 
     // First pass: create any new projects so we can link tasks to them
-    const newProjectMap: Record<string, string> = {}; // title → new id (after addProject)
+    const newProjectMap: Record<string, string> = {};
 
     parsed.actions.forEach((action: any) => {
       if (action.type === 'project') {
@@ -450,7 +716,9 @@ export default function ChatScreen({ navigation, route }: any) {
           ? today
           : action.dueDate === 'tomorrow'
           ? tomorrow
-          : action.dueDate ?? today;
+          : (action.dueDate && action.dueDate !== '')
+          ? action.dueDate
+          : today;
 
         addTask({
           text:              action.text,
@@ -461,7 +729,7 @@ export default function ChatScreen({ navigation, route }: any) {
           date:              dueDate,
           completed:         false,
           priority:          action.isMIT ? 'high' : 'medium',
-          estimatedMinutes:  action.estimatedMinutes ?? undefined,
+          estimatedMinutes:  action.estimatedMinutes ?? 45,
         });
       }
 
@@ -474,6 +742,25 @@ export default function ChatScreen({ navigation, route }: any) {
         });
       }
     });
+
+    // Session log updates
+    if (parsed.sessionNote && mode === 'evening') {
+      updateTodayLog({ eveningCompleted: true, eveningNote: parsed.sessionNote });
+    }
+    if (parsed.sessionNote && mode === 'morning') {
+      updateTodayLog({ morningCompleted: true });
+    }
+  }
+
+  function handleReviewApply(edited: { actions: any[]; sessionNote?: string }) {
+    applyActions(edited);
+    setPendingActions(null);
+    setActionTaken(true);
+  }
+
+  function handleReviewDiscard() {
+    setPendingActions(null);
+    // Keep conversation going — user can revise and AI can re-output
   }
 
   function addProjectWithTasks(data: any): string | null {
@@ -618,13 +905,22 @@ export default function ChatScreen({ navigation, route }: any) {
 
         {actionTaken && (
           <View style={styles.doneBar}>
-            <Text style={styles.doneText}>Added to your list</Text>
+            <Text style={styles.doneText}>✓ Plan applied</Text>
             <TouchableOpacity onPress={() => navigation.goBack()}>
               <Text style={styles.doneAction}>Back to dashboard →</Text>
             </TouchableOpacity>
           </View>
         )}
       </SafeAreaView>
+
+      {/* Plan review sheet — shown before actions commit */}
+      {pendingActions && (
+        <PlanReviewSheet
+          parsed={pendingActions}
+          onApply={handleReviewApply}
+          onDiscard={handleReviewDiscard}
+        />
+      )}
 
       {/* Input bar — plain View + dynamic insets so KAV lifts it cleanly */}
       <View style={[styles.inputSafe, { paddingBottom: insets.bottom }]}>
