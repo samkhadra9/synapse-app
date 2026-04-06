@@ -46,7 +46,7 @@ function Greeting({ name }: { name: string }) {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const first    = name ? name.split(' ')[0] : null;
   return (
-    <View style={styles.greetingWrap}>
+    <View style={[styles.greetingWrap, { flex: 1 }]}>
       <Text style={styles.dateText}>{format(new Date(), 'EEEE, MMMM d')}</Text>
       <Text style={styles.greetingText}>
         {first ? `${greeting},\n${first}.` : `${greeting}.`}
@@ -55,12 +55,15 @@ function Greeting({ name }: { name: string }) {
   );
 }
 
-// Top action cards — Deep Work + Plan Day/Weekly Review
-function TopActions({ onDeepWork, onPlan, isSunday }: {
+// Top action cards — Deep Work + time-aware Plan/Wind-down
+function TopActions({ onDeepWork, onPlan, mode }: {
   onDeepWork: () => void;
   onPlan:     () => void;
-  isSunday:   boolean;
+  mode:       'morning' | 'evening' | 'weekly';
 }) {
+  const label = mode === 'weekly' ? 'WEEKLY' : mode === 'evening' ? 'EVENING' : 'MORNING';
+  const title = mode === 'weekly' ? 'Weekly review' : mode === 'evening' ? 'Wind down' : 'Plan my day';
+  const highlighted = mode === 'weekly' || mode === 'evening';
   return (
     <View style={styles.topActions}>
       <TouchableOpacity style={styles.topCard} onPress={onDeepWork} activeOpacity={0.82}>
@@ -70,17 +73,13 @@ function TopActions({ onDeepWork, onPlan, isSunday }: {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={[styles.topCard, isSunday && styles.topCardHighlight]}
+        style={[styles.topCard, highlighted && styles.topCardHighlight]}
         onPress={onPlan}
         activeOpacity={0.82}
       >
-        <Text style={[styles.topCardLabel, isSunday && styles.topCardLabelHighlight]}>
-          {isSunday ? 'WEEKLY' : 'MORNING'}
-        </Text>
-        <Text style={[styles.topCardTitle, isSunday && styles.topCardTitleHighlight]}>
-          {isSunday ? 'Weekly review' : 'Plan my day'}
-        </Text>
-        <Text style={[styles.topCardArrow, isSunday && styles.topCardTitleHighlight]}>→</Text>
+        <Text style={[styles.topCardLabel, highlighted && styles.topCardLabelHighlight]}>{label}</Text>
+        <Text style={[styles.topCardTitle, highlighted && styles.topCardTitleHighlight]}>{title}</Text>
+        <Text style={[styles.topCardArrow, highlighted && styles.topCardTitleHighlight]}>→</Text>
       </TouchableOpacity>
     </View>
   );
@@ -128,26 +127,39 @@ function TodaySequence({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: stri
   );
 }
 
-// Habit chip — domain-coloured dot instead of emoji
-function HabitChip({ habit, onToggle }: { habit: any; onToggle: () => void }) {
-  const today = format(new Date(), 'yyyy-MM-dd');
-  const done  = habit.completedDates.includes(today);
-  const dc    = DomainColors[habit.domain as DomainKey] ?? DomainColors.work;
-
+// Inbox task row
+function InboxRow({ task, onSchedule }: { task: Task; onSchedule: () => void }) {
   return (
-    <TouchableOpacity
-      style={[styles.habitChip, done && styles.habitChipDone]}
-      onPress={onToggle}
-      activeOpacity={0.78}
-    >
-      <View style={[
-        styles.habitDot,
-        { backgroundColor: done ? 'rgba(255,255,255,0.6)' : dc.text },
-      ]} />
-      <Text style={[styles.habitName, done && styles.habitNameDone]}>
-        {habit.name}
-      </Text>
-      {done && <Text style={styles.habitTick}>✓</Text>}
+    <TouchableOpacity style={styles.inboxRow} onPress={onSchedule} activeOpacity={0.75}>
+      <View style={styles.inboxDot} />
+      <Text style={styles.inboxText} numberOfLines={1}>{task.text}</Text>
+      {task.estimatedMinutes ? (
+        <Text style={styles.inboxMeta}>~{task.estimatedMinutes}m</Text>
+      ) : null}
+    </TouchableOpacity>
+  );
+}
+
+// Overdue banner — shown above Today if tasks are overdue
+function OverdueBanner({ tasks, onPress }: { tasks: Task[]; onPress: () => void }) {
+  const today = format(new Date(), 'yyyy-MM-dd');
+  if (!tasks.length) return null;
+  const aged = tasks.filter(t => {
+    try { return differenceInDays(new Date(today), parseISO(t.date)) >= 7; }
+    catch { return false; }
+  });
+  return (
+    <TouchableOpacity style={styles.overdueBanner} onPress={onPress} activeOpacity={0.82}>
+      <View style={styles.overdueLeft}>
+        <Text style={styles.overdueTitle}>
+          {tasks.length} overdue{aged.length > 0 ? ` · ${aged.length} stale 7d+` : ''}
+        </Text>
+        <Text style={styles.overdueSub} numberOfLines={1}>
+          {tasks.slice(0, 2).map(t => t.text).join(' · ')}
+          {tasks.length > 2 ? ` +${tasks.length - 2} more` : ''}
+        </Text>
+      </View>
+      <Text style={styles.overdueAction}>Review →</Text>
     </TouchableOpacity>
   );
 }
@@ -193,19 +205,19 @@ function ProjectRow({ project, onPress }: { project: any; onPress: () => void })
   );
 }
 
-// Quick-add modal
+// Quick-add modal (inbox-first: task goes to inbox unless user flips to today)
 function QuickAddModal({ visible, onClose, onAdd }: {
   visible: boolean;
   onClose: () => void;
-  onAdd: (text: string, isMIT: boolean) => void;
+  onAdd: (text: string, addToToday: boolean) => void;
 }) {
-  const [text,  setText]  = useState('');
-  const [isMIT, setIsMIT] = useState(true);
+  const [text,       setText]       = useState('');
+  const [addToToday, setAddToToday] = useState(false);
 
   function submit() {
     if (!text.trim()) return;
-    onAdd(text.trim(), isMIT);
-    setText(''); setIsMIT(true); onClose();
+    onAdd(text.trim(), addToToday);
+    setText(''); setAddToToday(false); onClose();
   }
 
   return (
@@ -214,12 +226,12 @@ function QuickAddModal({ visible, onClose, onAdd }: {
         <TouchableOpacity style={qa.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={qa.sheet}>
           <View style={qa.handle} />
-          <Text style={qa.title}>Add to today</Text>
+          <Text style={qa.title}>Capture task</Text>
           <TextInput
             style={qa.input}
             value={text}
             onChangeText={setText}
-            placeholder="What needs to happen today?"
+            placeholder="What's on your mind?"
             placeholderTextColor={Colors.textTertiary}
             autoFocus
             returnKeyType="done"
@@ -227,18 +239,18 @@ function QuickAddModal({ visible, onClose, onAdd }: {
           />
           <View style={qa.mitRow}>
             <View>
-              <Text style={qa.mitLabel}>Top priority (MIT)</Text>
-              <Text style={qa.mitSub}>Max 3 per day</Text>
+              <Text style={qa.mitLabel}>Add to today</Text>
+              <Text style={qa.mitSub}>Off = goes to Inbox to schedule later</Text>
             </View>
             <Switch
-              value={isMIT}
-              onValueChange={setIsMIT}
+              value={addToToday}
+              onValueChange={setAddToToday}
               trackColor={{ false: Colors.borderLight, true: Colors.primary }}
               thumbColor="#fff"
             />
           </View>
           <TouchableOpacity style={[qa.addBtn, !text.trim() && qa.addBtnOff]} onPress={submit} disabled={!text.trim()} activeOpacity={0.85}>
-            <Text style={qa.addBtnText}>Add</Text>
+            <Text style={qa.addBtnText}>{addToToday ? 'Add to today' : 'Add to inbox'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={qa.cancelBtn} onPress={onClose}>
             <Text style={qa.cancelText}>Cancel</Text>
@@ -357,20 +369,36 @@ const gp = StyleSheet.create({
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardScreen({ navigation }: any) {
-  const { profile, tasks, habits, projects, toggleTask, toggleHabitToday, updateProject, updateProfile, addTask } = useStore();
+  const { profile, tasks, projects, toggleTask, updateProject, updateProfile, addTask } = useStore();
   const [syncing,      setSyncing]      = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [activePage,   setActivePage]   = useState(0);
 
-  const today      = format(new Date(), 'yyyy-MM-dd');
-  const isSunday   = new Date().getDay() === 0;
+  const today = format(new Date(), 'yyyy-MM-dd');
+
+  // Time-aware plan mode
+  const planMode: 'morning' | 'evening' | 'weekly' = (() => {
+    const h   = new Date().getHours();
+    const dow = new Date().getDay();
+    if (dow === 0) return 'weekly';
+    if (h >= 17)  return 'evening';
+    return 'morning';
+  })();
 
   const mits = useMemo(
-    () => tasks.filter(t => t.date === today && t.isMIT),
+    () => tasks.filter(t => t.date === today && t.isMIT && !t.completed),
     [tasks, today],
   );
   const otherToday = useMemo(
     () => tasks.filter(t => t.date === today && !t.isMIT),
+    [tasks, today],
+  );
+  const inboxTasks = useMemo(
+    () => tasks.filter(t => (t.isInbox || !t.date || t.date === '') && !t.completed),
+    [tasks],
+  );
+  const overdueTasks = useMemo(
+    () => tasks.filter(t => t.date && t.date < today && !t.completed),
     [tasks, today],
   );
   const activeProjects = useMemo(
@@ -378,32 +406,21 @@ export default function DashboardScreen({ navigation }: any) {
     [projects],
   );
 
-  const todayHabits = useMemo(() => {
-    const dow = new Date().getDay();
-    return habits.filter(h => {
-      if (h.frequency === 'daily')    return true;
-      if (h.frequency === 'weekdays') return dow >= 1 && dow <= 5;
-      if (h.frequency === 'weekends') return dow === 0 || dow === 6;
-      return true;
-    });
-  }, [habits]);
-
-  const habitsDone = todayHabits.filter(h => h.completedDates.includes(today)).length;
-
   function handlePageChange(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
     setActivePage(page);
   }
 
-  function handleQuickAdd(text: string, isMIT: boolean) {
+  function handleQuickAdd(text: string, addToToday: boolean) {
     const mitCount = tasks.filter(t => t.date === today && t.isMIT).length;
     addTask({
       text,
-      isMIT:     isMIT && mitCount < 3,
+      isMIT:     false,
       completed: false,
-      date:      today,
-      isToday:   true,
-      priority:  isMIT ? 'high' : 'medium',
+      date:      addToToday ? today : '',
+      isInbox:   !addToToday,
+      isToday:   addToToday,
+      priority:  'medium',
       domain:    (profile.selectedDomains?.[0] as DomainKey) ?? 'work',
     });
   }
@@ -471,14 +488,29 @@ export default function DashboardScreen({ navigation }: any) {
             contentContainerStyle={styles.scroll}
             showsVerticalScrollIndicator={false}
           >
-            {/* Greeting */}
-            <Greeting name={profile.name} />
+            {/* Greeting + quick capture */}
+            <View style={styles.greetingRow}>
+              <Greeting name={profile.name} />
+              <TouchableOpacity
+                style={styles.plusBtn}
+                onPress={() => setShowQuickAdd(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.plusBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Top action cards */}
             <TopActions
               onDeepWork={() => navigation.navigate('DeepWork')}
-              onPlan={() => navigation.navigate('Chat', { mode: isSunday ? 'weekly' : 'morning' })}
-              isSunday={isSunday}
+              onPlan={() => navigation.navigate('Chat', { mode: planMode === 'weekly' ? 'weekly' : planMode === 'evening' ? 'evening' : 'morning' })}
+              mode={planMode}
+            />
+
+            {/* Overdue banner */}
+            <OverdueBanner
+              tasks={overdueTasks}
+              onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
             />
 
             {/* Today section */}
@@ -492,9 +524,6 @@ export default function DashboardScreen({ navigation }: any) {
                     {totalToday > 0 && (
                       <Text style={styles.todayCount}>{completedToday}/{totalToday}</Text>
                     )}
-                    <TouchableOpacity onPress={() => setShowQuickAdd(true)}>
-                      <Text style={styles.sectionAction}>+ Add</Text>
-                    </TouchableOpacity>
                   </View>
                 </View>
               );
@@ -548,22 +577,31 @@ export default function DashboardScreen({ navigation }: any) {
               )}
             </View>
 
-            {/* Habits */}
-            {todayHabits.length > 0 && (
+            {/* Inbox */}
+            {inboxTasks.length > 0 && (
               <>
                 <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Habits</Text>
-                  <Text style={styles.habitCount}>{habitsDone}/{todayHabits.length}</Text>
+                  <Text style={styles.sectionTitle}>Inbox</Text>
+                  <Text style={styles.habitCount}>{inboxTasks.length} captured</Text>
                 </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.habitScroll}
-                >
-                  {todayHabits.map(h => (
-                    <HabitChip key={h.id} habit={h} onToggle={() => toggleHabitToday(h.id)} />
+                <View style={styles.inboxCard}>
+                  {inboxTasks.slice(0, 5).map(t => (
+                    <InboxRow
+                      key={t.id}
+                      task={t}
+                      onSchedule={() => navigation.navigate('Chat', { mode: 'morning' })}
+                    />
                   ))}
-                </ScrollView>
+                  {inboxTasks.length > 5 && (
+                    <TouchableOpacity
+                      style={styles.inboxMore}
+                      onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.inboxMoreText}>+{inboxTasks.length - 5} more — plan with Synapse →</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </>
             )}
 
@@ -733,21 +771,61 @@ const styles = StyleSheet.create({
   taskTextDone:   { textDecorationLine: 'line-through', color: Colors.textTertiary },
   taskMeta:       { fontSize: 11, color: Colors.textTertiary, marginTop: 2 },
 
-  // Habits
+  // Greeting row (greeting + plus button)
+  greetingRow: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingRight: Spacing.lg,
+  },
+  plusBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: Colors.ink,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: 28, flexShrink: 0,
+  },
+  plusBtnText: { fontSize: 22, color: '#fff', lineHeight: 26, fontWeight: '300' },
+
+  // Inbox count badge (reused habitCount style)
   habitCount: { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
   habitScroll:{ paddingLeft: Spacing.lg, paddingRight: Spacing.lg, paddingVertical: 4, gap: 8 },
-  habitChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    paddingHorizontal: 14, paddingVertical: 9,
-    borderRadius: Radius.full,
+
+  // Inbox
+  inboxCard: {
+    marginHorizontal: Spacing.lg,
+    borderRadius: Radius.lg,
     borderWidth: 1, borderColor: Colors.border,
     backgroundColor: Colors.surface,
+    overflow: 'hidden',
   },
-  habitChipDone:  { backgroundColor: Colors.ink, borderColor: Colors.ink },
-  habitDot:       { width: 7, height: 7, borderRadius: 3.5, flexShrink: 0 },
-  habitName:      { fontSize: 13, fontWeight: '500', color: Colors.textSecondary },
-  habitNameDone:  { color: '#fff' },
-  habitTick:      { fontSize: 11, color: '#fff', fontWeight: '700' },
+  inboxRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 13, paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.borderLight,
+  },
+  inboxDot: {
+    width: 7, height: 7, borderRadius: 3.5,
+    backgroundColor: Colors.textTertiary, flexShrink: 0,
+  },
+  inboxText: { flex: 1, fontSize: 15, color: Colors.textPrimary, fontWeight: '400' },
+  inboxMeta: { fontSize: 12, color: Colors.textTertiary, fontWeight: '400' },
+  inboxMore: {
+    paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center',
+  },
+  inboxMoreText: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+
+  // Overdue banner
+  overdueBanner: {
+    marginHorizontal: Spacing.lg, marginTop: Spacing.base,
+    borderRadius: Radius.lg,
+    borderWidth: 1, borderColor: '#E8C4A0',
+    backgroundColor: '#FDF3E8',
+    paddingVertical: 12, paddingHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+  },
+  overdueLeft:   { flex: 1, gap: 2 },
+  overdueTitle:  { fontSize: 14, fontWeight: '700', color: '#9B4F0F' },
+  overdueSub:    { fontSize: 12, color: '#B5733A' },
+  overdueAction: { fontSize: 13, fontWeight: '600', color: '#9B4F0F' },
 
   // Projects
   projectsCard: {

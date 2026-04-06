@@ -69,9 +69,10 @@ export interface Task {
   domain?: DomainKey;
   text: string;
   completed: boolean;
-  date: string;
+  date: string;           // '' = inbox (no date assigned yet)
   isToday: boolean;
   isMIT: boolean;
+  isInbox?: boolean;      // true = captured but not yet scheduled
   estimatedMinutes?: number;
   priority: 'high' | 'medium' | 'low';
 }
