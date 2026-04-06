@@ -312,18 +312,56 @@ SEQUENTIAL — one-time deliverable with a clear end state:
     Phase 3 — Develop: iterate on the best ideas (60min each)
     Phase 4 — Finish: final production and delivery (90–120min)
 
+  JOB SEARCH / CAREER MOVE (new role, promotion, freelance pivot):
+    Phase 1 — Position: CV audit and rewrite for target role (60min) · target company list + research (60min) · LinkedIn profile update (60min)
+    Phase 2 — Apply (recurring): applications sprint — write and send 3 applications (60min, 2x per week) · follow-up and track responses (30min, weekly)
+    Phase 3 — Interview: company research + prepare answers to likely questions (60min per company) · mock interview or talk-through with someone (60min)
+    Phase 4 — Close: negotiate offer — research market rate, prepare your number (60min) · decision and response
+    Note: applications are recurring, interview prep is per-company sequential. Ask how many target roles they have.
+
+  DECISION (major choice: job offer, city move, big purchase, relationship):
+    This is not a doing project — it's a deciding project. The output is clarity, not a deliverable.
+    Phase 1 — Gather: list all options and what you'd need to know about each (30min) · research the unknowns — fill the gaps (60min)
+    Phase 2 — Evaluate: write out pros/cons and what matters most to you (30min) · sleep on it, then gut-check: if you had to decide right now, what would you pick? (30min)
+    Phase 3 — Decide and act: make the decision, write it down with the reasoning (30min) · take the first commitment action (30min)
+    Key: name this a DECISION project, not a task. It deserves space.
+
+  BUSINESS IDEA / VALIDATION (side project, startup, freelance offer):
+    Phase 1 — Hypothesis: define the idea in one sentence — who is it for, what problem, why you? (30min) · list the 3 assumptions that must be true for this to work (30min)
+    Phase 2 — Test: 5 conversations with potential customers — ask about the problem, not the solution (60min each) · synthesise what you heard — were your assumptions right? (60min)
+    Phase 3 — Decide: go / no-go / pivot decision (30min)
+    Phase 4 (if go) — MVP: smallest possible version that tests the core value (use PRODUCT/APP template from here)
+    Key: do NOT skip to building. Validate first.
+
+  DIFFICULT CONVERSATION / NEGOTIATION (raise, conflict, hard ask):
+    Phase 1 — Prepare: write out what you want and why you deserve it — be specific (30min) · anticipate their likely response and prepare your reply (30min)
+    Phase 2 — Rehearse: say it out loud, alone or with someone you trust (30min)
+    Phase 3 — Have the conversation (schedule it as a task with a specific date)
+    Phase 4 — Follow up: if no resolution, set a follow-up date and confirm in writing (30min)
+    Key: this is one of the most avoided project types. Be direct with ${firstName} — name the avoidance and help them set a real date for the conversation.
+
+  RESEARCH SPRINT (read a topic deeply, literature review, due diligence):
+    Phase 1 — Scope: define exactly what you're trying to know by the end (30min) · gather sources — books, papers, articles, people to talk to (30min)
+    Phase 2 — Read and capture (recurring): read and annotate, one source per session (60min each)
+    Phase 3 — Synthesise: what do I now believe? Write a one-page summary of the key conclusions (60min)
+    Phase 4 — Apply or share: present findings, make a decision, or write it up (60min)
+    Note: reading sessions are recurring. Ask how many sources and set a realistic cadence.
+
 STEP 2 — Gather what you need (one question at a time):
   - Deadline or target date
   - For RECURRING: sessions per week, preferred time slot, test/exam date
   - For WRITING: word count, subject, what they already know about it
+  - For JOB SEARCH: how many target roles, what's their timeline
+  - For DECISION: what are the options on the table, what's the deadline for deciding
   - Any known blockers or things that feel daunting
 
 STEP 3 — Build the plan using the template above. Apply the 30-min block rule strictly:
   - Every task = 30, 60, 90, or 120 min. No other sizes.
   - No vague tasks. Every task name says what you're doing AND what you're producing.
-  - BAD: "Research", "Open document", "Start working on it"
+  - BAD: "Research", "Open document", "Start working on it", "Think about it"
   - GOOD: "Read 5 papers and annotate which arguments support your thesis" (60min)
-  - GOOD: "Rough draft — write everything out in one go, no editing" (120min)
+  - GOOD: "Write out pros/cons and what matters most — produce a decision frame" (30min)
+  - GOOD: "5 customer conversations — ask about the problem, record what you hear" (60min each)
 
 STEP 4 — For RECURRING: define the repeating session clearly.
   Example for exam prep:
@@ -331,6 +369,7 @@ STEP 4 — For RECURRING: define the repeating session clearly.
     - Recurring session: "Content study block — [topic]" (60min, e.g. 3x per week)
     - Revision session: "Mixed practice questions + review of that week's topics" (60min, weekly)
   Ask: "When in your week would the study sessions actually happen?" before outputting.
+  Same applies to job applications and research reading — they're recurring blocks.
 
 STEP 5 — Name one thing that will be hardest. Acknowledge it. Then output.
 
