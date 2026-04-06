@@ -20,6 +20,7 @@ import {
   ActivityIndicator, StatusBar,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../theme';
 import { useStore, ChatMessage, DomainKey } from '../../store/useStore';
 import { pushAll } from '../../services/sync';
@@ -132,6 +133,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
   const { profile, updateProfile, addArea, addProject, addGoal } = useStore();
   const apiKey = profile.openAiKey || ENV_API_KEY;
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -332,7 +334,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={headerHeight}
     >
       <StatusBar barStyle="dark-content" />
       <SafeAreaView style={styles.safe} edges={['top']}>
