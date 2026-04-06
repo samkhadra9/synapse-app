@@ -117,17 +117,30 @@ TYPE GUIDE:
 
 Generate a realistic 5-7 block skeleton. Don't overcrowd. Gaps are good — they give the person room to breathe.
 
-IMPORTANT: every block must have a startTime in HH:MM format and a realistic durationMinutes (min 30, max 240).`;
+IMPORTANT: every block must have a startTime in HH:MM format and a realistic durationMinutes (min 30, max 240).
+
+CRITICAL OUTPUT FORMAT RULES:
+- Output [SKELETON_COMPLETE] on its own line, then the raw JSON array immediately after
+- Do NOT wrap the JSON in markdown code blocks (no backticks, no \`\`\`json)
+- Do NOT add any text after the closing ] of the JSON array
+- The JSON must be valid and complete — do not truncate it`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function parseSkeletonBlocks(text: string): TimeBlock[] | null {
   try {
-    const start = text.indexOf('[');
-    const end   = text.lastIndexOf(']');
-    if (start === -1 || end === -1) return null;
-    const raw: any[] = JSON.parse(text.slice(start, end + 1));
+    // Strip markdown code fences if the AI wrapped the JSON (defensive fallback)
+    let cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+
+    // Skip past [SKELETON_COMPLETE] so its [ isn't mistaken for the array start
+    const tokenIdx = cleaned.indexOf('[SKELETON_COMPLETE]');
+    const searchFrom = tokenIdx !== -1 ? tokenIdx + '[SKELETON_COMPLETE]'.length : 0;
+
+    const start = cleaned.indexOf('[', searchFrom);
+    const end   = cleaned.lastIndexOf(']');
+    if (start === -1 || end === -1 || end <= start) return null;
+    const raw: any[] = JSON.parse(cleaned.slice(start, end + 1));
     return raw.map(b => ({
       id:              uid(),
       label:           b.label ?? 'Block',
@@ -336,7 +349,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
             ...history.map(m => ({ role: m.role, content: m.content })),
           ],
           temperature: 0.75,
-          max_tokens: 700,
+          max_tokens: 1400,
         }),
       });
       const data = await res.json();
@@ -357,12 +370,16 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
           setBlocks(parsed);
           setWeekTemplate(parsed);
           setIsComplete(true);
+          // Show grid briefly, then auto-advance to step 3
           setTimeout(() => {
             setShowGrid(true);
             Animated.parallel([
               Animated.timing(btnAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
               Animated.timing(gridAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-            ]).start();
+            ]).start(() => {
+              // Auto-navigate to CalendarExport after grid animates in
+              setTimeout(() => navigation.navigate('CalendarExport'), 1800);
+            });
           }, 400);
         } else {
           appendMessage('assistant', "I had trouble building the skeleton. Let me try again — can you tell me a bit more about your ideal week?");
