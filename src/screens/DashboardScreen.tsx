@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { format, parseISO, differenceInDays } from 'date-fns';
-import { Colors, Spacing, Radius, DomainColors } from '../theme';
+import { Colors, Spacing, Radius, DomainColors, useColors } from '../theme';
 import { useStore, DomainKey, Task, LifeGoal, TimeHorizon, TimeBlockType } from '../store/useStore';
 import { syncAllProjects } from '../services/calendar';
 
@@ -94,39 +94,51 @@ function Greeting({ name }: { name: string }) {
 }
 
 // Top action buttons — Deep Work + time-aware Plan/Wind-down
-const AMBER   = '#D4621A';
 const CHARCOAL = '#18181B';
 
-const PLAN_CONFIG = {
-  morning: { label: 'MORNING', title: 'Plan my day',   accent: AMBER },
-  evening: { label: 'EVENING', title: 'Wind down',     accent: AMBER },
-  weekly:  { label: 'WEEKLY',  title: 'Weekly review', accent: AMBER },
+const PLAN_LABELS: Record<string, { label: string; title: string }> = {
+  morning: { label: 'MORNING', title: 'Plan my day'   },
+  evening: { label: 'EVENING', title: 'Wind down'     },
+  weekly:  { label: 'WEEKLY',  title: 'Weekly review' },
 };
 
-function HomeActions({ onDeepWork, onPlan, mode }: {
+function HomeActions({ onDeepWork, onPlan, mode, accent }: {
   onDeepWork: () => void;
   onPlan:     () => void;
   mode:       'morning' | 'evening' | 'weekly';
+  accent:     string;
 }) {
-  const plan = PLAN_CONFIG[mode];
+  const plan = PLAN_LABELS[mode];
   return (
     <View style={ha.row}>
-      <TouchableOpacity style={ha.card} onPress={onDeepWork} activeOpacity={0.82}>
-        <View style={[ha.accent, { backgroundColor: CHARCOAL }]} />
-        <View style={ha.inner}>
-          <Text style={ha.label}>FOCUS</Text>
-          <Text style={ha.title}>Deep work</Text>
+      <TouchableOpacity
+        style={[ha.card, { shadowColor: CHARCOAL }]}
+        onPress={onDeepWork}
+        activeOpacity={0.82}
+      >
+        <View style={ha.cardInner}>
+          <View style={[ha.accent, { backgroundColor: CHARCOAL }]} />
+          <View style={ha.inner}>
+            <Text style={ha.label}>FOCUS</Text>
+            <Text style={ha.title}>Deep work</Text>
+          </View>
+          <Text style={ha.arrow}>→</Text>
         </View>
-        <Text style={ha.arrow}>→</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={ha.card} onPress={onPlan} activeOpacity={0.82}>
-        <View style={[ha.accent, { backgroundColor: plan.accent }]} />
-        <View style={ha.inner}>
-          <Text style={[ha.label, { color: plan.accent }]}>{plan.label}</Text>
-          <Text style={ha.title}>{plan.title}</Text>
+      <TouchableOpacity
+        style={[ha.card, { shadowColor: accent }]}
+        onPress={onPlan}
+        activeOpacity={0.82}
+      >
+        <View style={ha.cardInner}>
+          <View style={[ha.accent, { backgroundColor: accent }]} />
+          <View style={ha.inner}>
+            <Text style={[ha.label, { color: accent }]}>{plan.label}</Text>
+            <Text style={ha.title}>{plan.title}</Text>
+          </View>
+          <Text style={ha.arrow}>→</Text>
         </View>
-        <Text style={ha.arrow}>→</Text>
       </TouchableOpacity>
     </View>
   );
@@ -138,120 +150,121 @@ const ha = StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center',
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border,
-    overflow: 'hidden', paddingRight: 14, paddingVertical: 16,
+    overflow: 'visible', paddingRight: 14, paddingVertical: 16,
+    // subtle lift — each button tints its own shadow via inline style
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  accent: { width: 3, alignSelf: 'stretch', marginRight: 14 },
+  // Inner clip (keeps accent bar flush without clipping shadow)
+  cardInner: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    overflow: 'hidden', borderRadius: Radius.lg,
+  },
+  accent: { width: 4, alignSelf: 'stretch', marginRight: 14 },
   inner:  { flex: 1 },
   label:  { fontSize: 10, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 1, marginBottom: 4 },
   title:  { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2 },
   arrow:  { fontSize: 15, color: Colors.textTertiary },
 });
 
-// Clean task list — MITs prominent, others light
-function TodaySequence({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: string) => void }) {
-  const mits   = tasks.filter(t => t.isMIT);
-  const others = tasks.filter(t => !t.isMIT);
+// Clean flat checklist — MITs first, then regular tasks
+function TodaySequence({ tasks, onToggle, accent }: { tasks: Task[]; onToggle: (id: string) => void; accent: string }) {
+  // Sort: MITs first, then by completed status
+  const sorted = [
+    ...tasks.filter(t => t.isMIT && !t.completed),
+    ...tasks.filter(t => !t.isMIT && !t.completed),
+    ...tasks.filter(t => t.completed),
+  ];
 
   return (
-    <View style={seq.wrap}>
-      {/* MIT tasks — warm, prominent */}
-      {mits.map((task, i) => (
-        <TouchableOpacity
-          key={task.id}
-          style={[seq.mitRow, i > 0 && seq.mitRowBorder, task.completed && seq.rowDone]}
-          onPress={() => onToggle(task.id)}
-          activeOpacity={0.75}
-        >
-          <View style={[seq.check, task.completed && seq.checkDone]}>
-            {task.completed && <Text style={seq.checkMark}>✓</Text>}
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[seq.mitText, task.completed && seq.textDone]} numberOfLines={2}>
-              {task.text}
-            </Text>
-            {task.reason && !task.completed ? (
-              <Text style={seq.reason}>{task.reason}</Text>
-            ) : null}
-          </View>
-          <View style={seq.mitBadge}>
-            <Text style={seq.mitBadgeText}>MIT</Text>
-          </View>
-          {task.estimatedMinutes && !task.completed ? (
-            <Text style={seq.time}>~{task.estimatedMinutes}m</Text>
-          ) : null}
-        </TouchableOpacity>
-      ))}
+    <View style={seq.list}>
+      {sorted.map((task, i) => {
+        const isMIT = task.isMIT && !task.completed;
+        return (
+          <TouchableOpacity
+            key={task.id}
+            style={[seq.row, i > 0 && seq.rowBorder, task.completed && seq.rowDone]}
+            onPress={() => onToggle(task.id)}
+            activeOpacity={0.72}
+          >
+            {/* Checkbox */}
+            <View style={[
+              seq.circle,
+              isMIT     && { borderColor: accent, borderWidth: 2 },
+              task.completed && seq.circleDone,
+            ]}>
+              {task.completed && <Text style={seq.tick}>✓</Text>}
+            </View>
 
-      {/* Regular tasks — lighter, unobtrusive */}
-      {others.length > 0 && (
-        <View style={[seq.othersWrap, mits.length > 0 && seq.othersBorder]}>
-          {others.map((task, i) => (
-            <TouchableOpacity
-              key={task.id}
-              style={[seq.otherRow, i > 0 && seq.otherRowBorder, task.completed && seq.rowDone]}
-              onPress={() => onToggle(task.id)}
-              activeOpacity={0.75}
-            >
-              <View style={[seq.otherCheck, task.completed && seq.otherCheckDone]}>
-                {task.completed && <Text style={seq.otherCheckMark}>✓</Text>}
-              </View>
-              <Text style={[seq.otherText, task.completed && seq.textDone]} numberOfLines={2}>
+            {/* Text + reason */}
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  seq.label,
+                  isMIT     && seq.labelBold,
+                  task.completed && seq.labelDone,
+                ]}
+                numberOfLines={2}
+              >
                 {task.text}
               </Text>
-              {task.estimatedMinutes && !task.completed ? (
-                <Text style={seq.time}>~{task.estimatedMinutes}m</Text>
+              {task.reason && !task.completed ? (
+                <Text style={seq.reason}>{task.reason}</Text>
               ) : null}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+            </View>
+
+            {/* Right-side: MIT badge + time */}
+            <View style={seq.right}>
+              {task.isMIT && !task.completed ? (
+                <View style={[seq.mitPill, { backgroundColor: accent + '22' }]}>
+                  <Text style={[seq.mitPillText, { color: accent }]}>★</Text>
+                </View>
+              ) : null}
+              {task.estimatedMinutes && !task.completed ? (
+                <Text style={seq.time}>{task.estimatedMinutes}m</Text>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
 
 const seq = StyleSheet.create({
-  wrap: { gap: 0 },
+  list: {},
 
-  // MIT rows — card-like, warm amber left border
-  mitRow: {
+  row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 14, paddingRight: 14, paddingLeft: 16,
+    paddingVertical: 13, paddingHorizontal: 16,
     backgroundColor: Colors.surface,
-    borderLeftWidth: 3, borderLeftColor: AMBER,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderLight,
   },
-  mitRowBorder: {},
-  rowDone:    { opacity: 0.35 },
-  check: {
-    width: 22, height: 22, borderRadius: 11,
-    borderWidth: 1.5, borderColor: AMBER,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  checkDone:  { backgroundColor: AMBER, borderColor: AMBER },
-  checkMark:  { fontSize: 10, color: '#fff', fontWeight: '800' },
-  mitText:    { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, lineHeight: 21 },
-  textDone:   { textDecorationLine: 'line-through', color: Colors.textTertiary },
-  reason:     { fontSize: 12, color: Colors.textTertiary, marginTop: 2, fontStyle: 'italic' },
-  mitBadge:   { backgroundColor: '#FEF3E2', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  mitBadgeText: { fontSize: 9, fontWeight: '800', color: AMBER, letterSpacing: 0.5 },
-  time:       { fontSize: 11, color: Colors.textTertiary, marginLeft: 4 },
+  rowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderLight },
+  rowDone:   { opacity: 0.38 },
 
-  // Regular task rows — lighter, minimal
-  othersWrap:     { backgroundColor: Colors.surface },
-  othersBorder:   { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderLight },
-  otherRow:       {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, paddingHorizontal: 16,
-  },
-  otherRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.borderLight },
-  otherCheck: {
-    width: 18, height: 18, borderRadius: 9,
+  // Circle checkbox
+  circle: {
+    width: 20, height: 20, borderRadius: 10,
     borderWidth: 1.5, borderColor: Colors.border,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  otherCheckDone:  { backgroundColor: Colors.textTertiary, borderColor: Colors.textTertiary },
-  otherCheckMark:  { fontSize: 9, color: '#fff', fontWeight: '800' },
-  otherText:       { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
+  circleAccent: { borderColor: '#D4621A', borderWidth: 2 },
+  circleDone:  { backgroundColor: Colors.textTertiary, borderColor: Colors.textTertiary },
+  tick:        { fontSize: 9, color: '#fff', fontWeight: '900' },
+
+  // Text
+  label:     { fontSize: 14, fontWeight: '400', color: Colors.textSecondary, lineHeight: 20 },
+  labelBold: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
+  labelDone: { textDecorationLine: 'line-through', color: Colors.textTertiary },
+  reason:    { fontSize: 11, color: Colors.textTertiary, marginTop: 1, fontStyle: 'italic' },
+
+  // Right side
+  right:       { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  mitPill:     { backgroundColor: '#FEF3E2', borderRadius: 99, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  mitPillText: { fontSize: 10, color: '#D4621A' },
+  time:        { fontSize: 11, color: Colors.textTertiary },
 });
 
 // Inbox task row
@@ -796,6 +809,7 @@ const gp = StyleSheet.create({
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardScreen({ navigation }: any) {
+  const C = useColors();  // active theme tokens
   const { profile, tasks, projects, toggleTask, updateProject, updateProfile, addTask, touchLastActive } = useStore();
   const [syncing,       setSyncing]       = useState(false);
   const [showQuickAdd,  setShowQuickAdd]  = useState(false);
@@ -980,6 +994,7 @@ export default function DashboardScreen({ navigation }: any) {
               onDeepWork={() => navigation.navigate('DeepWork')}
               onPlan={() => navigation.navigate('Chat', { mode: planMode === 'weekly' ? 'weekly' : planMode === 'evening' ? 'evening' : 'morning' })}
               mode={planMode}
+              accent={C.accent}
             />
 
             {/* Lapse recovery card */}
@@ -1062,17 +1077,18 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.sectionBody}>
               {mits.length === 0 && otherToday.length === 0 ? (
                 <TouchableOpacity
-                  style={styles.planCTA}
+                  style={[styles.planCTA, { backgroundColor: C.accentLight, borderColor: C.accentMid }]}
                   onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
                   activeOpacity={0.82}
                 >
-                  <Text style={styles.planCTAText}>Plan my day with Synapse →</Text>
+                  <Text style={[styles.planCTAText, { color: C.accent }]}>Plan my day with Synapse →</Text>
                 </TouchableOpacity>
               ) : (
                 <>
                   <TodaySequence
                     tasks={showAllToday ? [...mits, ...otherToday] : focusedTasks}
                     onToggle={id => toggleTask(id)}
+                    accent={C.accent}
                   />
                   {!showAllToday && hiddenCount > 0 && (
                     <TouchableOpacity style={styles.seeAllBtn} onPress={() => setShowAllToday(true)} activeOpacity={0.75}>
@@ -1162,9 +1178,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.accentMid,
   },
   topCardLabel:          { fontSize: 10, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 1.2 },
-  topCardLabelHighlight: { color: AMBER },
+  topCardLabelHighlight: { color: '#D4621A' },
   topCardTitle:          { fontSize: 16, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3 },
-  topCardTitleHighlight: { color: AMBER },
+  topCardTitleHighlight: { color: '#D4621A' },
   topCardArrow:          { fontSize: 16, color: Colors.textTertiary, marginTop: 4 },
 
   // Section headers

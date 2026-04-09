@@ -2,6 +2,22 @@
 // Aesthetic: Editorial · Deep forest teal · Warm amber orb · Pure white · Near-black type
 // Blend: Abby Health clarity × C.Lab warmth and organic softness
 
+// ── Theme-aware hook ─────────────────────────────────────────────────────────
+// Usage: const C = useColors();  — returns the active theme's colour tokens.
+// Falls back to the static Colors export for screens that haven't migrated yet.
+import { THEMES, DEFAULT_THEME } from './themes';
+export type { ThemeName } from './themes';
+export { THEMES, DEFAULT_THEME } from './themes';
+
+/** Returns active theme colour tokens — reactive to theme changes in store. */
+export function useColors() {
+  // Lazy import to avoid circular deps with store
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const useStore = require('../store/useStore').useStore;
+  const themeName = useStore((s: { appTheme: import('./themes').ThemeName }) => s.appTheme) ?? DEFAULT_THEME;
+  return THEMES[themeName]?.tokens ?? THEMES[DEFAULT_THEME].tokens;
+}
+
 export const Colors = {
   // ── Primary — deep forest teal ─────────────────────────────────────────────
   primary:      '#1A5C4A',   // Abby-style deep teal

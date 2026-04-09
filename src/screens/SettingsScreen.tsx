@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Colors, Spacing, Radius, Shadow } from '../theme';
+import { Colors, Spacing, Radius, Shadow, THEMES } from '../theme';
+import type { ThemeName } from '../theme';
 import { useStore } from '../store/useStore';
 import { listWritableCalendars, DeviceCalendar } from '../services/calendar';
 import {
@@ -38,7 +39,7 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
-  const { profile, updateProfile, resetOnboarding, wipeAllData, signOut } = useStore();
+  const { profile, updateProfile, resetOnboarding, wipeAllData, signOut, appTheme, setTheme } = useStore();
 
   const [name,           setName]           = useState(profile.name);
   const [newAnthropicKey,setNewAnthropicKey] = useState('');
@@ -290,6 +291,29 @@ export default function SettingsScreen() {
                 </Text>
               </View>
             )}
+          </View>
+
+          {/* Appearance */}
+          <SectionLabel label="APPEARANCE" />
+          <View style={styles.themeRow}>
+            {(Object.entries(THEMES) as [ThemeName, typeof THEMES[ThemeName]][]).map(([key, theme]) => {
+              const active = (appTheme ?? 'forest') === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.themeChip, active && { borderColor: theme.tokens.primary, backgroundColor: theme.tokens.primaryLight }]}
+                  onPress={() => setTheme(key)}
+                  activeOpacity={0.78}
+                >
+                  <View style={[styles.themeSwatch, { backgroundColor: theme.tokens.primary }]} />
+                  <View style={[styles.themeSwatchAccent, { backgroundColor: theme.tokens.accent }]} />
+                  <Text style={[styles.themeChipLabel, active && { color: theme.tokens.primary, fontWeight: '700' }]}>
+                    {theme.emoji}{'  '}{theme.label}
+                  </Text>
+                  {active && <Text style={[styles.themeActive, { color: theme.tokens.primary }]}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Reminders */}
@@ -698,4 +722,17 @@ const styles = StyleSheet.create({
   calEmpty:    { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
   calEmptyText: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 10 },
   calEmptySub:  { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+
+  // Theme picker
+  themeRow: { flexDirection: 'row', gap: 10 },
+  themeChip: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 14, paddingHorizontal: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg, borderWidth: 1.5, borderColor: Colors.border,
+  },
+  themeSwatch:       { width: 12, height: 12, borderRadius: 6 },
+  themeSwatchAccent: { width: 8,  height: 8,  borderRadius: 4, marginLeft: -6, marginTop: 6 },
+  themeChipLabel:    { flex: 1, fontSize: 14, fontWeight: '500', color: Colors.textSecondary },
+  themeActive:       { fontSize: 14, fontWeight: '700' },
 });

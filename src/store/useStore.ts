@@ -161,7 +161,8 @@ export interface UserProfile {
   eveningTime: string;
   selectedDomains: DomainKey[];
   onboardingCompleted: boolean;
-  openAiKey: string;
+  anthropicKey: string;    // Main AI (Claude) — chat + planning
+  openAiKey: string;       // Optional — only needed for voice transcription (Whisper)
   backendUrl: string;
   onboardingStep: 'welcome' | 'chat' | 'done';
   conversationHistory: ChatMessage[];
@@ -248,6 +249,9 @@ interface SynapseState {
   setPortrait: (portrait: string) => void;
   touchLastActive: () => void;
 
+  appTheme: import('../theme/themes').ThemeName;
+  setTheme: (theme: import('../theme/themes').ThemeName) => void;
+
   resetOnboarding: () => void;
   wipeAllData: () => Promise<void>;
 }
@@ -261,6 +265,7 @@ const defaultProfile: UserProfile = {
   eveningTime: '21:00',
   selectedDomains: ['work', 'health', 'relationships', 'personal', 'learning'],
   onboardingCompleted: false,
+  anthropicKey: '',
   openAiKey: '',
   backendUrl: '',
   onboardingStep: 'welcome',
@@ -533,6 +538,10 @@ export const useStore = create<SynapseState>()(
         }));
       },
 
+      // ── App Theme ────────────────────────────────────────────────────────────
+      appTheme: 'forest',
+      setTheme: (theme) => set({ appTheme: theme }),
+
       // ── Dev / Reset ───────────────────────────────────────────────────────────
       resetOnboarding: () => set((s) => ({
         profile: { ...s.profile, onboardingCompleted: false, onboardingStep: 'welcome', conversationHistory: [] }
@@ -556,6 +565,19 @@ export const useStore = create<SynapseState>()(
     {
       name: 'synapse-v2-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      // Deep-merge profile so new fields (e.g. anthropicKey) always have their
+      // default values for existing users whose stored state predates the field.
+      merge: (persistedState: unknown, currentState: SynapseState): SynapseState => {
+        const persisted = persistedState as Partial<SynapseState>;
+        return {
+          ...currentState,
+          ...persisted,
+          profile: {
+            ...currentState.profile,        // defaults first (includes anthropicKey: '')
+            ...(persisted.profile ?? {}),   // stored values on top
+          },
+        };
+      },
     }
   )
 );
