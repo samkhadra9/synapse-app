@@ -130,7 +130,7 @@ function TodaySequence({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: stri
 
   const slots = tasks.map(task => {
     const start    = cursor;
-    const duration = task.estimatedMinutes ?? 45;
+    const duration = task.estimatedMinutes ?? 60;
     cursor += duration + 15;
     return { task, start, end: start + duration };
   });
@@ -457,7 +457,7 @@ export default function DashboardScreen({ navigation }: any) {
     [tasks, today],
   );
   const otherToday = useMemo(
-    () => tasks.filter(t => t.date === today && !t.isMIT),
+    () => tasks.filter(t => t.date === today && !t.isMIT && !t.completed),
     [tasks, today],
   );
   const inboxTasks = useMemo(
@@ -619,6 +619,22 @@ export default function DashboardScreen({ navigation }: any) {
               onPlan={() => navigation.navigate('Chat', { mode: planMode === 'weekly' ? 'weekly' : planMode === 'evening' ? 'evening' : 'morning' })}
               mode={planMode}
             />
+
+            {/* Decision fatigue entry — always visible */}
+            <TouchableOpacity
+              style={styles.fatigueCard}
+              onPress={() => navigation.navigate('Chat', { mode: 'fatigue' })}
+              activeOpacity={0.82}
+            >
+              <View style={styles.fatigueInner}>
+                <Text style={styles.fatigueIcon}>⚡</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fatigueTitle}>Overwhelmed? Stuck?</Text>
+                  <Text style={styles.fatigueSub}>Decision fatigue mode — one task, go</Text>
+                </View>
+                <Text style={styles.fatigueArrow}>→</Text>
+              </View>
+            </TouchableOpacity>
 
             {/* Overdue banner */}
             <OverdueBanner
@@ -859,6 +875,22 @@ const styles = StyleSheet.create({
 
   seeAllBtn:  { paddingVertical: 12, alignItems: 'center' },
   seeAllText: { fontSize: 13, color: Colors.textTertiary, fontWeight: '500' },
+
+  // Decision fatigue card
+  fatigueCard: {
+    marginHorizontal: Spacing.lg, marginTop: Spacing.sm, marginBottom: 4,
+    borderRadius: Radius.md, overflow: 'hidden',
+    borderWidth: 1.5, borderColor: Colors.accent,
+    backgroundColor: Colors.surface,
+  },
+  fatigueInner: {
+    flexDirection: 'row', alignItems: 'center',
+    padding: 14, gap: 12,
+  },
+  fatigueIcon:  { fontSize: 22 },
+  fatigueTitle: { fontSize: 14, fontWeight: '700', color: Colors.accent, marginBottom: 2 },
+  fatigueSub:   { fontSize: 12, color: Colors.textMuted },
+  fatigueArrow: { fontSize: 18, color: Colors.accent, fontWeight: '700' },
 
   // Lapse recovery card
   lapseCard: {

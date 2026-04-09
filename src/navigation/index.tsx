@@ -12,15 +12,21 @@
  */
 
 import React, { useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Text, View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius } from '../theme';
 import { useStore } from '../store/useStore';
 import { supabase } from '../lib/supabase';
 import { pullAll } from '../services/sync';
+import {
+  requestPermissions,
+  scheduleDailyNotifications,
+  addNotificationResponseListener,
+} from '../services/notifications';
 
 // Screens
 import LoginScreen              from '../screens/auth/LoginScreen';
@@ -46,7 +52,7 @@ export type RootStackParams = {
   CalendarExport:   undefined;
   Settings:         undefined;
   Main:             undefined;
-  Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'quick' };
+  Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'quick' | 'fatigue' };
   DeepWork:         undefined;
   ProjectDetail:    { projectId: string };
 };
@@ -204,6 +210,37 @@ function MainTabs() {
   );
 }
 
+// ── Notification deep-link handler ────────────────────────────────────────────
+// Must live inside NavigationContainer to use useNavigation()
+
+function NotificationHandler() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParams>>();
+
+  useEffect(() => {
+    const cleanup = addNotificationResponseListener((screen) => {
+      switch (screen) {
+        case 'MorningPlanning':
+          navigation.navigate('Chat', { mode: 'morning' });
+          break;
+        case 'EveningReview':
+          navigation.navigate('Chat', { mode: 'evening' });
+          break;
+        case 'Fatigue':
+          navigation.navigate('Chat', { mode: 'fatigue' });
+          break;
+        case 'QuickWin':
+          navigation.navigate('Chat', { mode: 'quick' });
+          break;
+        default:
+          break;
+      }
+    });
+    return cleanup;
+  }, [navigation]);
+
+  return null;
+}
+
 // ── Auth-gated app navigator ──────────────────────────────────────────────────
 
 /** Background sync — runs after login without blocking the UI */
@@ -270,6 +307,18 @@ function AppNavigator() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Request notification permissions and schedule daily reminders
+  // once the user has completed onboarding
+  useEffect(() => {
+    if (session && profile.onboardingCompleted) {
+      requestPermissions().then(granted => {
+        if (granted) {
+          scheduleDailyNotifications(profile.morningTime, profile.eveningTime);
+        }
+      });
+    }
+  }, [session, profile.onboardingCompleted, profile.morningTime, profile.eveningTime]);
+
   // Not logged in — show auth screen
   if (!session) {
     return (
@@ -279,9 +328,14 @@ function AppNavigator() {
     );
   }
 
+  // Notification tap handler — mounted once user is in the app
+  // (needs NavigationContainer context, so must be here not in App.tsx)
+
   const isOnboarded = profile.onboardingCompleted;
 
   return (
+    <>
+    <NotificationHandler />
     <Stack.Navigator
       initialRouteName={isOnboarded ? 'Main' : 'Welcome'}
       screenOptions={{
@@ -370,6 +424,7 @@ function AppNavigator() {
         }}
       />
     </Stack.Navigator>
+    </>
   );
 }
 

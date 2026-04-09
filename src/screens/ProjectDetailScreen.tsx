@@ -111,7 +111,7 @@ export default function ProjectDetailScreen() {
   const dc             = DomainColors[project.domain] ?? DomainColors.work;
   const completedTasks = project.tasks.filter(t => t.completed).length;
   const pct            = project.tasks.length > 0 ? completedTasks / project.tasks.length : 0;
-  const apiKey         = profile.openAiKey || (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
+  const apiKey         = profile.anthropicKey || (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
 
   // ── Decompose ───────────────────────────────────────────────────────────────
 

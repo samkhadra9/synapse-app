@@ -7,16 +7,21 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   TextInput, Alert, Switch, KeyboardAvoidingView, Platform,
-  Modal, FlatList, ActivityIndicator,
+  Modal, FlatList, ActivityIndicator, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Colors, Spacing, Radius, Shadow } from '../theme';
 import { useStore } from '../store/useStore';
 import { listWritableCalendars, DeviceCalendar } from '../services/calendar';
+import {
+  scheduleDailyNotifications,
+  sendTestNotification,
+  requestPermissions,
+} from '../services/notifications';
 
-// Pull API key from .env if available (set EXPO_PUBLIC_OPENAI_KEY in .env)
-const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
+const ENV_ANTHROPIC_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
+const ENV_OPENAI_KEY    = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
 
 function SectionLabel({ label }: { label: string }) {
   return <Text style={styles.sectionLabel}>{label}</Text>;
@@ -35,12 +40,14 @@ export default function SettingsScreen() {
   const navigation = useNavigation<any>();
   const { profile, updateProfile, resetOnboarding, wipeAllData, signOut } = useStore();
 
-  const [name,        setName]        = useState(profile.name);
-  const [newApiKey,   setNewApiKey]   = useState('');        // only used when editing
-  const [editingKey,  setEditingKey]  = useState(false);     // show the edit field
-  const [morning,     setMorning]     = useState(profile.morningTime);
-  const [evening,     setEvening]     = useState(profile.eveningTime);
-  const [saved,       setSaved]       = useState(false);
+  const [name,           setName]           = useState(profile.name);
+  const [newAnthropicKey,setNewAnthropicKey] = useState('');
+  const [editingAI,      setEditingAI]       = useState(false);
+  const [newOpenAiKey,   setNewOpenAiKey]    = useState('');
+  const [editingVoice,   setEditingVoice]    = useState(false);
+  const [morning,        setMorning]         = useState(profile.morningTime);
+  const [evening,        setEvening]         = useState(profile.eveningTime);
+  const [saved,          setSaved]           = useState(false);
 
   // Calendar picker
   const [calendarList,    setCalendarList]    = useState<DeviceCalendar[]>([]);
@@ -65,37 +72,87 @@ export default function SettingsScreen() {
     setShowCalPicker(false);
   }
 
-  // What key is currently active (env takes precedence if no profile key)
-  const activeKey   = profile.openAiKey || ENV_API_KEY;
-  const usingEnvKey = !!ENV_API_KEY && !profile.openAiKey;
-  // Masked display: "sk-...abcd" (last 4 chars only)
-  const maskedKey   = activeKey.length > 8
-    ? `sk-...${activeKey.slice(-4)}`
-    : activeKey ? '••••••••' : '';
+  // Anthropic key (main AI)
+  const activeAnthropicKey  = profile.anthropicKey || ENV_ANTHROPIC_KEY;
+  const usingEnvAnthropic   = !!ENV_ANTHROPIC_KEY && !profile.anthropicKey;
+  const maskedAnthropicKey  = activeAnthropicKey.length > 8
+    ? `sk-ant-...${activeAnthropicKey.slice(-4)}`
+    : activeAnthropicKey ? '••••••••' : '';
+
+  // OpenAI key (voice / Whisper only)
+  const activeOpenAiKey = profile.openAiKey || ENV_OPENAI_KEY;
+  const maskedOpenAiKey = activeOpenAiKey.length > 8
+    ? `sk-...${activeOpenAiKey.slice(-4)}`
+    : activeOpenAiKey ? '••••••••' : '';
 
   function handleSave() {
     updateProfile({
       name,
-      // Only overwrite the key if the user explicitly typed a new one
-      ...(editingKey && newApiKey.trim() ? { openAiKey: newApiKey.trim() } : {}),
+      ...(editingAI    && newAnthropicKey.trim() ? { anthropicKey: newAnthropicKey.trim() } : {}),
+      ...(editingVoice && newOpenAiKey.trim()    ? { openAiKey:    newOpenAiKey.trim()    } : {}),
       morningTime: morning,
       eveningTime: evening,
     });
-    setEditingKey(false);
-    setNewApiKey('');
+    setEditingAI(false);
+    setEditingVoice(false);
+    setNewAnthropicKey('');
+    setNewOpenAiKey('');
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+
+    // Reschedule notifications with updated times
+    requestPermissions().then(granted => {
+      if (granted) scheduleDailyNotifications(morning, evening);
+    });
   }
 
-  function handleRemoveKey() {
-    Alert.alert('Remove API key', 'This will delete the saved key. You\'ll need to re-enter it to use AI features.', [
+  async function handleTestNotification() {
+    const granted = await requestPermissions();
+    if (!granted) {
+      Alert.alert(
+        'Notifications blocked',
+        'Go to iPhone Settings → Synapse → Notifications and enable them.',
+      );
+      return;
+    }
+    await sendTestNotification();
+    Alert.alert('On its way', 'You\'ll get a test notification in about 2 seconds.');
+  }
+
+  function handleRemoveAnthropicKey() {
+    Alert.alert('Remove Anthropic key', "You won't be able to use Synapse AI without it.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => {
+        updateProfile({ anthropicKey: '' });
+        setEditingAI(false);
+        setNewAnthropicKey('');
+      }},
+    ]);
+  }
+
+  function handleRemoveOpenAiKey() {
+    Alert.alert('Remove OpenAI key', "Voice transcription (Whisper) will be disabled.", [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => {
         updateProfile({ openAiKey: '' });
-        setEditingKey(false);
-        setNewApiKey('');
+        setEditingVoice(false);
+        setNewOpenAiKey('');
       }},
     ]);
+  }
+
+  function handleBugReport() {
+    const subject = encodeURIComponent('Synapse Bug Report');
+    const body = encodeURIComponent(
+      `Hi — something went wrong in Synapse.\n\n` +
+      `What happened:\n[describe the bug here]\n\n` +
+      `Steps to reproduce:\n1.\n2.\n3.\n\n` +
+      `Expected:\n\nActual:\n\n` +
+      `— Sent from Synapse beta`
+    );
+    Linking.openURL(`mailto:samkhadra9@gmail.com?subject=${subject}&body=${body}`).catch(() =>
+      Alert.alert('Could not open email', 'Please email samkhadra9@gmail.com directly.')
+    );
   }
 
   function handleReset() {
@@ -104,7 +161,10 @@ export default function SettingsScreen() {
       'This will take you back to the welcome screen. Your data will be kept.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Reset', style: 'destructive', onPress: () => resetOnboarding() },
+        { text: 'Reset', style: 'destructive', onPress: () => {
+            resetOnboarding();
+            navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+          }},
       ]
     );
   }
@@ -133,56 +193,100 @@ export default function SettingsScreen() {
           {/* API */}
           <SectionLabel label="AI CONNECTION" />
           <View style={styles.card}>
-            {usingEnvKey ? (
-              // Key loaded from .env — can't change it here
+            {/* ── Anthropic key (main AI) ── */}
+            {usingEnvAnthropic ? (
               <View style={styles.envKeyBanner}>
                 <Text style={styles.envKeyIcon}>✓</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.envKeyTitle}>API key loaded from config</Text>
-                  <Text style={styles.envKeySubtitle}>Set via EXPO_PUBLIC_OPENAI_KEY in .env</Text>
+                  <Text style={styles.envKeyTitle}>Anthropic key loaded from config</Text>
+                  <Text style={styles.envKeySubtitle}>Set via EXPO_PUBLIC_ANTHROPIC_KEY in .env</Text>
                 </View>
               </View>
-            ) : activeKey && !editingKey ? (
-              // Key is saved — show masked version only, with Change + Remove
+            ) : activeAnthropicKey && !editingAI ? (
               <View style={styles.keyMaskedRow}>
                 <View style={styles.keyMaskedLeft}>
-                  <Text style={styles.keyMaskedLabel}>OpenAI API key</Text>
-                  <Text style={styles.keyMaskedValue}>{maskedKey}</Text>
+                  <Text style={styles.keyMaskedLabel}>Anthropic API key (AI)</Text>
+                  <Text style={styles.keyMaskedValue}>{maskedAnthropicKey}</Text>
                 </View>
                 <View style={styles.keyMaskedActions}>
-                  <TouchableOpacity onPress={() => setEditingKey(true)} style={styles.keyChangeBtn}>
+                  <TouchableOpacity onPress={() => setEditingAI(true)} style={styles.keyChangeBtn}>
                     <Text style={styles.keyChangeBtnText}>Change</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handleRemoveKey} style={styles.keyRemoveBtn}>
+                  <TouchableOpacity onPress={handleRemoveAnthropicKey} style={styles.keyRemoveBtn}>
                     <Text style={styles.keyRemoveBtnText}>Remove</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : (
-              // No key saved, or user clicked Change — show entry field
               <View>
-                <SettingRow label="OpenAI API key">
+                <SettingRow label="Anthropic API key">
                   <View style={styles.keyInputRow}>
                     <TextInput
                       style={[styles.input, styles.keyInput]}
-                      value={newApiKey}
-                      onChangeText={setNewApiKey}
-                      placeholder="sk-..."
+                      value={newAnthropicKey}
+                      onChangeText={setNewAnthropicKey}
+                      placeholder="sk-ant-..."
                       placeholderTextColor={Colors.textTertiary}
                       secureTextEntry
                       autoCapitalize="none"
                       autoCorrect={false}
                     />
-                    {editingKey && (
-                      <TouchableOpacity onPress={() => { setEditingKey(false); setNewApiKey(''); }} style={styles.showBtn}>
+                    {editingAI && (
+                      <TouchableOpacity onPress={() => { setEditingAI(false); setNewAnthropicKey(''); }} style={styles.showBtn}>
                         <Text style={styles.showBtnText}>Cancel</Text>
                       </TouchableOpacity>
                     )}
                   </View>
                 </SettingRow>
                 <Text style={styles.keyHint}>
-                  Get your key at platform.openai.com → API Keys.{'\n'}
-                  Your key is stored on-device and never sent anywhere except OpenAI directly.
+                  Get your key at console.anthropic.com → API Keys.{'\n'}
+                  Stored on-device only — never leaves your phone except to Anthropic directly.
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.divider} />
+
+            {/* ── OpenAI key (voice / Whisper only) ── */}
+            {activeOpenAiKey && !editingVoice ? (
+              <View style={styles.keyMaskedRow}>
+                <View style={styles.keyMaskedLeft}>
+                  <Text style={styles.keyMaskedLabel}>OpenAI key (voice only)</Text>
+                  <Text style={styles.keyMaskedValue}>{maskedOpenAiKey}</Text>
+                </View>
+                <View style={styles.keyMaskedActions}>
+                  <TouchableOpacity onPress={() => setEditingVoice(true)} style={styles.keyChangeBtn}>
+                    <Text style={styles.keyChangeBtnText}>Change</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleRemoveOpenAiKey} style={styles.keyRemoveBtn}>
+                    <Text style={styles.keyRemoveBtnText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View>
+                <SettingRow label="OpenAI key (optional)">
+                  <View style={styles.keyInputRow}>
+                    <TextInput
+                      style={[styles.input, styles.keyInput]}
+                      value={newOpenAiKey}
+                      onChangeText={setNewOpenAiKey}
+                      placeholder="sk-... (for voice)"
+                      placeholderTextColor={Colors.textTertiary}
+                      secureTextEntry
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {editingVoice && (
+                      <TouchableOpacity onPress={() => { setEditingVoice(false); setNewOpenAiKey(''); }} style={styles.showBtn}>
+                        <Text style={styles.showBtnText}>Cancel</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </SettingRow>
+                <Text style={styles.keyHint}>
+                  Only needed for voice input (Whisper transcription).{'\n'}
+                  platform.openai.com → API Keys
                 </Text>
               </View>
             )}
@@ -212,6 +316,13 @@ export default function SettingsScreen() {
                 keyboardType="numbers-and-punctuation"
               />
             </SettingRow>
+            <View style={styles.divider} />
+            <Text style={styles.keyHint}>
+              You also get a midday check-in at 12:30 — tap it to open Decision Fatigue mode with one clear next action.
+            </Text>
+            <TouchableOpacity style={styles.testNotifBtn} onPress={handleTestNotification} activeOpacity={0.75}>
+              <Text style={styles.testNotifBtnText}>Send test notification</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Calendar Sync */}
@@ -350,6 +461,41 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Week skeleton */}
+          <SectionLabel label="WEEKLY STRUCTURE" />
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.resetRow}
+              onPress={() => Alert.alert(
+                'Rebuild weekly skeleton',
+                'This lets you redesign your weekly time blocks from scratch — useful if your schedule has changed. Your existing tasks and projects are not affected.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Rebuild', onPress: () => (navigation as any).navigate('SkeletonBuilder') },
+                ]
+              )}
+              activeOpacity={0.75}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.resetText, { color: Colors.text, fontWeight: '600' }]}>Rebuild weekly skeleton</Text>
+                <Text style={[styles.settingLabel, { marginTop: 2, color: Colors.textMuted }]}>Redesign your time blocks when your week changes</Text>
+              </View>
+              <Text style={styles.resetArrow}>›</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Beta feedback */}
+          <SectionLabel label="BETA" />
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.resetRow} onPress={handleBugReport} activeOpacity={0.75}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.resetText, { color: Colors.primary, fontWeight: '600' }]}>Report a bug or give feedback</Text>
+                <Text style={[styles.settingLabel, { marginTop: 2, color: Colors.textMuted }]}>Opens your email — goes straight to Sam</Text>
+              </View>
+              <Text style={styles.resetArrow}>›</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Danger zone */}
           <SectionLabel label="ACCOUNT" />
           <View style={styles.card}>
@@ -445,6 +591,16 @@ const styles = StyleSheet.create({
   keyHint: {
     fontSize: 12, color: Colors.textTertiary, lineHeight: 18,
     paddingHorizontal: Spacing.base, paddingBottom: 14, marginTop: -4,
+  },
+
+  testNotifBtn: {
+    marginHorizontal: Spacing.base, marginBottom: Spacing.base,
+    paddingVertical: 10, borderRadius: Radius.sm,
+    borderWidth: 1.5, borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  testNotifBtnText: {
+    fontSize: 13, color: Colors.textSecondary, fontWeight: '500',
   },
 
   // Masked key display

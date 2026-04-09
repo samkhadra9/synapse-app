@@ -94,12 +94,12 @@ export async function scheduleDailyNotifications(
     } as Notifications.CalendarTriggerInput,
   });
 
-  // ── Midday: Check-in ──────────────────────────────────────────────────────
+  // ── Midday: Decision Fatigue check-in ────────────────────────────────────
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: '⚡ Midday check-in',
-      body: "How are your MITs going? Tap to review your afternoon plan.",
-      data: { screen: 'Home' },
+      title: '⚡ Overwhelmed? Stuck?',
+      body: "Tap to get one clear thing to do right now. Decision fatigue mode.",
+      data: { screen: 'Fatigue' },
       sound: false,
     },
     trigger: {

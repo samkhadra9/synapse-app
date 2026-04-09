@@ -30,7 +30,7 @@ import { updatePortrait } from '../services/portrait';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type ChatMode = 'dump' | 'morning' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'project' | 'quick';
+export type ChatMode = 'dump' | 'morning' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'project' | 'quick' | 'fatigue';
 
 const MODE_META: Record<ChatMode, { title: string; subtitle: string }> = {
   dump:    { title: 'Brain dump',      subtitle: "What's on your mind?" },
@@ -41,9 +41,11 @@ const MODE_META: Record<ChatMode, { title: string; subtitle: string }> = {
   yearly:  { title: 'Annual review',   subtitle: 'Redesign your life.' },
   project: { title: 'New project',     subtitle: "Tell me what you're working on" },
   quick:   { title: 'One small win',   subtitle: 'No pressure. Just one thing.' },
+  fatigue: { title: 'Decision fatigue', subtitle: 'Clear the noise. One thing.' },
 };
 
-const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
+const ENV_API_KEY    = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
+const ENV_OPENAI_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim(); // voice only
 
 // ── Context Builder ────────────────────────────────────────────────────────────
 // Injects the user's full life structure into every system prompt.
@@ -55,13 +57,31 @@ function buildContextBlock(store: {
   projects: Project[];
   goals: LifeGoal[];
 }): string {
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const now         = new Date();
+  const today       = format(now, 'yyyy-MM-dd');
+  const currentHour = now.getHours();
+  const currentMin  = now.getMinutes();
+  const timeStr     = format(now, 'h:mm a');
+
+  // Working day awareness — assume 9am–6pm working window
+  const WORK_END_HOUR = 18;
+  const hoursLeft = Math.max(0, WORK_END_HOUR - currentHour - (currentMin > 0 ? 1 : 0));
+  const minutesLeft = Math.max(0, (WORK_END_HOUR * 60) - (currentHour * 60 + currentMin));
+  const dayPhase = currentHour < 12 ? 'morning' : currentHour < 17 ? 'afternoon' : 'evening';
+
   const todayTasks  = store.tasks.filter(t => t.date === today);
   const overdue     = store.tasks.filter(t => !t.completed && t.date < today);
   const active      = store.projects.filter(p => p.status === 'active');
   const goals1yr    = store.goals.filter(g => g.horizon === '1year');
   const goals5yr    = store.goals.filter(g => g.horizon === '5year');
   const goals10yr   = store.goals.filter(g => g.horizon === '10year');
+
+  // Realistic time budget: how many minutes of tasks are already planned vs. available
+  const plannedMinutes = todayTasks
+    .filter(t => !t.completed)
+    .reduce((sum, t) => sum + (t.estimatedMinutes ?? 60), 0);
+  const bufferMinutes = Math.max(0, minutesLeft - plannedMinutes);
+  const overbooked = plannedMinutes > minutesLeft;
 
   const projectList = active.length
     ? active.map(p =>
@@ -79,7 +99,9 @@ function buildContextBlock(store: {
 
   return `
 ╔══ ${store.profile.name || 'User'}'s Life Context ══╗
-Today: ${format(new Date(), 'EEEE, MMMM d yyyy')}
+Today: ${format(now, 'EEEE, MMMM d yyyy')}
+Current time: ${timeStr} (${dayPhase})
+Working day remaining: ~${hoursLeft}h ${minutesLeft % 60}min until 6pm${overbooked ? ` ⚠️ OVERBOOKED — ${plannedMinutes}min planned vs ${minutesLeft}min available` : bufferMinutes > 0 ? ` · ${bufferMinutes}min unplanned buffer` : ''}
 
 ACTIVE PROJECTS (use these IDs when linking tasks):
 ${projectList}
@@ -116,10 +138,12 @@ RULES:
 - No bullet points in your conversational replies — write like a smart friend.
 - You have ${firstName}'s full context above. Reference it. Don't ask what they've already told you.
 - If they mention something that belongs to an existing project, link it. If it sounds like a new project, create one.
-- Be warm, direct, and honest. Name drift or avoidance gently but clearly.`;
+- Be warm, direct, and honest. Name drift or avoidance gently but clearly.
+
+DECISION FATIGUE SIGNAL: If ${firstName} says anything that signals they are frozen, overwhelmed, or in analysis paralysis — redirect them gently: "It sounds like your brain is full. Want to switch to decision fatigue mode?" Then stop and wait. Do not try to solve it from within the current session.`;
 
   const outputFormat = `
-When you have enough to act, output exactly:
+When you have enough to act, output exactly this — raw JSON, NO code fences, NO trailing commas:
 [SYNAPSE_ACTIONS]
 {"actions":[
   {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","reason":"why this task, why now — one short sentence"},
@@ -381,6 +405,46 @@ ${sharedRules}
 - SEQUENTIAL projects: tasks must tell the full story from zero to done. No gaps.
 - Every task needs a reason field — a one-line honest explanation of why this step exists.`,
 
+    fatigue: `You are Synapse. ${firstName} is in a state of decision fatigue — executive dysfunction has made even small choices feel impossible. Their brain is in analysis paralysis. They don't need options or conversation. They need the paralysis broken immediately.
+${portraitSection}
+${contextBlock}
+
+WHAT IS HAPPENING: Decision fatigue in ADHD is a state of mental exhaustion caused by executive dysfunction. The brain's ability to filter information, use working memory, and assess risk-reward has collapsed. Too many open loops + too many choices = total shutdown. The cure is not more thinking. It is removing all choices except one.
+
+YOUR ONLY JOB — do this immediately, do not ask anything first:
+
+1. Scan their context above. Find the single highest-priority task:
+   - First: look for isMIT tasks scheduled for today
+   - Second: look for the most overdue task attached to an active project
+   - Third: look for the top active project's first incomplete task
+   - Last resort: use "Open a blank note. Write 3 sentences about what's actually going on right now." (30 min)
+
+2. Respond with EXACTLY this format — no greeting, no preamble, no options:
+
+---
+Your brain is full. Stop deciding.
+
+Do this one thing:
+[TASK — one concrete sentence. What you're doing + what you produce/decide. Present tense, active voice.]
+
+Set a 10-minute timer when you start. That's your only commitment right now — 10 minutes. Everything else waits.
+---
+
+3. Immediately output [SYNAPSE_ACTIONS] with that single task: isMIT:true, estimatedMinutes:30, dueDate:"today".
+
+4. After they respond (whether they did it or not): stay in this mode. Ask only: "Did you start?" If yes — celebrate briefly, then ask if they want to keep going or that's enough for now. If no — no guilt, just: "What got in the way?" and help them remove that one blocker. Then try again with the same task.
+
+TONE: A calm, firm, warm hand on the shoulder. Not urgent. Not frantic. The opposite of their internal state. Short sentences. No lists. No options. No explanations of why this works.
+
+HARD RULES for this mode:
+- NEVER give more than one task. Ever.
+- NEVER ask what they want to work on — you already know from their context.
+- NEVER explain the task sizing system, the project structure, or any meta-information.
+- NEVER ask a clarifying question before giving them the task.
+- If they push back or say "but I also need to…" — gently hold the line: "That can come after. Just this one first."
+
+${outputFormat}`,
+
     quick: `You are Synapse. ${firstName} hasn't been around for a few days. This is a no-guilt re-entry.
 ${portraitSection}
 ${contextBlock}
@@ -411,11 +475,41 @@ function parseActions(text: string): any | null {
     const token = '[SYNAPSE_ACTIONS]';
     const idx = text.indexOf(token);
     if (idx === -1) return null;
-    const after = text.slice(idx + token.length).trim();
+
+    let after = text.slice(idx + token.length).trim();
+
+    // Strip markdown code fences — Claude sometimes wraps JSON in ```json ... ```
+    after = after.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
     const start = after.indexOf('{');
     const end   = after.lastIndexOf('}');
     if (start === -1 || end === -1) return null;
-    return JSON.parse(after.slice(start, end + 1));
+
+    let jsonStr = after.slice(start, end + 1);
+
+    // First attempt — parse as-is
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      // Second attempt — Claude occasionally uses "smart quotes" or unescaped apostrophes
+      // in string values (e.g. "you've been avoiding this"). Fix by escaping bare apostrophes
+      // inside string values only (not structural characters).
+      const cleaned = jsonStr
+        // Replace smart/curly quotes with straight quotes
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201C\u201D]/g, '"')
+        // Escape bare apostrophes inside JSON string values
+        // (match apostrophe not preceded by a backslash)
+        .replace(/(?<!\\)'/g, "\\'");
+
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        // Final attempt — strip any trailing comma before } or ] (common Claude mistake)
+        const noTrailingCommas = jsonStr.replace(/,\s*([}\]])/g, '$1');
+        return JSON.parse(noTrailingCommas);
+      }
+    }
   } catch { return null; }
 }
 
@@ -676,7 +770,8 @@ export default function ChatScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
 
   const { profile, tasks, projects, goals, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait } = useStore();
-  const apiKey = profile.openAiKey || ENV_API_KEY;
+  const apiKey      = profile.anthropicKey || ENV_API_KEY;
+  const voiceApiKey = profile.openAiKey || ENV_OPENAI_KEY; // Whisper still uses OpenAI
 
   const contextBlock = useMemo(
     () => buildContextBlock({ profile, tasks, projects, goals }),
@@ -724,12 +819,15 @@ export default function ChatScreen({ navigation, route }: any) {
   // Keep messagesRef in sync so the unmount effect can read latest messages
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  // On unmount: fire portrait update silently in background
+  // On unmount: fire portrait update silently in background.
+  // Read the key fresh from the store at cleanup time — avoids stale closure
+  // if AsyncStorage hydration completed after this effect was first registered.
   useEffect(() => {
     return () => {
       const msgs = messagesRef.current;
-      if (msgs.length >= 4 && apiKey) {
-        updatePortrait(msgs, useStore.getState().profile.portrait ?? '', apiKey, mode)
+      const liveKey = useStore.getState().profile.anthropicKey || ENV_API_KEY;
+      if (msgs.length >= 4 && liveKey) {
+        updatePortrait(msgs, useStore.getState().profile.portrait ?? '', liveKey, mode)
           .then(newPortrait => {
             if (newPortrait) useStore.getState().setPortrait(newPortrait);
           })
@@ -773,26 +871,38 @@ export default function ChatScreen({ navigation, route }: any) {
 
   async function sendToLLM(history: ChatMessage[]) {
     if (!apiKey) {
-      appendMessage('assistant', "I need an OpenAI API key to work. Add it in Settings.");
+      appendMessage('assistant', "I need an Anthropic API key to work. Add it in Settings.");
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 900,
+          system: systemPrompt,
+          // Anthropic requires: (a) non-empty array, (b) first message must be user role.
+          // We prepend a silent kickoff so the AI opens the conversation as the system prompt instructs.
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'user', content: 'Hello' },
             ...history.map(m => ({ role: m.role, content: m.content })),
           ],
           temperature: 0.7,
-          max_tokens: 900,
         }),
       });
       const data = await res.json();
-      const reply: string = data.choices?.[0]?.message?.content ?? "Something went wrong. Try again?";
+      if (!res.ok) {
+        const errMsg = data?.error?.message ?? `API error ${res.status}`;
+        appendMessage('assistant', `Connection error: ${errMsg}`);
+        return;
+      }
+      const reply: string = data.content?.[0]?.text ?? "Something went wrong. Try again?";
 
       if (reply.includes('[SYNAPSE_ACTIONS]')) {
         const parsed = parseActions(reply);
@@ -962,12 +1072,17 @@ export default function ChatScreen({ navigation, route }: any) {
       const uri = recording.getURI();
       setRecording(null);
       if (!uri) { setTranscribing(false); return; }
+      if (!voiceApiKey) {
+        appendMessage('assistant', "Voice needs an OpenAI API key for transcription. Add it in Settings → Voice API key.");
+        setTranscribing(false);
+        return;
+      }
       const formData = new FormData();
       formData.append('file', { uri, type: 'audio/m4a', name: 'voice.m4a' } as any);
       formData.append('model', 'whisper-1');
       const res  = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers: { Authorization: `Bearer ${voiceApiKey}` },
         body: formData,
       });
       const data = await res.json();

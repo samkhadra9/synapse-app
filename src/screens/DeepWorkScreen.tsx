@@ -18,7 +18,7 @@ import {
   Alert, AppState, AppStateStatus, Linking, Vibration, ScrollView,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Colors, Spacing, Radius } from '../theme';
 import { useStore } from '../store/useStore';
@@ -43,6 +43,7 @@ const TIME_OPTIONS = [
 
 export default function DeepWorkScreen({ navigation }: any) {
   const { profile, addDeepWorkSession } = useStore();
+  const insets = useSafeAreaInsets();
 
   const [phase,         setPhase]        = useState<Phase>('set');
   const [goal,          setGoal]         = useState('');
@@ -182,16 +183,16 @@ export default function DeepWorkScreen({ navigation }: any) {
 
   if (phase === 'set') {
     return (
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
       <View style={styles.setContainer}>
         <View style={styles.orbDecor} />
-        <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <SafeAreaView style={styles.safe} edges={['top']}>
           <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
             <Text style={styles.closeBtnText}>✕</Text>
           </TouchableOpacity>
 
           <ScrollView
-            contentContainerStyle={styles.setContent}
+            contentContainerStyle={[styles.setContent, { paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
@@ -317,53 +318,61 @@ export default function DeepWorkScreen({ navigation }: any) {
 
   // phase === 'capture'
   return (
-    <View style={styles.setContainer}>
-      <View style={styles.orbDecorGreen} />
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <View style={styles.captureContent}>
-          <Text style={styles.captureLabel}>SESSION COMPLETE</Text>
-          <Text style={styles.captureTitle}>
-            {formatTime(elapsed)}
-          </Text>
-          <Text style={styles.captureMeta}>
-            {interruptions === 0 ? 'Zero interruptions. Nice.' : `${interruptions} interruption${interruptions !== 1 ? 's' : ''}`}
-          </Text>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
+      <View style={styles.setContainer}>
+        <View style={styles.orbDecorGreen} />
+        <SafeAreaView style={styles.safe} edges={['top']}>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.captureContent}>
+              <Text style={styles.captureLabel}>SESSION COMPLETE</Text>
+              <Text style={styles.captureTitle}>
+                {formatTime(elapsed)}
+              </Text>
+              <Text style={styles.captureMeta}>
+                {interruptions === 0 ? 'Zero interruptions. Nice.' : `${interruptions} interruption${interruptions !== 1 ? 's' : ''}`}
+              </Text>
 
-          <View style={styles.captureGoalBox}>
-            <Text style={styles.captureGoalLabel}>YOU SET OUT TO PRODUCE</Text>
-            <Text style={styles.captureGoal}>{goal}</Text>
-          </View>
+              <View style={styles.captureGoalBox}>
+                <Text style={styles.captureGoalLabel}>YOU SET OUT TO PRODUCE</Text>
+                <Text style={styles.captureGoal}>{goal}</Text>
+              </View>
 
-          <Text style={styles.captureFieldLabel}>What did you actually produce?</Text>
-          <TextInput
-            style={styles.captureInput}
-            value={artifact}
-            onChangeText={setArtifact}
-            placeholder="Be honest — even 'got blocked by X' is useful data"
-            placeholderTextColor={Colors.textTertiary}
-            multiline
-          />
+              <Text style={styles.captureFieldLabel}>What did you actually produce?</Text>
+              <TextInput
+                style={styles.captureInput}
+                value={artifact}
+                onChangeText={setArtifact}
+                placeholder="Be honest — even 'got blocked by X' is useful data"
+                placeholderTextColor={Colors.textTertiary}
+                multiline
+              />
 
-          <Text style={styles.captureFieldLabel}>What's the very next action?</Text>
-          <TextInput
-            style={styles.captureInput}
-            value={nextAction}
-            onChangeText={setNextAction}
-            placeholder="One specific physical action…"
-            placeholderTextColor={Colors.textTertiary}
-            multiline
-          />
+              <Text style={styles.captureFieldLabel}>What's the very next action?</Text>
+              <TextInput
+                style={styles.captureInput}
+                value={nextAction}
+                onChangeText={setNextAction}
+                placeholder="One specific physical action…"
+                placeholderTextColor={Colors.textTertiary}
+                multiline
+              />
 
-          <TouchableOpacity style={styles.saveBtn} onPress={saveAndExit} activeOpacity={0.88}>
-            <Text style={styles.saveBtnText}>Save & finish</Text>
-          </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={saveAndExit} activeOpacity={0.88}>
+                <Text style={styles.saveBtnText}>Save & finish</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity onPress={skipCapture} style={styles.skipBtn}>
-            <Text style={styles.skipBtnText}>Skip capture</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    </View>
+              <TouchableOpacity onPress={skipCapture} style={styles.skipBtn}>
+                <Text style={styles.skipBtnText}>Skip capture</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 

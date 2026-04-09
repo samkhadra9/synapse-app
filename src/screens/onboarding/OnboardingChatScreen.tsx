@@ -47,10 +47,9 @@ Conversation arc (follow this order):
 3. Ask: "Before we get into the practical stuff — what are you building toward? Like, where do you actually want to be in a few years?" This sets the motivational frame. Accept whatever they say without probing.
 4. Transition naturally into asking about what they're actively working on. When you do, briefly explain the two types of things Synapse tracks — keep it to 2 sentences, conversational, not a lecture: something like "I'll ask you about two kinds of things — stuff you're actively trying to finish (like a project with a deadline), and the ongoing parts of life you're always tending (like health or finances). First — what are you actively trying to get done right now?"
 5. Ask about the ongoing areas of their life that never really finish — health, relationships, creative work, finances, learning.
-6. Ask what a typical week looks like for them right now.
-7. Ask about focus capacity: roughly an hour of deep focus, or can they go longer?
-8. Ask what time they wake up and wind down.
-9. Close warmly: "Perfect — I've got what I need. Let me build your system."
+6. Ask about focus capacity: roughly an hour of deep focus, or can they go longer?
+7. Ask what time they wake up and wind down.
+8. Close warmly: "Perfect — I've got what I need. Let me build your system." — DO NOT ask about weekly schedule or time blocks here. The next step after this chat is a dedicated weekly structure builder that will handle that conversation properly.
 
 CRITICAL — AREAS vs PROJECTS (this is the most important distinction):
 
@@ -128,11 +127,11 @@ function parseOnboardingData(text: string) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
+const ENV_API_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
 
 export default function OnboardingChatScreen({ navigation }: any) {
   const { profile, updateProfile, addArea, addProject, addGoal, setPortrait } = useStore();
-  const apiKey = profile.openAiKey || ENV_API_KEY;
+  const apiKey = profile.anthropicKey || ENV_API_KEY;
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
 
@@ -167,28 +166,28 @@ export default function OnboardingChatScreen({ navigation }: any) {
 
   async function sendToLLM(history: ChatMessage[], isFirst = false) {
     if (!apiKey) {
-      appendMessage('assistant', "To get started, I'll need an OpenAI API key. You can add it in the Settings tab, then come back here.");
+      appendMessage('assistant', "To get started, I'll need an Anthropic API key. You can add it in the Settings tab, then come back here.");
       return;
     }
 
     setLoading(true);
     try {
-      const apiMessages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...history.map(m => ({ role: m.role, content: m.content })),
-      ];
-
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: apiMessages,
-          temperature: 0.8,
+          model: 'claude-sonnet-4-5-20250929',
           max_tokens: 600,
+          system: SYSTEM_PROMPT,
+          messages: [
+            { role: 'user', content: 'Hello' },
+            ...history.map(m => ({ role: m.role, content: m.content })),
+          ],
+          temperature: 0.8,
         }),
       });
 
@@ -202,14 +201,21 @@ export default function OnboardingChatScreen({ navigation }: any) {
         return;
       }
 
-      const reply: string = data.choices?.[0]?.message?.content ?? "I'm having trouble connecting right now. Try again?";
+      const reply: string = data.content?.[0]?.text ?? "I'm having trouble connecting right now. Try again?";
 
       if (reply.includes('[ONBOARDING_COMPLETE]')) {
         const cleanReply = reply.replace('[ONBOARDING_COMPLETE]', '').trim();
-        const jsonData = parseOnboardingData(cleanReply);
+
+        // Strip markdown code fences — Claude sometimes wraps the JSON in ```json ... ```
+        const stripped = cleanReply
+          .replace(/```json\s*/gi, '')
+          .replace(/```\s*/g, '')
+          .trim();
+
+        const jsonData = parseOnboardingData(stripped);
 
         // Show the friendly closing message (text before JSON)
-        const friendlyText = cleanReply.split('{')[0].trim();
+        const friendlyText = stripped.split('{')[0].trim();
         appendMessage('assistant', friendlyText || "I've got everything I need. Let's build your system.");
 
         if (jsonData) {

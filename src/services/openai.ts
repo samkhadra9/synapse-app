@@ -1,37 +1,30 @@
 /**
- * Synapse OpenAI Service
+ * Synapse AI Service — now powered by Anthropic Claude
  *
- * Two functions:
- *  1. structureMorningText  — takes raw user brain-dump → returns MITs + structured todos
- *  2. decomposeProject      — takes a project title/description → returns subtasks
+ * Same exported function signatures as before, but switched from OpenAI to
+ * the Anthropic Messages API. Nothing else in the codebase needs to change.
  *
- * Set OPENAI_API_KEY in your .env or via Settings screen.
- * Calls go directly from the app — or proxy through your backend if you prefer.
+ * Main model:    claude-sonnet-4-5-20250929  (planning, decomposition)
+ * Light model:   claude-haiku-4-5-20251001   (weekly analysis, quick tasks)
+ *
+ * Pass the user's Anthropic API key (from profile.anthropicKey or
+ * EXPO_PUBLIC_ANTHROPIC_KEY env var).
  */
-
-import OpenAI from 'openai';
-
-let _client: OpenAI | null = null;
-
-function getClient(apiKey: string): OpenAI {
-  if (!_client || _client.apiKey !== apiKey) {
-    _client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
-  }
-  return _client;
-}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export interface StructuredTask {
+  text: string;
+  priority: 'high' | 'medium' | 'low' | number;
+  estimatedMinutes: number;
+  defer: boolean;
+}
+
 export interface StructuredMorningPlan {
-  topPriorities: string[];       // Max 3 MITs
-  todos: {
-    text: string;
-    priority: 'high' | 'medium' | 'low';
-    estimatedMinutes: number;
-    defer: boolean;              // true = don't do today
-  }[];
-  energySuggestion: string;      // e.g. "High energy block for MIT #1 first"
-  warnings: string[];            // e.g. "You've listed 12 things. I've deferred 9."
+  topPriorities: string[];
+  todos: StructuredTask[];
+  energySuggestion: string;
+  warnings: string[];
 }
 
 export interface DecomposedProject {
@@ -40,8 +33,45 @@ export interface DecomposedProject {
     text: string;
     estimatedMinutes: number;
   }[];
-  nextAction: string;            // the single best first step
+  nextAction: string;
   estimatedTotalHours: number;
+}
+
+// ── Shared fetch helper ───────────────────────────────────────────────────────
+
+/** Strip markdown code fences that Claude sometimes wraps JSON in. */
+function stripCodeFences(raw: string): string {
+  return raw
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+}
+
+async function callClaude(
+  apiKey: string,
+  model: string,
+  system: string,
+  userContent: string,
+  maxTokens = 1000,
+): Promise<string> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: userContent }],
+      temperature: 0.3,
+    }),
+  });
+  if (!res.ok) throw new Error(`Anthropic API error: ${res.status}`);
+  const data = await res.json();
+  return stripCodeFences(data.content?.[0]?.text ?? '{}');
 }
 
 // ── Morning Text Structuring ──────────────────────────────────────────────────
@@ -62,7 +92,7 @@ ADHD-specific rules:
 - Tasks without clear outcomes should be flagged as vague and refined
 - Prefer specific, concrete tasks over vague ones (e.g. "email Dr Smith re: referral" not "emails")
 
-Return a JSON object matching this schema:
+Return a JSON object matching this schema exactly:
 {
   "topPriorities": ["string", "string", "string"],
   "todos": [
@@ -75,33 +105,18 @@ Return a JSON object matching this schema:
   ],
   "energySuggestion": "string",
   "warnings": ["string"]
-}
-`.trim();
+}`.trim();
 
 export async function structureMorningText(
   rawText: string,
   apiKey: string,
-  context?: { sleepScore?: number; energyLevel?: number }
+  context?: { sleepScore?: number; energyLevel?: number },
 ): Promise<StructuredMorningPlan> {
-
-  const client = getClient(apiKey);
-
   const userMessage = context
     ? `Sleep score: ${context.sleepScore ?? '?'}/10\nEnergy: ${context.energyLevel ?? '?'}/10\n\nMy tasks for today:\n${rawText}`
     : rawText;
 
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [
-      { role: 'system', content: MORNING_SYSTEM_PROMPT },
-      { role: 'user', content: userMessage },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.3,
-    max_tokens: 1000,
-  });
-
-  const content = response.choices[0].message.content ?? '{}';
+  const content = await callClaude(apiKey, 'claude-sonnet-4-5-20250929', MORNING_SYSTEM_PROMPT, userMessage, 1000);
   return JSON.parse(content) as StructuredMorningPlan;
 }
 
@@ -110,12 +125,13 @@ export async function structureMorningText(
 const DECOMPOSE_SYSTEM_PROMPT = `
 You are an ADHD executive function assistant specialising in project breakdown.
 
-The user has a project they are struggling to start or progress on. Your job is to break it into the smallest possible concrete subtasks — each one a single, specific action that takes 15–45 minutes.
+The user has a project they are struggling to start or progress on. Your job is to break it into the smallest possible concrete subtasks — each one a single, specific action that takes 30–60 minutes.
 
 ADHD-specific rules:
 - Each task must start with a verb (Write, Email, Open, Call, Book, Read, etc.)
-- No task should say "research X" — instead say "spend 20 minutes googling X and write 5 bullet points"
+- No task should say "research X" — instead say "spend 30 minutes googling X and write 5 bullet points"
 - No task can be vague. "Work on presentation" is not a task. "Write slide 3 headline and 3 bullet points" is.
+- All estimatedMinutes MUST be one of: 30, 60, 90, 120 — no other values
 - Maximum 12 subtasks. If the project needs more, break it into phases and give Phase 1 only.
 - The "nextAction" must be the single easiest, lowest-friction task to do RIGHT NOW
 
@@ -126,8 +142,7 @@ Return a JSON object:
   ],
   "nextAction": "string",
   "estimatedTotalHours": number
-}
-`.trim();
+}`.trim();
 
 export async function decomposeProject(
   title: string,
@@ -136,9 +151,6 @@ export async function decomposeProject(
   apiKey: string,
   extraContext?: string,
 ): Promise<DecomposedProject> {
-
-  const client = getClient(apiKey);
-
   const userMessage = [
     `Project: ${title}`,
     description ? `Description: ${description}` : '',
@@ -146,46 +158,24 @@ export async function decomposeProject(
     extraContext?.trim() ? `\nAdditional context from the user:\n${extraContext.trim()}` : '',
   ].filter(Boolean).join('\n');
 
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [
-      { role: 'system', content: DECOMPOSE_SYSTEM_PROMPT },
-      { role: 'user', content: userMessage },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.4,
-    max_tokens: 1200,
-  });
-
-  const content = response.choices[0].message.content ?? '{}';
+  const content = await callClaude(apiKey, 'claude-sonnet-4-5-20250929', DECOMPOSE_SYSTEM_PROMPT, userMessage, 1200);
   return JSON.parse(content) as DecomposedProject;
 }
 
-// ── Evening Reflection Analysis ───────────────────────────────────────────────
+// ── Weekly Performance Analysis ───────────────────────────────────────────────
 
 export async function analyseWeeklyPerformance(
   logs: Array<{ date: string; sleepScore?: number; focusScore?: number; exercised?: boolean; mitsCompleted: number }>,
-  apiKey: string
+  apiKey: string,
 ): Promise<string> {
-  const client = getClient(apiKey);
-
   const summary = logs.map(l =>
     `${l.date}: Sleep ${l.sleepScore ?? '?'}/10, Focus ${l.focusScore ?? '?'}/10, ` +
-    `Exercise: ${l.exercised ? 'Yes' : 'No'}, MITs: ${l.mitsCompleted}/3`
+    `Exercise: ${l.exercised ? 'Yes' : 'No'}, MITs: ${l.mitsCompleted}/3`,
   ).join('\n');
 
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{
-      role: 'system',
-      content: 'You are an ADHD performance coach. Analyse this week\'s data and give 2–3 specific, actionable insights in plain English. Max 120 words. Be warm and direct.'
-    }, {
-      role: 'user',
-      content: `Here is my week:\n${summary}\n\nWhat patterns do you see and what should I change next week?`
-    }],
-    temperature: 0.5,
-    max_tokens: 200,
-  });
+  const system = "You are an ADHD performance coach. Analyse this week's data and give 2–3 specific, actionable insights in plain English. Max 120 words. Be warm and direct.";
+  const user   = `Here is my week:\n${summary}\n\nWhat patterns do you see and what should I change next week?`;
 
-  return response.choices[0].message.content ?? 'No analysis available.';
+  const content = await callClaude(apiKey, 'claude-haiku-4-5-20251001', system, user, 200);
+  return content || 'No analysis available.';
 }

@@ -1,3 +1,31 @@
+# Dependencies
+node_modules/
+
+# Environment — never commit API keys
 .env
-node_modules/
-node_modules/
+.env.local
+.env.*.local
+
+# Expo / EAS
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+google-services.json
+GoogleService-Info.plist
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db

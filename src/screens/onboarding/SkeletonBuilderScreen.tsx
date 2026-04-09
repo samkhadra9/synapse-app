@@ -68,23 +68,39 @@ const uid = (): string =>
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 
-function buildSkeletonPrompt(name: string, areas: string[]): string {
+function buildSkeletonPrompt(
+  name: string,
+  areas: string[],
+  morningTime?: string,
+  eveningTime?: string,
+  deepWorkBlockLength?: number,
+): string {
+  const knownInfo: string[] = [];
+  if (morningTime) knownInfo.push(`they wake up around ${morningTime}`);
+  if (eveningTime) knownInfo.push(`they wind down around ${eveningTime}`);
+  if (deepWorkBlockLength) knownInfo.push(`their preferred deep work block is ${deepWorkBlockLength} minutes`);
+
+  const knownContext = knownInfo.length > 0
+    ? `\nAlready known from onboarding (do NOT ask about these again): ${knownInfo.join(', ')}.`
+    : '';
+
   return `You are Synapse, helping ${name || 'the user'} design their weekly time skeleton.
 
 A time skeleton is NOT a rigid schedule. It's the recurring structure of a week — when the person naturally thinks best, what time is already claimed, and where deep work slots should live. It becomes the template that syncs to their calendar.
 
-The user has these life areas: ${areas.length > 0 ? areas.join(', ') : 'work, health, relationships, personal'}.
+The user has these life areas: ${areas.length > 0 ? areas.join(', ') : 'work, health, relationships, personal'}.${knownContext}
 
 Rules:
 - Ask ONE question at a time
 - Keep messages to 2-3 sentences
 - No bullet points, no jargon
 - Be warm and practical
+- Skip any questions you already know the answer to from context above
 
 Conversation arc:
-1. Brief orientation: "Now let's figure out your weekly structure — when you do your best thinking, what's already claimed, and where to protect your deep work time."
-2. Ask: when do they do their best thinking / feel most focused in the day?
-3. Ask: what times are already claimed in a typical week — recurring meetings, workouts, commitments that don't move?
+1. Brief orientation — acknowledge what you already know and what you still need: "Okay, last piece — I know you're up at [time] and you wind down at [time]. I just need to know what's already claimed in your week and where your best thinking happens."
+2. Ask: what times are already claimed in a typical week — recurring meetings, workouts, commitments that don't move?
+3. Ask: when in the day do they feel most focused / do their best thinking?
 4. Ask: how many days a week can they realistically do deep work?
 5. Ask: is there anything that's absolutely off-limits — time they need to protect no matter what?
 6. Ask: do they want weekend blocks or keep weekends completely free?
@@ -292,11 +308,11 @@ interface Msg {
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
 
-const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
+const ENV_API_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
 
 export default function SkeletonBuilderScreen({ navigation }: any) {
   const { profile, areas, setWeekTemplate } = useStore();
-  const apiKey = profile.openAiKey || ENV_API_KEY;
+  const apiKey = profile.anthropicKey || ENV_API_KEY;
   const insets = useSafeAreaInsets();
 
   const [messages,    setMessages]    = useState<Msg[]>([]);
@@ -313,6 +329,9 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
   const systemPrompt = buildSkeletonPrompt(
     profile.name,
     areas.map(a => a.name),
+    profile.morningTime,
+    profile.eveningTime,
+    profile.deepWorkBlockLength,
   );
 
   useEffect(() => {
@@ -331,25 +350,27 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
 
   async function sendToLLM(history: Msg[], isFirst = false) {
     if (!apiKey) {
-      appendMessage('assistant', "I need an OpenAI API key to work. Add it in Settings and come back.");
+      appendMessage('assistant', "I need an Anthropic API key to work. Add it in Settings and come back.");
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 1400,
+          system: systemPrompt,
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'user', content: 'Hello' },
             ...history.map(m => ({ role: m.role, content: m.content })),
           ],
           temperature: 0.75,
-          max_tokens: 1400,
         }),
       });
       const data = await res.json();
@@ -359,7 +380,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
         return;
       }
 
-      const reply: string = data.choices?.[0]?.message?.content ?? "Something went wrong.";
+      const reply: string = data.content?.[0]?.text ?? "Something went wrong.";
 
       if (reply.includes('[SKELETON_COMPLETE]')) {
         const friendlyPart = reply.replace('[SKELETON_COMPLETE]', '').split('[')[0].trim();
@@ -431,6 +452,34 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
             <Text style={s.skipLink}>Skip</Text>
           </TouchableOpacity>
         </View>
+
+        {/* ── Known-info summary banner ─────────────────────────────────── */}
+        {(profile.morningTime || profile.eveningTime) && (
+          <View style={s.knownBanner}>
+            <Text style={s.knownBannerTitle}>Already figured out from onboarding</Text>
+            <View style={s.knownChips}>
+              {profile.morningTime ? (
+                <View style={s.knownChip}>
+                  <Text style={s.knownChipLabel}>🌅 Up at</Text>
+                  <Text style={s.knownChipValue}>{profile.morningTime}</Text>
+                </View>
+              ) : null}
+              {profile.eveningTime ? (
+                <View style={s.knownChip}>
+                  <Text style={s.knownChipLabel}>🌙 Wind down</Text>
+                  <Text style={s.knownChipValue}>{profile.eveningTime}</Text>
+                </View>
+              ) : null}
+              {profile.deepWorkBlockLength ? (
+                <View style={s.knownChip}>
+                  <Text style={s.knownChipLabel}>⚡ Deep work</Text>
+                  <Text style={s.knownChipValue}>{profile.deepWorkBlockLength} min</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={s.knownBannerSub}>Synapse won't ask about these again — just filling in the gaps.</Text>
+          </View>
+        )}
 
         <FlatList
           ref={listRef}
@@ -569,6 +618,24 @@ const s = StyleSheet.create({
   stepText:    { fontSize: 10, fontWeight: '700', color: TEAL.accent, letterSpacing: 1 },
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: TEAL.text },
   skipLink:    { fontSize: 14, color: TEAL.textFaint },
+
+  // Known-info banner
+  knownBanner: {
+    marginHorizontal: 20, marginTop: 4, marginBottom: 8,
+    backgroundColor: TEAL.surfaceAlt,
+    borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: TEAL.border,
+  },
+  knownBannerTitle: { fontSize: 11, fontWeight: '700', color: TEAL.accent, letterSpacing: 0.8, marginBottom: 10 },
+  knownBannerSub:   { fontSize: 12, color: TEAL.textFaint, marginTop: 8, lineHeight: 17 },
+  knownChips:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  knownChip:        {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: TEAL.bg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: TEAL.border,
+  },
+  knownChipLabel: { fontSize: 12, color: TEAL.textDim },
+  knownChipValue: { fontSize: 12, fontWeight: '700', color: TEAL.text },
 
   list: { padding: 20, gap: 12, paddingBottom: 20 },
 
