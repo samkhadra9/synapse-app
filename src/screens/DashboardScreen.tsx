@@ -93,35 +93,56 @@ function Greeting({ name }: { name: string }) {
   );
 }
 
-// Top action cards — Deep Work + time-aware Plan/Wind-down
-function TopActions({ onDeepWork, onPlan, mode }: {
+// Top action buttons — Deep Work + time-aware Plan/Wind-down
+const PLAN_CONFIG = {
+  morning: { label: 'MORNING', title: 'Plan my day',    color: Colors.primary },
+  evening: { label: 'EVENING', title: 'Wind down',      color: '#8B5CF6'      },
+  weekly:  { label: 'WEEKLY',  title: 'Weekly review',  color: '#D4621A'      },
+};
+
+function HomeActions({ onDeepWork, onPlan, mode }: {
   onDeepWork: () => void;
   onPlan:     () => void;
   mode:       'morning' | 'evening' | 'weekly';
 }) {
-  const label = mode === 'weekly' ? 'WEEKLY' : mode === 'evening' ? 'EVENING' : 'MORNING';
-  const title = mode === 'weekly' ? 'Weekly review' : mode === 'evening' ? 'Wind down' : 'Plan my day';
-  const highlighted = mode === 'weekly' || mode === 'evening';
+  const plan = PLAN_CONFIG[mode];
   return (
-    <View style={styles.topActions}>
-      <TouchableOpacity style={styles.topCard} onPress={onDeepWork} activeOpacity={0.82}>
-        <Text style={styles.topCardLabel}>FOCUS</Text>
-        <Text style={styles.topCardTitle}>Deep work</Text>
-        <Text style={styles.topCardArrow}>→</Text>
+    <View style={ha.row}>
+      <TouchableOpacity style={ha.card} onPress={onDeepWork} activeOpacity={0.82}>
+        <View style={[ha.accent, { backgroundColor: '#2EC4A9' }]} />
+        <View style={ha.inner}>
+          <Text style={ha.label}>FOCUS</Text>
+          <Text style={ha.title}>Deep work</Text>
+        </View>
+        <Text style={ha.arrow}>→</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[styles.topCard, highlighted && styles.topCardHighlight]}
-        onPress={onPlan}
-        activeOpacity={0.82}
-      >
-        <Text style={[styles.topCardLabel, highlighted && styles.topCardLabelHighlight]}>{label}</Text>
-        <Text style={[styles.topCardTitle, highlighted && styles.topCardTitleHighlight]}>{title}</Text>
-        <Text style={[styles.topCardArrow, highlighted && styles.topCardTitleHighlight]}>→</Text>
+      <TouchableOpacity style={ha.card} onPress={onPlan} activeOpacity={0.82}>
+        <View style={[ha.accent, { backgroundColor: plan.color }]} />
+        <View style={ha.inner}>
+          <Text style={[ha.label, { color: plan.color }]}>{plan.label}</Text>
+          <Text style={ha.title}>{plan.title}</Text>
+        </View>
+        <Text style={ha.arrow}>→</Text>
       </TouchableOpacity>
     </View>
   );
 }
+
+const ha = StyleSheet.create({
+  row:    { flexDirection: 'row', paddingHorizontal: Spacing.base, gap: 10, marginBottom: 4 },
+  card:   {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border,
+    overflow: 'hidden', paddingRight: 12, paddingVertical: 14,
+  },
+  accent: { width: 3, alignSelf: 'stretch', marginRight: 12 },
+  inner:  { flex: 1 },
+  label:  { fontSize: 10, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 0.8, marginBottom: 3 },
+  title:  { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
+  arrow:  { fontSize: 16, color: Colors.textTertiary },
+});
 
 // Time-blocked MIT sequence
 function TodaySequence({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: string) => void }) {
@@ -757,6 +778,18 @@ export default function DashboardScreen({ navigation }: any) {
     [projects],
   );
 
+  // Today's time blocks from the week skeleton
+  const nowMinutes  = new Date().getHours() * 60 + new Date().getMinutes();
+  const todayDow    = new Date().getDay();
+  const todayBlocks = useMemo(() =>
+    (profile.weekTemplate ?? [])
+      .filter(b => b.dayOfWeek.includes(todayDow))
+      .sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime)),
+    [profile.weekTemplate, todayDow],
+  );
+  const completedToday = tasks.filter(t => t.date === today && t.completed).length;
+  const totalToday     = mits.length + otherToday.length;
+
   // Lapse detection — days since last recorded active session
   const daysSinceActive = useMemo(() => {
     if (!profile.lastActiveDate) return 0;
@@ -848,7 +881,6 @@ export default function DashboardScreen({ navigation }: any) {
         <View style={styles.dotRow}>
           <View style={[styles.dot, activePage === 0 && styles.dotActive]} />
           <View style={[styles.dot, activePage === 1 && styles.dotActive]} />
-          <View style={[styles.dot, activePage === 2 && styles.dotActive]} />
         </View>
 
         {/* ── Horizontal pager ───────────────────────────────────────────── */}
@@ -862,13 +894,32 @@ export default function DashboardScreen({ navigation }: any) {
           decelerationRate="fast"
         >
 
-          {/* ── Page 0: Dashboard ─────────────────────────────────────────── */}
+          {/* ── Page 0: Home ──────────────────────────────────────────────── */}
           <ScrollView
             style={{ width: SCREEN_W }}
             contentContainerStyle={styles.scroll}
             showsVerticalScrollIndicator={false}
           >
-            {/* Lapse recovery card — shown after 3+ days away */}
+            {/* Greeting + capture button */}
+            <View style={styles.greetingRow}>
+              <Greeting name={profile.name} />
+              <TouchableOpacity
+                style={styles.plusBtn}
+                onPress={() => setShowQuickAdd(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.plusBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Action buttons */}
+            <HomeActions
+              onDeepWork={() => navigation.navigate('DeepWork')}
+              onPlan={() => navigation.navigate('Chat', { mode: planMode === 'weekly' ? 'weekly' : planMode === 'evening' ? 'evening' : 'morning' })}
+              mode={planMode}
+            />
+
+            {/* Lapse recovery card */}
             {daysSinceActive >= 3 && (
               <TouchableOpacity
                 style={styles.lapseCard}
@@ -886,62 +937,64 @@ export default function DashboardScreen({ navigation }: any) {
               </TouchableOpacity>
             )}
 
-            {/* Greeting + quick capture */}
-            <View style={styles.greetingRow}>
-              <Greeting name={profile.name} />
-              <TouchableOpacity
-                style={styles.plusBtn}
-                onPress={() => setShowQuickAdd(true)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.plusBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Top action cards */}
-            <TopActions
-              onDeepWork={() => navigation.navigate('DeepWork')}
-              onPlan={() => navigation.navigate('Chat', { mode: planMode === 'weekly' ? 'weekly' : planMode === 'evening' ? 'evening' : 'morning' })}
-              mode={planMode}
-            />
-
-            {/* Decision fatigue entry — always visible */}
-            <TouchableOpacity
-              style={styles.fatigueCard}
-              onPress={() => navigation.navigate('Chat', { mode: 'fatigue' })}
-              activeOpacity={0.82}
-            >
-              <View style={styles.fatigueInner}>
-                <Text style={styles.fatigueIcon}>⚡</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.fatigueTitle}>Overwhelmed? Stuck?</Text>
-                  <Text style={styles.fatigueSub}>Decision fatigue mode — one task, go</Text>
-                </View>
-                <Text style={styles.fatigueArrow}>→</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Overdue banner */}
-            <OverdueBanner
-              tasks={overdueTasks}
-              onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
-            />
-
-            {/* Today section */}
-            {(() => {
-              const completedToday = tasks.filter(t => t.date === today && t.completed).length;
-              const totalToday     = mits.length + otherToday.length;
-              return (
+            {/* Today's structure — time blocks */}
+            {todayBlocks.length > 0 && (
+              <>
                 <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Today</Text>
-                  <View style={styles.sectionHeaderRight}>
-                    {totalToday > 0 && (
-                      <Text style={styles.todayCount}>{completedToday}/{totalToday}</Text>
-                    )}
-                  </View>
+                  <Text style={styles.sectionTitle}>Today's structure</Text>
+                  {completedToday > 0 && (
+                    <Text style={styles.todayCount}>{completedToday} done</Text>
+                  )}
                 </View>
-              );
-            })()}
+                <View style={styles.homeBlocksCard}>
+                  {todayBlocks.map((block, i) => {
+                    const startMins = parseTimeToMinutes(block.startTime);
+                    const endMins   = startMins + block.durationMinutes;
+                    const isNow     = nowMinutes >= startMins && nowMinutes < endMins;
+                    const isPast    = nowMinutes >= endMins;
+                    const color     = BLOCK_COLORS[block.type];
+                    return (
+                      <View key={block.id}>
+                        {i > 0 && <View style={styles.homeBlockDivider} />}
+                        <View style={[styles.homeBlockRow, isPast && styles.homeBlockPast]}>
+                          <View style={[styles.homeBlockAccent, { backgroundColor: color }]} />
+                          <View style={styles.homeBlockTimes}>
+                            <Text style={styles.homeBlockTime}>{minutesToLabel(startMins)}</Text>
+                            <Text style={styles.homeBlockTimeDash}>–</Text>
+                            <Text style={styles.homeBlockTime}>{minutesToLabel(endMins)}</Text>
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.homeBlockLabelRow}>
+                              <Text style={[styles.homeBlockName, isPast && styles.homeBlockNamePast]} numberOfLines={1}>
+                                {block.label}
+                              </Text>
+                              {isNow && (
+                                <View style={[styles.homeNowPill, { backgroundColor: color + '22', borderColor: color }]}>
+                                  <Text style={[styles.homeNowText, { color }]}>now</Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={[styles.homeBlockMeta, isPast && { opacity: 0.4 }]}>
+                              {BLOCK_LABELS[block.type]} · {block.durationMinutes} min
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {/* Today's tasks */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Today</Text>
+              <View style={styles.sectionHeaderRight}>
+                {totalToday > 0 && (
+                  <Text style={styles.todayCount}>{completedToday}/{totalToday}</Text>
+                )}
+              </View>
+            </View>
 
             <View style={styles.sectionBody}>
               {mits.length === 0 && otherToday.length === 0 ? (
@@ -954,32 +1007,17 @@ export default function DashboardScreen({ navigation }: any) {
                 </TouchableOpacity>
               ) : (
                 <>
-                  {/* Focused view: first 2 incomplete tasks */}
                   <TodaySequence
-                    tasks={showAllToday
-                      ? [...mits, ...otherToday]
-                      : focusedTasks}
+                    tasks={showAllToday ? [...mits, ...otherToday] : focusedTasks}
                     onToggle={id => toggleTask(id)}
                   />
-
-                  {/* Completed tasks (always collapsed behind "see all") */}
                   {!showAllToday && hiddenCount > 0 && (
-                    <TouchableOpacity
-                      style={styles.seeAllBtn}
-                      onPress={() => setShowAllToday(true)}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.seeAllText}>
-                        +{hiddenCount} more task{hiddenCount !== 1 ? 's' : ''} today →
-                      </Text>
+                    <TouchableOpacity style={styles.seeAllBtn} onPress={() => setShowAllToday(true)} activeOpacity={0.75}>
+                      <Text style={styles.seeAllText}>+{hiddenCount} more today →</Text>
                     </TouchableOpacity>
                   )}
                   {showAllToday && (
-                    <TouchableOpacity
-                      style={styles.seeAllBtn}
-                      onPress={() => setShowAllToday(false)}
-                      activeOpacity={0.75}
-                    >
+                    <TouchableOpacity style={styles.seeAllBtn} onPress={() => setShowAllToday(false)} activeOpacity={0.75}>
                       <Text style={styles.seeAllText}>Show less ↑</Text>
                     </TouchableOpacity>
                   )}
@@ -987,64 +1025,16 @@ export default function DashboardScreen({ navigation }: any) {
               )}
             </View>
 
-            {/* Inbox */}
+            {/* Inbox nudge — subtle, not a full section */}
             {inboxTasks.length > 0 && (
-              <>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Inbox</Text>
-                  <Text style={styles.habitCount}>{inboxTasks.length} captured</Text>
-                </View>
-                <View style={styles.inboxCard}>
-                  {inboxTasks.slice(0, 5).map(t => (
-                    <InboxRow
-                      key={t.id}
-                      task={t}
-                      onSchedule={() => navigation.navigate('Chat', { mode: 'morning' })}
-                    />
-                  ))}
-                  {inboxTasks.length > 5 && (
-                    <TouchableOpacity
-                      style={styles.inboxMore}
-                      onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.inboxMoreText}>+{inboxTasks.length - 5} more — plan with Synapse →</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </>
-            )}
-
-            {/* Projects */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Projects</Text>
               <TouchableOpacity
-                style={[styles.calBtn, syncing && { opacity: 0.5 }]}
-                onPress={handleCalendarSync}
-                disabled={syncing}
-                activeOpacity={0.8}
+                style={styles.inboxNudge}
+                onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+                activeOpacity={0.75}
               >
-                <Text style={styles.calBtnText}>{syncing ? 'Syncing…' : 'Sync cal'}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {activeProjects.length > 0 ? (
-              <View style={styles.projectsCard}>
-                {activeProjects.map(p => (
-                  <ProjectRow
-                    key={p.id}
-                    project={p}
-                    onPress={() => navigation.navigate('ProjectDetail', { projectId: p.id })}
-                  />
-                ))}
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={styles.emptyCard}
-                onPress={() => navigation.navigate('Chat', { mode: 'project' })}
-                activeOpacity={0.82}
-              >
-                <Text style={styles.emptyCardText}>Plan a project with Synapse →</Text>
+                <Text style={styles.inboxNudgeText}>
+                  {inboxTasks.length} captured in inbox — schedule with Synapse →
+                </Text>
               </TouchableOpacity>
             )}
 
@@ -1054,8 +1044,6 @@ export default function DashboardScreen({ navigation }: any) {
           {/* ── Page 1: Goals panel ───────────────────────────────────────── */}
           <GoalsPanelPage navigation={navigation} />
 
-          {/* ── Page 2: Daily structure ───────────────────────────────────── */}
-          <DailyStructurePage navigation={navigation} />
 
         </ScrollView>
       </SafeAreaView>
@@ -1179,6 +1167,38 @@ const styles = StyleSheet.create({
   fatigueTitle: { fontSize: 14, fontWeight: '700', color: Colors.accent, marginBottom: 2 },
   fatigueSub:   { fontSize: 12, color: Colors.textMuted },
   fatigueArrow: { fontSize: 18, color: Colors.accent, fontWeight: '700' },
+
+  // Home time-blocks
+  homeBlocksCard: {
+    marginHorizontal: Spacing.base,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.xl,
+    borderWidth: 1, borderColor: Colors.border,
+    overflow: 'hidden',
+    marginBottom: Spacing.sm,
+  },
+  homeBlockRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingRight: 14 },
+  homeBlockPast:     { opacity: 0.35 },
+  homeBlockAccent:   { width: 3, alignSelf: 'stretch', marginRight: 12 },
+  homeBlockTimes:    { width: 56, alignItems: 'center', gap: 1, paddingRight: 8 },
+  homeBlockTime:     { fontSize: 10, color: Colors.textTertiary, fontWeight: '600' },
+  homeBlockTimeDash: { fontSize: 9, color: Colors.borderLight },
+  homeBlockLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  homeBlockName:     { fontSize: 14, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
+  homeBlockNamePast: { color: Colors.textTertiary },
+  homeBlockMeta:     { fontSize: 11, color: Colors.textTertiary },
+  homeBlockDivider:  { height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderLight, marginLeft: 15 },
+  homeNowPill:       { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
+  homeNowText:       { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+
+  // Inbox nudge
+  inboxNudge: {
+    marginHorizontal: Spacing.base, marginTop: Spacing.sm,
+    paddingVertical: 10, paddingHorizontal: 14,
+    borderRadius: Radius.md,
+    borderWidth: 1, borderStyle: 'dashed' as const, borderColor: Colors.border,
+  },
+  inboxNudgeText: { fontSize: 13, color: Colors.textTertiary },
 
   // Lapse recovery card
   lapseCard: {
