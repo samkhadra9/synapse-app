@@ -56,7 +56,7 @@ export async function syncProjectDeadline(
   const startDate = new Date(project.deadline + 'T09:00:00');
   const endDate   = new Date(project.deadline + 'T09:30:00');
 
-  const details: Calendar.Event = {
+  const details: Partial<Calendar.Event> = {
     title:    `📁 ${project.title}`,
     notes:    project.description || '',
     startDate,

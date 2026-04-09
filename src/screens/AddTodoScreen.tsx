@@ -9,10 +9,9 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { format } from 'date-fns';
 import { Colors, Typography, Spacing, Radius, Shadow, DomainColors, DomainIcons } from '../theme';
-import { useStore } from '../store/useStore';
-import { LifeDomain } from '../store/useStore';
+import { useStore, DomainKey } from '../store/useStore';
 
-const DOMAINS: LifeDomain[] = ['health','career','relationships','finance','learning','creativity','spirituality','community'];
+const DOMAINS: DomainKey[] = ['health','work','relationships','finances','learning','creativity','community','personal'];
 
 const TIME_ESTIMATES = [
   { label: '5m', value: 5 },
@@ -24,29 +23,28 @@ const TIME_ESTIMATES = [
 
 export default function AddTodoScreen() {
   const navigation = useNavigation();
-  const addTodo = useStore(s => s.addTodo);
-  const setTopPriority = useStore(s => s.setTopPriority);
+  const addTask = useStore(s => s.addTask);
   const todaysMITs = useStore(s => s.todaysMITs());
 
   const [text, setText] = useState('');
   const [isMIT, setIsMIT] = useState(false);
-  const [selectedDomain, setSelectedDomain] = useState<LifeDomain | null>(null);
+  const [selectedDomain, setSelectedDomain] = useState<DomainKey | null>(null);
   const [estimatedMinutes, setEstimatedMinutes] = useState<number | undefined>(undefined);
 
   const canSetMIT = todaysMITs.length < 3;
 
   const save = () => {
     if (!text.trim()) return;
-    const todo = addTodo({
+    addTask({
       text: text.trim(),
       date: format(new Date(), 'yyyy-MM-dd'),
       domain: selectedDomain ?? undefined,
       estimatedMinutes,
-      isTopPriority: false,
+      isMIT: isMIT && canSetMIT,
+      isToday: true,
+      completed: false,
+      priority: isMIT ? 'high' : 'medium',
     });
-    if (isMIT && todo && canSetMIT) {
-      setTopPriority(todo.id);
-    }
     navigation.goBack();
   };
 
@@ -85,7 +83,7 @@ export default function AddTodoScreen() {
             <Switch
               value={isMIT && canSetMIT}
               onValueChange={v => canSetMIT && setIsMIT(v)}
-              trackColor={{ false: Colors.gray200, true: Colors.teal }}
+              trackColor={{ false: Colors.gray200, true: Colors.primary }}
               thumbColor={Colors.white}
               disabled={!canSetMIT}
             />
@@ -155,7 +153,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { padding: Spacing.xl, paddingBottom: 60 },
   handleBar: { width: 40, height: 4, backgroundColor: Colors.gray200, borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.xl },
-  title: { fontSize: Typography.size.xl, fontWeight: Typography.weight.heavy, color: Colors.navy, marginBottom: Spacing.base },
+  title: { fontSize: Typography.size.xl, fontWeight: Typography.weight.heavy, color: Colors.textPrimary, marginBottom: Spacing.base },
   textInput: {
     borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md,
     padding: Spacing.base, fontSize: Typography.size.base, color: Colors.text,
@@ -167,7 +165,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card, borderRadius: Radius.md,
     padding: Spacing.base, marginBottom: Spacing.base,
   },
-  rowTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold, color: Colors.navy },
+  rowTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold, color: Colors.textPrimary },
   rowSub: { fontSize: Typography.size.xs, color: Colors.textMuted, marginTop: 2 },
   section: { marginBottom: Spacing.base },
   sectionLabel: { fontSize: Typography.size.sm, color: Colors.textMuted, fontWeight: Typography.weight.semibold, marginBottom: Spacing.sm, textTransform: 'uppercase', letterSpacing: 0.8 },
@@ -177,7 +175,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border,
     backgroundColor: Colors.card,
   },
-  timeChipActive: { backgroundColor: Colors.teal, borderColor: Colors.teal },
+  timeChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   timeChipText: { fontSize: Typography.size.sm, color: Colors.textMuted, fontWeight: Typography.weight.medium },
   timeChipTextActive: { color: Colors.white, fontWeight: Typography.weight.bold },
   domainGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -197,7 +195,7 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: Typography.size.base, color: Colors.textMuted },
   saveBtn: {
     flex: 2, paddingVertical: 16, alignItems: 'center',
-    borderRadius: Radius.lg, backgroundColor: Colors.teal,
+    borderRadius: Radius.lg, backgroundColor: Colors.primary,
   },
   saveBtnText: { fontSize: Typography.size.base, color: Colors.white, fontWeight: Typography.weight.bold },
 });

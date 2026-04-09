@@ -23,9 +23,8 @@ type Step = 'dump' | 'loading' | 'review' | 'done';
 export default function MorningPlanningScreen() {
   const navigation = useNavigation();
   const profile = useStore(s => s.profile);
-  const addTodo = useStore(s => s.addTodo);
-  const setTopPriority = useStore(s => s.setTopPriority);
-  const upsertDailyLog = useStore(s => s.upsertDailyLog);
+  const addTask = useStore(s => s.addTask);
+  const updateTodayLog = useStore(s => s.updateTodayLog);
   const goals = useStore(s => s.goals);
 
   const [step, setStep] = useState<Step>('dump');
@@ -43,7 +42,7 @@ export default function MorningPlanningScreen() {
       return;
     }
 
-    if (!profile.openAiKey) {
+    if (!profile.anthropicKey) {
       // Skip AI, let user manually set priorities
       const fallbackTasks: StructuredTask[] = rawText
         .split(/\n|,/)
@@ -63,14 +62,14 @@ export default function MorningPlanningScreen() {
 
     setStep('loading');
 
-    // Build goal context string
+    // Build goal context string (1-year goals give the best short-term relevance)
     const goalContext = goals
-      .filter(g => g.horizon === 'monthly')
+      .filter(g => g.horizon === '1year')
       .map(g => `${g.domain}: ${g.text}`)
       .join('; ');
 
     try {
-      const result = await structureMorningText(rawText, profile.openAiKey, goalContext);
+      const result = await structureMorningText(rawText, profile.anthropicKey, { energyLevel });
       setStructured(result);
       // Pre-select the AI's top 3
       const preSelected = new Set<number>();
@@ -95,29 +94,28 @@ export default function MorningPlanningScreen() {
 
     const mitTexts: string[] = [];
 
-    // Add all non-deferred todos
+    // Add all non-deferred tasks — isMIT baked in at creation
     structured.todos.forEach((task, idx) => {
       if (task.defer) return;
       const isMIT = selectedMITs.has(idx);
-      const newTodo = addTodo({
+      const priorityMap: Record<number, 'high' | 'medium' | 'low'> = { 1: 'high', 2: 'high', 3: 'medium' };
+      addTask({
         text: task.text,
         date: todayStr,
-        priority: task.priority,
+        priority: priorityMap[task.priority] ?? 'low',
         estimatedMinutes: task.estimatedMinutes,
-        isTopPriority: false,
+        isMIT,
+        isToday: true,
+        completed: false,
       });
-      if (isMIT && newTodo) {
-        setTopPriority(newTodo.id);
-        mitTexts.push(task.text);
-      }
+      if (isMIT) mitTexts.push(task.text);
     });
 
-    upsertDailyLog({
-      date: todayStr,
+    updateTodayLog({
       rawMorningText: rawText,
       topPriorities: mitTexts,
-      energyLevel,
       morningCompleted: true,
+      // energyLevel stored locally for AI context but not in DailyLog schema
     });
 
     setStep('done');
@@ -147,7 +145,7 @@ export default function MorningPlanningScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.doneContainer}>
-          <ActivityIndicator size="large" color={Colors.teal} />
+          <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={[styles.doneSub, { marginTop: Spacing.base }]}>
             Structuring your day…
           </Text>
@@ -193,7 +191,7 @@ export default function MorningPlanningScreen() {
                       <Text style={styles.energyBtnEmoji}>
                         {n === 1 ? '😴' : n === 2 ? '😔' : n === 3 ? '🙂' : n === 4 ? '😊' : '⚡'}
                       </Text>
-                      <Text style={[styles.energyBtnLabel, energyLevel === n && { color: Colors.teal }]}>{n}</Text>
+                      <Text style={[styles.energyBtnLabel, energyLevel === n && { color: Colors.primary }]}>{n}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -239,7 +237,7 @@ export default function MorningPlanningScreen() {
               )}
 
               {structured.energySuggestion ? (
-                <View style={[styles.card, { backgroundColor: Colors.tealLight, marginBottom: Spacing.base }]}>
+                <View style={[styles.card, { backgroundColor: Colors.primaryLight, marginBottom: Spacing.base }]}>
                   <Text style={styles.energySuggestionText}>💡  {structured.energySuggestion}</Text>
                 </View>
               ) : null}
@@ -316,14 +314,14 @@ const styles = StyleSheet.create({
   closeBtnText: { fontSize: 18, color: Colors.textMuted },
   steps: { flexDirection: 'row', gap: 8 },
   stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.gray200 },
-  stepDotActive: { backgroundColor: Colors.teal, width: 24 },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.navy, marginBottom: 10 },
+  stepDotActive: { backgroundColor: Colors.primary, width: 24 },
+  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, marginBottom: 10 },
   sub: { fontSize: Typography.size.base, color: Colors.textMuted, lineHeight: 22, marginBottom: Spacing.xl },
   card: { backgroundColor: Colors.card, borderRadius: Radius.md, padding: Spacing.base },
-  cardTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: Colors.navy, marginBottom: Spacing.sm },
+  cardTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: Colors.textPrimary, marginBottom: Spacing.sm },
   energyRow: { flexDirection: 'row', gap: 8 },
   energyBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.gray100 },
-  energyBtnActive: { borderColor: Colors.teal, backgroundColor: Colors.tealLight },
+  energyBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
   energyBtnEmoji: { fontSize: 20 },
   energyBtnLabel: { fontSize: Typography.size.xs, color: Colors.textMuted, fontWeight: Typography.weight.semibold },
   dumpInput: {
@@ -333,13 +331,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card, marginBottom: Spacing.xl,
   },
   btn: {
-    backgroundColor: Colors.teal, borderRadius: Radius.lg,
+    backgroundColor: Colors.primary, borderRadius: Radius.lg,
     paddingVertical: 18, alignItems: 'center', marginBottom: Spacing.sm,
   },
   btnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
   warningBox: { backgroundColor: '#FFF3CD', borderRadius: Radius.sm, padding: Spacing.sm, marginBottom: Spacing.base, borderLeftWidth: 3, borderLeftColor: '#FFC107' },
   warningText: { fontSize: Typography.size.sm, color: '#856404', marginBottom: 2 },
-  energySuggestionText: { fontSize: Typography.size.sm, color: Colors.tealDark, lineHeight: 20 },
+  energySuggestionText: { fontSize: Typography.size.sm, color: Colors.primaryDark, lineHeight: 20 },
   reviewLabel: { fontSize: Typography.size.sm, color: Colors.textMuted, fontWeight: Typography.weight.semibold, marginBottom: Spacing.sm, textTransform: 'uppercase', letterSpacing: 0.8 },
   reviewTask: {
     flexDirection: 'row', alignItems: 'flex-start',
@@ -347,14 +345,14 @@ const styles = StyleSheet.create({
     padding: Spacing.base, marginBottom: 8,
     borderWidth: 2, borderColor: 'transparent',
   },
-  reviewTaskSelected: { borderColor: Colors.teal, backgroundColor: Colors.tealLight },
+  reviewTaskSelected: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
   reviewTaskDeferred: { opacity: 0.5 },
   reviewCheck: {
     width: 26, height: 26, borderRadius: 13,
-    borderWidth: 2, borderColor: Colors.gray300,
+    borderWidth: 2, borderColor: Colors.gray200,
     marginRight: Spacing.sm, justifyContent: 'center', alignItems: 'center', marginTop: 1,
   },
-  reviewCheckSelected: { backgroundColor: Colors.teal, borderColor: Colors.teal },
+  reviewCheckSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   reviewCheckMark: { color: Colors.white, fontSize: 14 },
   reviewTaskText: { fontSize: Typography.size.base, color: Colors.text, lineHeight: 22 },
   reviewTaskMeta: { fontSize: Typography.size.xs, color: Colors.textLight, marginTop: 3 },
@@ -364,10 +362,10 @@ const styles = StyleSheet.create({
   // Done state
   doneContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
   doneEmoji: { fontSize: 64, marginBottom: Spacing.base },
-  doneTitle: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.navy, textAlign: 'center', marginBottom: 12 },
+  doneTitle: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, textAlign: 'center', marginBottom: 12 },
   doneSub: { fontSize: Typography.size.base, color: Colors.textMuted, textAlign: 'center', lineHeight: 24, marginBottom: Spacing.xl },
   doneBtn: {
-    backgroundColor: Colors.teal, borderRadius: Radius.lg,
+    backgroundColor: Colors.primary, borderRadius: Radius.lg,
     paddingVertical: 18, paddingHorizontal: 48, alignItems: 'center',
   },
   doneBtnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },

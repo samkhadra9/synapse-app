@@ -3,11 +3,11 @@
  *
  * Maintains a short (~150 word) evolving portrait of the user that persists
  * across all chat sessions. After any meaningful conversation (≥4 exchanges),
- * one background call to gpt-4o-mini updates the portrait with anything new
+ * one background call to Claude Haiku updates the portrait with anything new
  * learned. The portrait is then injected at the top of every future system
  * prompt so Synapse always feels like it knows the person.
  *
- * Cost: ~0.04 cents per update on gpt-4o-mini.
+ * Cost: ~0.001 cents per update on Claude Haiku — practically free.
  */
 
 import { ChatMessage } from '../store/useStore';
@@ -49,23 +49,23 @@ export async function updatePortrait(
     .replace('{{CONVERSATION}}', conversationText);
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 250,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,   // low temp — we want consistent, grounded synthesis
-        max_tokens: 250,    // ~150 words with headroom
       }),
     });
 
     if (!res.ok) return null;
     const data = await res.json();
-    const updated = data.choices?.[0]?.message?.content?.trim();
+    const updated = data.content?.[0]?.text?.trim();
     return updated || null;
   } catch {
     return null; // always silent — never block the user for this

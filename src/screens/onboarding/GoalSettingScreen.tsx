@@ -8,13 +8,12 @@ import { RootStackParams } from '../../navigation';
 import { Colors, Typography, Spacing, Radius, Shadow, DomainColors, DomainIcons } from '../../theme';
 import { useStore, LifeDomain, TimeHorizon } from '../../store/useStore';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParams, 'GoalSetting'> };
+type Props = { navigation: NativeStackNavigationProp<RootStackParams, any> };
 
 const HORIZONS: { key: TimeHorizon; label: string; sub: string }[] = [
-  { key: 'monthly', label: 'This Month',   sub: 'What would make this month a win?' },
-  { key: '1year',   label: '1 Year',       sub: 'Where do you want to be in 12 months?' },
-  { key: '5year',   label: '5 Years',      sub: 'What does life look like at your best?' },
-  { key: '10year',  label: '10 Years',     sub: 'Your biggest possible vision.' },
+  { key: '1year',   label: '1 Year',   sub: 'Where do you want to be in 12 months?' },
+  { key: '5year',   label: '5 Years',  sub: 'What does life look like at your best?' },
+  { key: '10year',  label: '10 Years', sub: 'Your biggest possible vision.' },
 ];
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -26,7 +25,7 @@ const DOMAIN_LABELS: Record<string, string> = {
 export default function GoalSettingScreen({ navigation }: Props) {
   const selectedDomains = useStore(s => s.profile.selectedDomains);
   const addGoal = useStore(s => s.addGoal);
-  const [activeHorizon, setActiveHorizon] = useState<TimeHorizon>('monthly');
+  const [activeHorizon, setActiveHorizon] = useState<TimeHorizon>('1year');
   const [goals, setGoals] = useState<Partial<Record<LifeDomain, string>>>({});
 
   const setGoal = (domain: LifeDomain, text: string) => {
@@ -41,7 +40,7 @@ export default function GoalSettingScreen({ navigation }: Props) {
         addGoal({ domain, horizon: activeHorizon, text: text.trim(), milestones: [] });
       }
     });
-    navigation.navigate('SMSSetup');
+    (navigation as any).navigate('SMSSetup');
   };
 
   const filledCount = selectedDomains.filter(d => goals[d]?.trim()).length;
@@ -128,8 +127,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { padding: Spacing.xl, paddingBottom: Spacing['3xl'] },
   header: { marginBottom: Spacing.lg },
-  step: { fontSize: Typography.size.sm, color: Colors.teal, fontWeight: Typography.weight.semibold, marginBottom: 8 },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.navy, marginBottom: 10 },
+  step: { fontSize: Typography.size.sm, color: Colors.primary, fontWeight: Typography.weight.semibold, marginBottom: 8 },
+  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, marginBottom: 10 },
   sub: { fontSize: Typography.size.base, color: Colors.textMuted, lineHeight: 22 },
   horizonScroll: { marginBottom: Spacing.sm },
   horizonTab: {
@@ -137,7 +136,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full, marginRight: 8,
     backgroundColor: Colors.gray100, borderWidth: 1, borderColor: Colors.border,
   },
-  horizonActive: { backgroundColor: Colors.teal, borderColor: Colors.teal },
+  horizonActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   horizonLabel: { fontSize: Typography.size.sm, color: Colors.gray600, fontWeight: Typography.weight.medium },
   horizonLabelActive: { color: Colors.white, fontWeight: Typography.weight.bold },
   horizonSub: { fontSize: Typography.size.sm, color: Colors.textMuted, marginBottom: Spacing.lg, fontStyle: 'italic' },
@@ -154,7 +153,7 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center', marginTop: Spacing.sm },
   count: { fontSize: Typography.size.sm, color: Colors.textMuted, marginBottom: 12 },
   btn: {
-    backgroundColor: Colors.teal, borderRadius: Radius.lg,
+    backgroundColor: Colors.primary, borderRadius: Radius.lg,
     paddingVertical: 18, width: '100%', alignItems: 'center', marginBottom: 10,
   },
   btnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },

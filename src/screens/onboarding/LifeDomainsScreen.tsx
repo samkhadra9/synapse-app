@@ -3,27 +3,27 @@ import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView } fr
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParams } from '../../navigation';
 import { Colors, Typography, Spacing, Radius, Shadow, DomainColors, DomainIcons } from '../../theme';
-import { useStore, LifeDomain, ALL_DOMAINS } from '../../store/useStore';
+import { useStore, DomainKey, ALL_DOMAINS } from '../../store/useStore';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParams, 'LifeDomains'> };
+type Props = { navigation: NativeStackNavigationProp<RootStackParams, any> };
 
-const DOMAIN_LABELS: Record<LifeDomain, string> = {
+const DOMAIN_LABELS: Record<DomainKey, string> = {
   health:        'Health & Body',
-  career:        'Career & Work',
+  work:          'Career & Work',
   relationships: 'Relationships',
-  finance:       'Finance & Wealth',
+  finances:      'Finance & Wealth',
   learning:      'Learning & Growth',
   creativity:    'Creativity',
-  spirituality:  'Mind & Spirit',
+  personal:      'Mind & Spirit',
   community:     'Community & Giving',
 };
 
 export default function LifeDomainsScreen({ navigation }: Props) {
   const updateProfile = useStore(s => s.updateProfile);
   const existing = useStore(s => s.profile.selectedDomains);
-  const [selected, setSelected] = useState<LifeDomain[]>(existing);
+  const [selected, setSelected] = useState<DomainKey[]>(existing);
 
-  const toggle = (d: LifeDomain) => {
+  const toggle = (d: DomainKey) => {
     setSelected(prev =>
       prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]
     );
@@ -31,7 +31,7 @@ export default function LifeDomainsScreen({ navigation }: Props) {
 
   const proceed = () => {
     updateProfile({ selectedDomains: selected });
-    navigation.navigate('GoalSetting');
+    (navigation as any).navigate('GoalSetting');
   };
 
   return (
@@ -91,8 +91,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { padding: Spacing.xl, paddingBottom: Spacing['3xl'] },
   header: { marginBottom: Spacing.xl },
-  step: { fontSize: Typography.size.sm, color: Colors.teal, fontWeight: Typography.weight.semibold, marginBottom: 8 },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.navy, lineHeight: 36, marginBottom: 12 },
+  step: { fontSize: Typography.size.sm, color: Colors.primary, fontWeight: Typography.weight.semibold, marginBottom: 8 },
+  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, lineHeight: 36, marginBottom: 12 },
   sub: { fontSize: Typography.size.base, color: Colors.textMuted, lineHeight: 22 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: Spacing.xl },
   domainCard: {
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center' },
   count: { fontSize: Typography.size.sm, color: Colors.textMuted, marginBottom: 12 },
   btn: {
-    backgroundColor: Colors.teal, borderRadius: Radius.lg,
+    backgroundColor: Colors.primary, borderRadius: Radius.lg,
     paddingVertical: 18, width: '100%', alignItems: 'center',
   },
   btnDisabled: { backgroundColor: Colors.gray200 },

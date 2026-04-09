@@ -20,8 +20,11 @@
         "UISpeechRecognitionUsageDescription": "Synapse transcribes your voice notes to help you capture ideas hands-free.",
         "UIBackgroundModes": [
           "fetch",
+          "remote-notification",
+          "fetch",
           "remote-notification"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

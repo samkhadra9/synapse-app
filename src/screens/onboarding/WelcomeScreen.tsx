@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing } from '../../theme';
 
-const ENV_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
+const ENV_API_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
 
 const PILLARS = [
   {

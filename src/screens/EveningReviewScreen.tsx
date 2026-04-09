@@ -18,11 +18,11 @@ type Step = 'score' | 'dump' | 'done';
 
 export default function EveningReviewScreen() {
   const navigation = useNavigation();
-  const todos = useStore(s => s.todos);
-  const upsertDailyLog = useStore(s => s.upsertDailyLog);
+  const tasks = useStore(s => s.tasks);
+  const updateTodayLog = useStore(s => s.updateTodayLog);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const todayMITs = todos.filter(t => t.date === todayStr && t.isTopPriority);
+  const todayMITs = tasks.filter(t => t.date === todayStr && t.isMIT);
   const completedMITs = todayMITs.filter(t => t.completed);
 
   const [step, setStep] = useState<Step>('score');
@@ -31,8 +31,7 @@ export default function EveningReviewScreen() {
   const [tomorrowIntention, setTomorrowIntention] = useState('');
 
   const finishReview = () => {
-    upsertDailyLog({
-      date: todayStr,
+    updateTodayLog({
       focusScore,
       eveningNote: `${eveningNote}\n\nTomorrow: ${tomorrowIntention}`.trim(),
       eveningCompleted: true,
@@ -101,7 +100,7 @@ export default function EveningReviewScreen() {
                       <Text style={styles.scoreEmoji}>
                         {n === 1 ? '😵' : n === 2 ? '😕' : n === 3 ? '😐' : n === 4 ? '🙂' : '🔥'}
                       </Text>
-                      <Text style={[styles.scoreLabel, focusScore === n && { color: Colors.teal }]}>{n}</Text>
+                      <Text style={[styles.scoreLabel, focusScore === n && { color: Colors.primary }]}>{n}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -170,10 +169,10 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: Spacing.base },
   closeBtn: { padding: 8 },
   closeBtnText: { fontSize: 18, color: Colors.textMuted },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.navy, marginBottom: 10 },
+  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, marginBottom: 10 },
   sub: { fontSize: Typography.size.base, color: Colors.textMuted, lineHeight: 22, marginBottom: Spacing.xl },
   card: { backgroundColor: Colors.card, borderRadius: Radius.md, padding: Spacing.base, marginBottom: Spacing.base },
-  cardTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: Colors.navy, marginBottom: 4 },
+  cardTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: Colors.textPrimary, marginBottom: 4 },
   cardSub: { fontSize: Typography.size.sm, color: Colors.textMuted, lineHeight: 20, marginBottom: Spacing.sm },
   emptyText: { fontSize: Typography.size.sm, color: Colors.textLight, fontStyle: 'italic' },
   mitRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8 },
@@ -182,7 +181,7 @@ const styles = StyleSheet.create({
   mitDone: { textDecorationLine: 'line-through', color: Colors.textMuted },
   scoreRow: { flexDirection: 'row', gap: 8 },
   scoreBtn: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.gray100 },
-  scoreBtnActive: { borderColor: Colors.teal, backgroundColor: Colors.tealLight },
+  scoreBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
   scoreEmoji: { fontSize: 22 },
   scoreLabel: { fontSize: Typography.size.xs, color: Colors.textMuted, fontWeight: Typography.weight.semibold, marginTop: 2 },
   textArea: {
@@ -190,15 +189,15 @@ const styles = StyleSheet.create({
     padding: Spacing.sm, fontSize: Typography.size.base, color: Colors.text,
     minHeight: 100, textAlignVertical: 'top', lineHeight: 22, backgroundColor: Colors.background,
   },
-  btn: { backgroundColor: Colors.teal, borderRadius: Radius.lg, paddingVertical: 18, alignItems: 'center', marginBottom: Spacing.sm },
+  btn: { backgroundColor: Colors.primary, borderRadius: Radius.lg, paddingVertical: 18, alignItems: 'center', marginBottom: Spacing.sm },
   btnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
   backLink: { alignItems: 'center', paddingVertical: 12 },
   backLinkText: { color: Colors.textMuted, fontSize: Typography.size.sm },
   // Done state
   centred: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
   doneEmoji: { fontSize: 64, marginBottom: Spacing.base },
-  doneTitle: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.navy, textAlign: 'center', marginBottom: 12 },
+  doneTitle: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, textAlign: 'center', marginBottom: 12 },
   doneSub: { fontSize: Typography.size.base, color: Colors.textMuted, textAlign: 'center', lineHeight: 24, marginBottom: Spacing.xl },
-  doneBtn: { backgroundColor: Colors.navy, borderRadius: Radius.lg, paddingVertical: 18, paddingHorizontal: 48 },
+  doneBtn: { backgroundColor: Colors.textPrimary, borderRadius: Radius.lg, paddingVertical: 18, paddingHorizontal: 48 },
   doneBtnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
 });

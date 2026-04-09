@@ -9,7 +9,7 @@ import { Colors, Typography, Spacing, Radius, Shadow } from '../../theme';
 import { useStore } from '../../store/useStore';
 import { requestPermissions, scheduleDailyNotifications, sendTestNotification } from '../../services/notifications';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParams, 'SMSSetup'> };
+type Props = { navigation: NativeStackNavigationProp<RootStackParams, any> };
 
 const TIME_PRESETS = [
   { label: '6:00 AM', value: '06:00' },
@@ -29,13 +29,12 @@ const EVENING_PRESETS = [
 
 export default function SMSSetupScreen({ navigation }: Props) {
   const updateProfile = useStore(s => s.updateProfile);
-  const completeOnboarding = useStore(s => s.completeOnboarding);
   const profile = useStore(s => s.profile);
 
   const [phone, setPhone] = useState(profile.phone ?? '');
   const [morningTime, setMorningTime] = useState(profile.morningTime ?? '07:30');
   const [eveningTime, setEveningTime] = useState(profile.eveningTime ?? '21:00');
-  const [openAiKey, setOpenAiKey] = useState(profile.openAiKey ?? '');
+  const [anthropicKey, setAnthropicKey] = useState(profile.anthropicKey ?? '');
   const [backendUrl, setBackendUrl] = useState(profile.backendUrl ?? '');
   const [notifGranted, setNotifGranted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -71,7 +70,7 @@ export default function SMSSetupScreen({ navigation }: Props) {
         phone: phone.trim(),
         morningTime,
         eveningTime,
-        openAiKey: openAiKey.trim(),
+        anthropicKey: anthropicKey.trim(),
         backendUrl: backendUrl.trim(),
       });
 
@@ -79,7 +78,7 @@ export default function SMSSetupScreen({ navigation }: Props) {
         await scheduleDailyNotifications(morningTime, eveningTime);
       }
 
-      completeOnboarding();
+      updateProfile({ onboardingCompleted: true });
       // Navigation to Main handled automatically by onboarding gate in navigator
     } catch (e) {
       console.error(e);
@@ -173,16 +172,16 @@ export default function SMSSetupScreen({ navigation }: Props) {
 
           {/* API keys */}
           <View style={[styles.section, Shadow.sm]}>
-            <Text style={styles.sectionTitle}>🤖  AI assistant (optional)</Text>
+            <Text style={styles.sectionTitle}>🤖  AI assistant</Text>
             <Text style={styles.sectionSub}>
-              Add your OpenAI API key to unlock project decomposition and morning brain-dump structuring. Stored only on your device.
+              Add your Anthropic API key to unlock Claude-powered planning and project breakdown. Get yours at console.anthropic.com. Stored only on your device.
             </Text>
             <TextInput
               style={styles.input}
-              placeholder="sk-..."
+              placeholder="sk-ant-..."
               placeholderTextColor={Colors.textLight}
-              value={openAiKey}
-              onChangeText={setOpenAiKey}
+              value={anthropicKey}
+              onChangeText={setAnthropicKey}
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
@@ -228,14 +227,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { padding: Spacing.xl, paddingBottom: Spacing['3xl'] },
   header: { marginBottom: Spacing.xl },
-  step: { fontSize: Typography.size.sm, color: Colors.teal, fontWeight: Typography.weight.semibold, marginBottom: 8 },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.navy, marginBottom: 10 },
+  step: { fontSize: Typography.size.sm, color: Colors.primary, fontWeight: Typography.weight.semibold, marginBottom: 8 },
+  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, marginBottom: 10 },
   sub: { fontSize: Typography.size.base, color: Colors.textMuted, lineHeight: 22 },
   section: {
     backgroundColor: Colors.card, borderRadius: Radius.md,
     padding: Spacing.base, marginBottom: Spacing.base,
   },
-  sectionTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: Colors.navy, marginBottom: 4 },
+  sectionTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: Colors.textPrimary, marginBottom: 4 },
   sectionSub: { fontSize: Typography.size.sm, color: Colors.textMuted, lineHeight: 20, marginBottom: Spacing.sm },
   presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   preset: {
@@ -243,11 +242,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border,
     backgroundColor: Colors.gray100,
   },
-  presetActive: { backgroundColor: Colors.teal, borderColor: Colors.teal },
+  presetActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   presetText: { fontSize: Typography.size.sm, color: Colors.gray600, fontWeight: Typography.weight.medium },
   presetTextActive: { color: Colors.white, fontWeight: Typography.weight.bold },
   notifBtn: {
-    backgroundColor: Colors.navy, borderRadius: Radius.lg,
+    backgroundColor: Colors.textPrimary, borderRadius: Radius.lg,
     paddingVertical: 16, alignItems: 'center', marginBottom: Spacing.base,
   },
   notifGranted: { backgroundColor: Colors.success },
@@ -259,7 +258,7 @@ const styles = StyleSheet.create({
   },
   footer: { alignItems: 'center', marginTop: Spacing.sm },
   btn: {
-    backgroundColor: Colors.teal, borderRadius: Radius.lg,
+    backgroundColor: Colors.primary, borderRadius: Radius.lg,
     paddingVertical: 18, width: '100%', alignItems: 'center', marginBottom: 10,
   },
   btnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
