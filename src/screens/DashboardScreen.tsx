@@ -183,27 +183,30 @@ function TodaySequence({ tasks, onToggle, accent }: { tasks: Task[]; onToggle: (
       {sorted.map((task, i) => {
         const isMIT = task.isMIT && !task.completed;
         return (
-          <TouchableOpacity
+          <View
             key={task.id}
             style={[seq.row, i > 0 && seq.rowBorder, task.completed && seq.rowDone]}
-            onPress={() => onToggle(task.id)}
-            activeOpacity={0.72}
           >
-            {/* Checkbox */}
-            <View style={[
-              seq.circle,
-              isMIT     && { borderColor: accent, borderWidth: 2 },
-              task.completed && seq.circleDone,
-            ]}>
+            {/* Checkbox — only this triggers complete */}
+            <TouchableOpacity
+              style={[
+                seq.circle,
+                isMIT && { borderColor: accent, borderWidth: 2 },
+                task.completed && seq.circleDone,
+              ]}
+              onPress={() => onToggle(task.id)}
+              activeOpacity={0.65}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               {task.completed && <Text style={seq.tick}>✓</Text>}
-            </View>
+            </TouchableOpacity>
 
-            {/* Text + reason */}
+            {/* Text + reason — tapping does nothing (no accidental complete) */}
             <View style={{ flex: 1 }}>
               <Text
                 style={[
                   seq.label,
-                  isMIT     && seq.labelBold,
+                  isMIT && seq.labelBold,
                   task.completed && seq.labelDone,
                 ]}
                 numberOfLines={2}
@@ -226,7 +229,7 @@ function TodaySequence({ tasks, onToggle, accent }: { tasks: Task[]; onToggle: (
                 <Text style={seq.time}>{task.estimatedMinutes}m</Text>
               ) : null}
             </View>
-          </TouchableOpacity>
+          </View>
         );
       })}
     </View>
