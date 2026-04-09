@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { Colors, Spacing, Radius, DomainColors } from '../theme';
-import { useStore, DomainKey, Task, LifeGoal, TimeHorizon } from '../store/useStore';
+import { useStore, DomainKey, Task, LifeGoal, TimeHorizon, TimeBlockType } from '../store/useStore';
 import { syncAllProjects } from '../services/calendar';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -320,6 +320,290 @@ function QuickAddModal({ visible, onClose, onAdd }: {
   );
 }
 
+// ── Daily Structure Page ──────────────────────────────────────────────────────
+
+const BLOCK_COLORS: Record<TimeBlockType, string> = {
+  deep_work: '#2EC4A9',
+  area_work: '#D4821A',
+  social:    '#8B5CF6',
+  admin:     '#64748B',
+  protected: '#EF4444',
+  personal:  '#3B82F6',
+};
+
+const BLOCK_LABELS: Record<TimeBlockType, string> = {
+  deep_work: 'Deep work',
+  area_work: 'Area work',
+  social:    'Social',
+  admin:     'Admin',
+  protected: 'Protected',
+  personal:  'Personal',
+};
+
+function parseTimeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function minutesToLabel(mins: number): string {
+  const h    = Math.floor(mins / 60) % 24;
+  const m    = mins % 60;
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const hr   = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${hr}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
+function DailyStructurePage({ navigation }: { navigation: any }) {
+  const profile    = useStore(s => s.profile);
+  const tasks      = useStore(s => s.tasks);
+  const today      = format(new Date(), 'yyyy-MM-dd');
+  const todayDow   = new Date().getDay();   // 0 = Sun … 6 = Sat
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+
+  const todayBlocks = useMemo(() =>
+    (profile.weekTemplate ?? [])
+      .filter(b => b.dayOfWeek.includes(todayDow))
+      .sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime)),
+    [profile.weekTemplate, todayDow],
+  );
+
+  const mitTasks   = tasks.filter(t => t.date === today && t.isMIT   && !t.completed);
+  const otherTasks = tasks.filter(t => t.date === today && !t.isMIT  && !t.completed);
+  const doneTasks  = tasks.filter(t => t.date === today && t.completed);
+
+  const hasBlocks = profile.skeletonBuilt && todayBlocks.length > 0;
+  const hasTasks  = mitTasks.length > 0 || otherTasks.length > 0;
+
+  return (
+    <ScrollView
+      style={{ width: SCREEN_W }}
+      contentContainerStyle={ds.scroll}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Header */}
+      <View style={ds.header}>
+        <View>
+          <Text style={ds.dayLabel}>{format(new Date(), 'EEEE')}</Text>
+          <Text style={ds.dateLabel}>{format(new Date(), 'd MMMM')}</Text>
+        </View>
+        <View style={ds.headerRight}>
+          {doneTasks.length > 0 && (
+            <View style={ds.doneBadge}>
+              <Text style={ds.doneBadgeText}>✓ {doneTasks.length} done</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* ── Time blocks ── */}
+      {hasBlocks ? (
+        <>
+          <Text style={ds.sectionTitle}>STRUCTURE</Text>
+          <View style={ds.blocksCard}>
+            {todayBlocks.map((block, i) => {
+              const startMins = parseTimeToMinutes(block.startTime);
+              const endMins   = startMins + block.durationMinutes;
+              const isNow     = nowMinutes >= startMins && nowMinutes < endMins;
+              const isPast    = nowMinutes >= endMins;
+              const color     = BLOCK_COLORS[block.type];
+
+              return (
+                <View key={block.id}>
+                  {i > 0 && <View style={ds.blockDivider} />}
+                  <View style={[ds.blockRow, isPast && ds.blockRowPast]}>
+                    <View style={[ds.blockAccent, { backgroundColor: color }]} />
+                    <View style={ds.blockTimes}>
+                      <Text style={[ds.blockTimeText, isPast && ds.blockTimePast]}>
+                        {minutesToLabel(startMins)}
+                      </Text>
+                      <View style={ds.blockTimeLine} />
+                      <Text style={[ds.blockTimeText, isPast && ds.blockTimePast]}>
+                        {minutesToLabel(endMins)}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={ds.blockLabelRow}>
+                        <Text style={[ds.blockName, isPast && ds.blockNamePast]} numberOfLines={1}>
+                          {block.label}
+                        </Text>
+                        {isNow && (
+                          <View style={[ds.nowPill, { backgroundColor: color + '22', borderColor: color }]}>
+                            <Text style={[ds.nowPillText, { color }]}>now</Text>
+                          </View>
+                        )}
+                        {block.isProtected && !isNow && (
+                          <View style={ds.protectedPill}>
+                            <Text style={ds.protectedPillText}>protected</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[ds.blockTypeMeta, isPast && ds.blockTimePast]}>
+                        {BLOCK_LABELS[block.type]} · {block.durationMinutes} min
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </>
+      ) : (
+        <TouchableOpacity
+          style={ds.emptyBlocks}
+          onPress={() => navigation.navigate('SkeletonBuilder')}
+          activeOpacity={0.82}
+        >
+          <Text style={ds.emptyBlocksTitle}>No structure yet</Text>
+          <Text style={ds.emptyBlocksSub}>Build your weekly skeleton and Synapse will show your day structure here →</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* ── Today's tasks ── */}
+      <Text style={ds.sectionTitle}>TODAY'S TASKS</Text>
+
+      {!hasTasks ? (
+        <TouchableOpacity
+          style={ds.emptyTasks}
+          onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+          activeOpacity={0.82}
+        >
+          <Text style={ds.emptyTasksText}>No tasks planned — plan with Synapse →</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={ds.tasksCard}>
+          {mitTasks.map((t, i) => (
+            <View key={t.id}>
+              {i > 0 && <View style={ds.taskDivider} />}
+              <View style={ds.taskRow}>
+                <View style={ds.mitDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={ds.taskText}>{t.text}</Text>
+                  {t.estimatedMinutes ? (
+                    <Text style={ds.taskMeta}>~{t.estimatedMinutes} min</Text>
+                  ) : null}
+                </View>
+                <View style={ds.mitBadge}>
+                  <Text style={ds.mitBadgeText}>MIT</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+          {otherTasks.map((t, i) => (
+            <View key={t.id}>
+              <View style={ds.taskDivider} />
+              <View style={ds.taskRow}>
+                <View style={ds.otherDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={ds.taskText}>{t.text}</Text>
+                  {t.estimatedMinutes ? (
+                    <Text style={ds.taskMeta}>~{t.estimatedMinutes} min</Text>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+const ds = StyleSheet.create({
+  scroll: { paddingBottom: 40 },
+
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
+    paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.base,
+  },
+  dayLabel:    { fontSize: 38, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1.5, lineHeight: 42 },
+  dateLabel:   { fontSize: 16, color: Colors.textTertiary, fontWeight: '500', marginTop: 2 },
+  headerRight: { alignItems: 'flex-end', paddingBottom: 4 },
+  doneBadge:   { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 5 },
+  doneBadgeText: { fontSize: 12, color: Colors.primary, fontWeight: '700' },
+
+  sectionTitle: {
+    fontSize: 11, fontWeight: '700', color: Colors.textTertiary,
+    letterSpacing: 1.2, textTransform: 'uppercase',
+    paddingHorizontal: Spacing.lg, marginBottom: 8, marginTop: Spacing.base,
+  },
+
+  // Blocks card
+  blocksCard: {
+    marginHorizontal: Spacing.lg,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.xl,
+    borderWidth: 1, borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  blockRow: {
+    flexDirection: 'row', alignItems: 'stretch',
+    paddingVertical: 14, paddingRight: 16,
+  },
+  blockRowPast: { opacity: 0.4 },
+  blockAccent: { width: 3, marginRight: 14, borderRadius: 2, alignSelf: 'stretch' },
+  blockTimes: {
+    width: 60, alignItems: 'center', justifyContent: 'center',
+    gap: 2, paddingRight: 10,
+  },
+  blockTimeText: { fontSize: 11, color: Colors.textTertiary, fontWeight: '600', letterSpacing: 0.2 },
+  blockTimePast: { color: Colors.borderLight },
+  blockTimeLine: { width: 1, height: 10, backgroundColor: Colors.borderLight },
+  blockLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  blockName:     { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
+  blockNamePast: { color: Colors.textTertiary },
+  blockTypeMeta: { fontSize: 12, color: Colors.textTertiary },
+  blockDivider:  { height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderLight, marginLeft: 17 },
+
+  nowPill: {
+    borderRadius: Radius.full, borderWidth: 1,
+    paddingHorizontal: 8, paddingVertical: 2,
+  },
+  nowPillText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+
+  protectedPill: {
+    backgroundColor: '#FEE2E2', borderRadius: Radius.full,
+    paddingHorizontal: 8, paddingVertical: 2,
+  },
+  protectedPillText: { fontSize: 10, color: '#DC2626', fontWeight: '600' },
+
+  emptyBlocks: {
+    marginHorizontal: Spacing.lg,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border,
+    padding: Spacing.xl,
+  },
+  emptyBlocksTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 6 },
+  emptyBlocksSub:   { fontSize: 14, color: Colors.textSecondary, lineHeight: 21 },
+
+  // Tasks card
+  tasksCard: {
+    marginHorizontal: Spacing.lg,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  taskRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  taskDivider: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.borderLight, marginLeft: 14 },
+  taskText:    { fontSize: 15, color: Colors.textPrimary, lineHeight: 21, fontWeight: '400' },
+  taskMeta:    { fontSize: 12, color: Colors.textTertiary, marginTop: 2 },
+
+  mitDot:   { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary, flexShrink: 0 },
+  otherDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.border,  flexShrink: 0 },
+
+  mitBadge:     { backgroundColor: Colors.primaryLight, borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3 },
+  mitBadgeText: { fontSize: 10, color: Colors.primary, fontWeight: '700', letterSpacing: 0.5 },
+
+  emptyTasks: {
+    marginHorizontal: Spacing.lg,
+    padding: Spacing.base,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border,
+  },
+  emptyTasksText: { fontSize: 14, color: Colors.textSecondary },
+});
+
 // ── Goals Panel ───────────────────────────────────────────────────────────────
 
 const HORIZONS: { key: TimeHorizon; label: string; emoji: string }[] = [
@@ -564,6 +848,7 @@ export default function DashboardScreen({ navigation }: any) {
         <View style={styles.dotRow}>
           <View style={[styles.dot, activePage === 0 && styles.dotActive]} />
           <View style={[styles.dot, activePage === 1 && styles.dotActive]} />
+          <View style={[styles.dot, activePage === 2 && styles.dotActive]} />
         </View>
 
         {/* ── Horizontal pager ───────────────────────────────────────────── */}
@@ -768,6 +1053,9 @@ export default function DashboardScreen({ navigation }: any) {
 
           {/* ── Page 1: Goals panel ───────────────────────────────────────── */}
           <GoalsPanelPage navigation={navigation} />
+
+          {/* ── Page 2: Daily structure ───────────────────────────────────── */}
+          <DailyStructurePage navigation={navigation} />
 
         </ScrollView>
       </SafeAreaView>
