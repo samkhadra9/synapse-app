@@ -792,7 +792,7 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
       <NextEventCountdown calEvents={calEvents} />
 
       {/* ── Timeline strip ───────────────────────────────────────────────── */}
-      <View style={[tl.strip, { height: STRIP_H, marginHorizontal: Spacing.lg, marginBottom: Spacing.base }]}>
+      <View style={[tl.strip, { height: STRIP_H, marginBottom: Spacing.base }]}>
         {/* Hour grid lines + labels */}
         {stripHours.map(h => {
           const y = minsToStripY(h * 60);
@@ -919,8 +919,8 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
       </View>
 
       {/* ── Today's tasks ────────────────────────────────────────────────── */}
-      <View style={{ marginHorizontal: Spacing.lg, marginBottom: Spacing.base }}>
-        <Text style={tl.sectionLabel}>
+      <View style={{ marginBottom: Spacing.base }}>
+        <Text style={[tl.sectionLabel, { paddingHorizontal: Spacing.lg }]}>
           Today's tasks{todayTasks.length > 0 ? ` — ${todayTasks.length - completedCount} left` : ''}
         </Text>
         {todayTasks.length === 0 ? (
@@ -1021,9 +1021,6 @@ function makeTl(C: any) { return StyleSheet.create({
   strip: {
     position: 'relative',
     backgroundColor: C.surface,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: C.border,
     overflow: 'hidden',
   },
 
@@ -1051,7 +1048,7 @@ function makeTl(C: any) { return StyleSheet.create({
   sectionLabel:      { fontSize: 11, fontWeight: '700', color: C.textTertiary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
   tasksSection:      { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
   tasksSectionTitle: { fontSize: 11, fontWeight: '700', color: C.textTertiary, letterSpacing: 1.2, marginBottom: 8 },
-  tasksCard:         { backgroundColor: C.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  tasksCard:         { backgroundColor: C.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border, overflow: 'hidden' },
   taskDivider:       { height: StyleSheet.hairlineWidth, backgroundColor: C.borderLight, marginLeft: 46 },
   taskRow:           { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   taskCheck:         { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
@@ -1922,10 +1919,10 @@ function makeDs(C: any) { return StyleSheet.create({
   nowPillText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
 
   protectedPill: {
-    backgroundColor: '#FEE2E2', borderRadius: Radius.full,
+    backgroundColor: C.errorLight, borderRadius: Radius.full,
     paddingHorizontal: 8, paddingVertical: 2,
   },
-  protectedPillText: { fontSize: 10, color: '#DC2626', fontWeight: '600' },
+  protectedPillText: { fontSize: 10, color: C.error, fontWeight: '600' },
 
   emptyBlocks: {
     marginHorizontal: Spacing.lg,
@@ -2500,15 +2497,15 @@ function makeStyles(C: any) { return StyleSheet.create({
   overdueBanner: {
     marginHorizontal: Spacing.lg, marginTop: Spacing.base,
     borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: '#E8C4A0',
-    backgroundColor: '#FDF3E8',
+    borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.warningLight,
     paddingVertical: 12, paddingHorizontal: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
   },
   overdueLeft:   { flex: 1, gap: 2 },
-  overdueTitle:  { fontSize: 14, fontWeight: '700', color: '#9B4F0F' },
-  overdueSub:    { fontSize: 12, color: '#B5733A' },
-  overdueAction: { fontSize: 13, fontWeight: '600', color: '#9B4F0F' },
+  overdueTitle:  { fontSize: 14, fontWeight: '700', color: C.warning },
+  overdueSub:    { fontSize: 12, color: C.textTertiary },
+  overdueAction: { fontSize: 13, fontWeight: '600', color: C.warning },
 
   // Projects
   projectsCard: {
