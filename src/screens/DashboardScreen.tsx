@@ -801,10 +801,11 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
       {primaryMIT && (
         <MITHeroBlock
           task={primaryMIT}
-          onStart={() => setWorkingTask(primaryMIT)}
-          onComplete={() => {
-            handleToggleTask(primaryMIT.id);
-          }}
+          calEvents={calEvents}
+          goals={goals}
+          profile={profile}
+          onStart={(_quickStart) => setWorkingTask(primaryMIT)}
+          onComplete={() => handleToggleTask(primaryMIT.id)}
         />
       )}
 

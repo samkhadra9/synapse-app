@@ -40,14 +40,69 @@ interface AmbientChatStripProps {
 
 type StripState = 'collapsed' | 'expanded' | 'replied';
 
-// Quick prompts shown in collapsed state to reduce decision load
-const QUICK_PROMPTS = [
+// Static fallbacks — only used if context-aware prompts can't be determined
+const FALLBACK_PROMPTS = [
   "What should I start with?",
   "I feel stuck.",
   "Clear my head.",
   "Too much on my plate.",
   "What's the one thing?",
 ];
+
+/**
+ * Context-aware prompts — the strip reads the user's actual situation
+ * and surfaces the most useful thing to say, rather than generic options.
+ * This is the "externalised PFC" in action: it knows what you need before you do.
+ */
+function getContextualPrompts(profile: UserProfile, tasks: Task[]): string[] {
+  const now = new Date();
+  const today = format(now, 'yyyy-MM-dd');
+  const hour = now.getHours();
+  const todayMITs = tasks.filter(t => t.date === today && t.isMIT && !t.completed);
+  const doneCount = tasks.filter(t => t.date === today && t.completed).length;
+  const totalToday = tasks.filter(t => t.date === today && !t.completed).length;
+
+  const prompts: string[] = [];
+
+  // Morning with no plan
+  if (hour < 10 && totalToday === 0) {
+    prompts.push("What does a good day look like today?");
+    prompts.push("Help me plan the next 3 hours.");
+  }
+
+  // Has MITs, hasn't started
+  if (todayMITs.length > 0 && doneCount === 0) {
+    prompts.push(`How do I start "${todayMITs[0].text.slice(0, 35)}${todayMITs[0].text.length > 35 ? '…' : ''}"?`);
+    prompts.push("I keep avoiding my MIT. Help.");
+  }
+
+  // Overwhelmed (many tasks)
+  if (totalToday >= 5) {
+    prompts.push("Too many tasks — what actually matters?");
+    prompts.push("I'm overwhelmed. One thing.");
+  }
+
+  // Mid-day check-in
+  if (hour >= 13 && hour < 15 && doneCount > 0) {
+    prompts.push(`Done ${doneCount} so far — what's the best use of the next hour?`);
+  }
+
+  // Afternoon slump
+  if (hour >= 14 && hour <= 16) {
+    prompts.push("Afternoon slump. Help me refocus.");
+    prompts.push("Brain fog. Simplest next step?");
+  }
+
+  // Nothing left / all done
+  if (totalToday === 0 && doneCount > 0) {
+    prompts.push("Finished my list. What's worth doing next?");
+  }
+
+  // Fill to 4 with fallbacks
+  const combined = [...prompts, ...FALLBACK_PROMPTS].slice(0, 4);
+  // Shuffle slightly (deterministic based on hour so it doesn't flicker)
+  return combined;
+}
 
 function buildAmbientSystemPrompt(profile: UserProfile, tasks: Task[], goals: LifeGoal[]): string {
   const now = new Date();
@@ -104,13 +159,24 @@ export default function AmbientChatStrip({
   const [quickPromptIndex, setQuickPromptIndex] = useState(0);
   const inputRef = useRef<TextInput>(null);
 
-  // Cycle through quick prompts for visual interest
+  // Build context-aware prompt list, recalculate when tasks change
+  const contextPrompts = useMemo(
+    () => getContextualPrompts(profile, tasks),
+    [profile, tasks],
+  );
+
+  // Reset index when context shifts
+  useEffect(() => {
+    setQuickPromptIndex(0);
+  }, [contextPrompts]);
+
+  // Cycle prompts every 6 seconds
   useEffect(() => {
     const timer = setInterval(() => {
-      setQuickPromptIndex(i => (i + 1) % QUICK_PROMPTS.length);
-    }, 5000);
+      setQuickPromptIndex(i => (i + 1) % contextPrompts.length);
+    }, 6000);
     return () => clearInterval(timer);
-  }, []);
+  }, [contextPrompts]);
 
   function expand() {
     setState('expanded');
@@ -176,14 +242,14 @@ export default function AmbientChatStrip({
             <Ionicons name="sparkles" size={14} color={C.primary} />
           </View>
           <Text style={s.promptText} numberOfLines={1}>
-            {QUICK_PROMPTS[quickPromptIndex]}
+            {contextPrompts[quickPromptIndex]}
           </Text>
         </View>
         <View style={s.stripRight}>
           {/* Quick-fire: sends the current prompt directly, no intermediate step */}
           <TouchableOpacity
             style={s.quickSendBtn}
-            onPress={() => sendText(QUICK_PROMPTS[quickPromptIndex])}
+            onPress={() => sendText(contextPrompts[quickPromptIndex])}
             activeOpacity={0.75}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
@@ -240,9 +306,9 @@ export default function AmbientChatStrip({
             </TouchableOpacity>
           </View>
 
-          {/* Quick suggestion chips */}
+          {/* Context-aware suggestion chips */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.chipsScroll} contentContainerStyle={s.chips}>
-            {QUICK_PROMPTS.filter(p => p !== input).slice(0, 4).map((p, i) => (
+            {contextPrompts.filter(p => p !== input).slice(0, 4).map((p, i) => (
               <TouchableOpacity key={i} style={s.chip} onPress={() => setInput(p)} activeOpacity={0.7}>
                 <Text style={s.chipText}>{p}</Text>
               </TouchableOpacity>
