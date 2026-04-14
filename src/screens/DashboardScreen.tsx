@@ -24,6 +24,9 @@ import { useStore, DomainKey, Task, LifeGoal, TimeHorizon, TimeBlockType, Planne
 import { syncAllProjects, getTodayCalendarEvents, getTodayReminders, TodayEvent, TodayReminder } from '../services/calendar';
 import FloatingAddButton from '../components/FloatingAddButton';
 import WorkingModeModal from '../components/WorkingModeModal';
+import MITHeroBlock from '../components/MITHeroBlock';
+import AmbientChatStrip from '../components/AmbientChatStrip';
+import DriftNudge from '../components/DriftNudge';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -751,6 +754,12 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
     : undefined;
   const momentumGoal = goals.find(g => g.horizon === '1year');
 
+  // Primary MIT for hero block + drift nudge — first incomplete MIT today
+  const primaryMIT = useMemo(
+    () => tasks.find(t => t.date === today && t.isMIT && !t.completed) ?? null,
+    [tasks, today],
+  );
+
   // Today's tasks
   const todayTasks = useMemo(
     () => tasks.filter(t => t.date === today).sort((a, b) => {
@@ -787,6 +796,26 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
           <Ionicons name="add" size={20} color={C.textInverse} />
         </TouchableOpacity>
       </View>
+
+      {/* ── MIT Hero Block — primary task, front and centre ─────────────── */}
+      {primaryMIT && (
+        <MITHeroBlock
+          task={primaryMIT}
+          onStart={() => setWorkingTask(primaryMIT)}
+          onComplete={() => {
+            handleToggleTask(primaryMIT.id);
+          }}
+        />
+      )}
+
+      {/* ── Drift Nudge — time-blindness protection ───────────────────────── */}
+      <DriftNudge
+        mitTask={primaryMIT}
+        calEvents={calEvents}
+        isWorking={workingTask !== null}
+        onStart={() => primaryMIT && setWorkingTask(primaryMIT)}
+        onReschedule={() => navigation.navigate('Chat', { mode: 'morning' })}
+      />
 
       {/* ── Next event countdown ─────────────────────────────────────────── */}
       <NextEventCountdown calEvents={calEvents} />
@@ -2083,7 +2112,7 @@ function makeGp(C: any) { return StyleSheet.create({
 export default function DashboardScreen({ navigation }: any) {
   const C = useColors();  // active theme tokens
   const styles = useMemo(() => makeStyles(C), [C]);
-  const { profile, tasks, projects, toggleTask, updateProject, updateProfile, addTask, touchLastActive } = useStore();
+  const { profile, tasks, projects, goals, toggleTask, updateProject, updateProfile, addTask, touchLastActive } = useStore();
   const [syncing,       setSyncing]       = useState(false);
   const [showQuickAdd,  setShowQuickAdd]  = useState(false);
   const [activePage,    setActivePage]    = useState(0);
@@ -2263,6 +2292,17 @@ export default function DashboardScreen({ navigation }: any) {
 
 
         </ScrollView>
+
+        {/* ── Ambient Chat Strip — always present on Today page ─────────── */}
+        {activePage === 0 && (
+          <AmbientChatStrip
+            navigation={navigation}
+            profile={profile}
+            tasks={tasks}
+            goals={goals}
+          />
+        )}
+
       </SafeAreaView>
 
       <QuickAddModal
