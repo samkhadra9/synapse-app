@@ -896,6 +896,7 @@ function makeCalendarExport(C: any) {
 
 export default function ChatScreen({ navigation, route }: any) {
   const mode: ChatMode = route?.params?.mode ?? 'dump';
+  const initialMessage: string = route?.params?.initialMessage ?? '';
   const meta = MODE_META[mode];
   const insets = useSafeAreaInsets();
 
@@ -942,7 +943,7 @@ export default function ChatScreen({ navigation, route }: any) {
   }, [mode, profile.weekTemplate]);
 
   const [messages,        setMessages]        = useState<ChatMessage[]>([]);
-  const [input,           setInput]           = useState('');
+  const [input,           setInput]           = useState(initialMessage);
   const [loading,         setLoading]         = useState(false);
   const [actionTaken,     setActionTaken]     = useState(false);
   const [pendingActions,  setPendingActions]  = useState<any | null>(null);

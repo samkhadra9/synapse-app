@@ -22,14 +22,13 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  Animated, KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Spacing, Radius } from '../theme';
 import { fetchAnthropic } from '../lib/anthropic';
-import { UserProfile, Task, LifeGoal } from '../store/useStore';
-import { useStore } from '../store/useStore';
+import { UserProfile, Task, LifeGoal, useStore } from '../store/useStore';
 import { format } from 'date-fns';
 
 interface AmbientChatStripProps {
@@ -100,6 +99,7 @@ export default function AmbientChatStrip({
   const [state, setState] = useState<StripState>('collapsed');
   const [input, setInput] = useState('');
   const [response, setResponse] = useState('');
+  const [sentText, setSentText] = useState(''); // preserve sent text for display in replied state
   const [loading, setLoading] = useState(false);
   const [quickPromptIndex, setQuickPromptIndex] = useState(0);
   const inputRef = useRef<TextInput>(null);
@@ -112,50 +112,27 @@ export default function AmbientChatStrip({
     return () => clearInterval(timer);
   }, []);
 
-  const heightAnim = useRef(new Animated.Value(56)).current;
-
   function expand() {
     setState('expanded');
-    Animated.spring(heightAnim, {
-      toValue: 160,
-      useNativeDriver: false,
-      tension: 80,
-      friction: 12,
-    }).start();
     setTimeout(() => inputRef.current?.focus(), 150);
   }
 
   function collapse() {
     setInput('');
     setResponse('');
+    setSentText('');
     setState('collapsed');
-    Animated.spring(heightAnim, {
-      toValue: 56,
-      useNativeDriver: false,
-      tension: 80,
-      friction: 12,
-    }).start();
   }
 
-  function expandWithReply() {
-    setState('replied');
-    Animated.spring(heightAnim, {
-      toValue: 220,
-      useNativeDriver: false,
-      tension: 80,
-      friction: 12,
-    }).start();
-  }
-
-  function setQuickInput(text: string) {
-    setInput(text);
-    expand();
-  }
-
-  async function send() {
-    const trimmed = input.trim();
+  /** Fire a message — accepts text directly so quick-send can bypass state timing */
+  async function sendText(text: string) {
+    const trimmed = text.trim();
     if (!trimmed || loading) return;
+
+    setSentText(trimmed);
+    setInput('');
     setLoading(true);
+    setState('replied'); // show loading state immediately in replied pane
 
     try {
       const systemPrompt = buildAmbientSystemPrompt(profile, tasks, goals);
@@ -171,20 +148,23 @@ export default function AmbientChatStrip({
 
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-      const text = data?.content?.[0]?.text ?? "Let's figure it out — what feels most stuck right now?";
-      setResponse(text);
-      setLoading(false);
-      expandWithReply();
+      const reply = data?.content?.[0]?.text ?? "Let's figure it out — start with the very next physical action.";
+      setResponse(reply);
     } catch {
-      setResponse("Couldn't reach Synapse. Check your connection.");
+      setResponse("Couldn't reach Synapse — check your connection, then try again.");
+    } finally {
       setLoading(false);
-      expandWithReply();
     }
   }
 
+  function sendFromInput() {
+    sendText(input);
+  }
+
   function openFullChat() {
+    const textToCarry = sentText || input;
     collapse();
-    navigation.navigate('Chat', { mode: 'dump', prefill: input });
+    navigation.navigate('Chat', { mode: 'dump', initialMessage: textToCarry });
   }
 
   // ── Collapsed state ────────────────────────────────────────────────────────
@@ -200,14 +180,16 @@ export default function AmbientChatStrip({
           </Text>
         </View>
         <View style={s.stripRight}>
+          {/* Quick-fire: sends the current prompt directly, no intermediate step */}
           <TouchableOpacity
             style={s.quickSendBtn}
-            onPress={() => setQuickInput(QUICK_PROMPTS[quickPromptIndex])}
+            onPress={() => sendText(QUICK_PROMPTS[quickPromptIndex])}
             activeOpacity={0.75}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Ionicons name="send" size={13} color={C.primary} />
           </TouchableOpacity>
+          {/* Edit: expands for custom input */}
           <TouchableOpacity
             style={s.expandBtn}
             onPress={expand}
@@ -243,13 +225,11 @@ export default function AmbientChatStrip({
               placeholderTextColor={C.textTertiary}
               multiline
               maxLength={500}
-              returnKeyType="send"
-              onSubmitEditing={send}
-              blurOnSubmit={false}
+              // Note: multiline eats the Return key on iOS — rely on the send button
             />
             <TouchableOpacity
               style={[s.sendBtn, !input.trim() && s.sendBtnOff]}
-              onPress={send}
+              onPress={sendFromInput}
               disabled={!input.trim() || loading}
               activeOpacity={0.82}
             >
@@ -283,15 +263,21 @@ export default function AmbientChatStrip({
     <View style={s.repliedContainer}>
       {/* User message */}
       <View style={s.userBubble}>
-        <Text style={s.userBubbleText}>{input}</Text>
+        <Text style={s.userBubbleText}>{sentText}</Text>
       </View>
 
-      {/* AI response */}
+      {/* AI response — shows spinner while loading */}
       <View style={s.aiBubble}>
         <View style={s.sparkleWrap}>
-          <Ionicons name="sparkles" size={12} color={C.primary} />
+          {loading
+            ? <ActivityIndicator size="small" color={C.primary} />
+            : <Ionicons name="sparkles" size={12} color={C.primary} />
+          }
         </View>
-        <Text style={s.aiBubbleText}>{response}</Text>
+        {loading
+          ? <Text style={[s.aiBubbleText, { color: C.textTertiary, fontStyle: 'italic' }]}>Thinking…</Text>
+          : <Text style={s.aiBubbleText}>{response}</Text>
+        }
       </View>
 
       {/* Footer actions */}

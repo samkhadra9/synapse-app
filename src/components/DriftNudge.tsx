@@ -22,7 +22,7 @@
 
 import React, { useMemo, useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated,
+  View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Spacing, Radius } from '../theme';
@@ -97,7 +97,6 @@ export default function DriftNudge({
 
   const [dismissed, setDismissed] = useState(false);
   const [nudgeInfo, setNudgeInfo] = useState<NudgeInfo | null>(null);
-  const slideAnim = useRef_anim();
 
   useEffect(() => {
     setDismissed(false); // re-arm if MIT or events change
@@ -143,6 +142,9 @@ export default function DriftNudge({
         <TouchableOpacity style={s.startBtn} onPress={onStart} activeOpacity={0.8}>
           <Text style={s.startBtnText}>Start now</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={s.rescheduleBtn} onPress={onReschedule} activeOpacity={0.75}>
+          <Text style={s.rescheduleBtnText}>Reschedule</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={s.dismissBtn}
           onPress={() => setDismissed(true)}
@@ -154,13 +156,6 @@ export default function DriftNudge({
       </View>
     </View>
   );
-}
-
-// Tiny ref helper — avoids importing useRef inside the component to keep
-// the function pure (useRef must be called at component top level)
-function useRef_anim() {
-  const ref = React.useRef(new Animated.Value(0));
-  return ref.current;
 }
 
 function makeStyles(C: any) {
@@ -229,6 +224,18 @@ function makeStyles(C: any) {
       fontSize: 12,
       fontWeight: '700',
       color: C.textInverse,
+    },
+    rescheduleBtn: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: C.border,
+    },
+    rescheduleBtnText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: C.textSecondary,
     },
     dismissBtn: {
       width: 28,
