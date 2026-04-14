@@ -14,7 +14,7 @@
  *   project  — Create / plan a specific project
  */
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
@@ -22,11 +22,13 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
-import { format } from 'date-fns';
-import { Colors, Spacing, Radius } from '../theme';
-import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile } from '../store/useStore';
-import { buildTodayCalendarContext, buildSkeletonContext } from '../services/calendar';
+import { format, addDays } from 'date-fns';
+import { Colors, Spacing, Radius, useColors } from '../theme';
+import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile, Area, DayPlan, PlannedSlot } from '../store/useStore';
+import { buildTodayCalendarContext, buildSkeletonContext, writeDayPlanToCalendar, requestCalendarPermissions, findOrCreateSynapseCalendar } from '../services/calendar';
 import { updatePortrait } from '../services/portrait';
+import { fetchAnthropic } from '../lib/anthropic';
+import { supabase } from '../lib/supabase';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -44,8 +46,14 @@ const MODE_META: Record<ChatMode, { title: string; subtitle: string }> = {
   fatigue: { title: 'Decision fatigue', subtitle: 'Clear the noise. One thing.' },
 };
 
-const ENV_API_KEY    = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
-const ENV_OPENAI_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim(); // voice only
+const ENV_OPENAI_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim(); // voice only (Whisper)
+
+/** RFC-4122 v4 UUID */
+const uid = (): string =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 
 // ── Context Builder ────────────────────────────────────────────────────────────
 // Injects the user's full life structure into every system prompt.
@@ -56,6 +64,7 @@ function buildContextBlock(store: {
   tasks: Task[];
   projects: Project[];
   goals: LifeGoal[];
+  areas: Area[];
 }): string {
   const now         = new Date();
   const today       = format(now, 'yyyy-MM-dd');
@@ -75,6 +84,8 @@ function buildContextBlock(store: {
   const goals1yr    = store.goals.filter(g => g.horizon === '1year');
   const goals5yr    = store.goals.filter(g => g.horizon === '5year');
   const goals10yr   = store.goals.filter(g => g.horizon === '10year');
+  const inboxTasks  = store.tasks.filter(t => (t.isInbox || !t.date || t.date === '') && !t.completed);
+  const activeAreas = store.areas.filter(a => a.isActive && !a.isArchived);
 
   // Realistic time budget: how many minutes of tasks are already planned vs. available
   const plannedMinutes = todayTasks
@@ -97,6 +108,14 @@ function buildContextBlock(store: {
     ? overdue.slice(0, 8).map(t => `  • "${t.text}" (was due ${t.date})`).join('\n')
     : '  • none — clean slate';
 
+  const inboxList = inboxTasks.length
+    ? inboxTasks.slice(0, 10).map(t => `  • "${t.text}"${t.priority !== 'low' ? ` [${t.priority}]` : ''}`).join('\n')
+    : '  • empty';
+
+  const areasList = activeAreas.length
+    ? activeAreas.map(a => `  • "${a.name}" (${a.domain})${a.description ? ': ' + a.description : ''}`).join('\n')
+    : '  • none set yet';
+
   return `
 ╔══ ${store.profile.name || 'User'}'s Life Context ══╗
 Today: ${format(now, 'EEEE, MMMM d yyyy')}
@@ -111,6 +130,12 @@ ${todayList}
 
 OVERDUE (${overdue.length} tasks — surface the important ones):
 ${overdueList}
+
+INBOX (unscheduled captured tasks — ${inboxTasks.length}):
+${inboxList}
+
+LIFE AREAS (ongoing domains — never "done"):
+${areasList}
 
 1-YEAR GOALS:
 ${goals1yr.length ? goals1yr.map(g => `  • ${g.text}`).join('\n') : '  • not set'}
@@ -148,8 +173,21 @@ When you have enough to act, output exactly this — raw JSON, NO code fences, N
 {"actions":[
   {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","reason":"why this task, why now — one short sentence"},
   {"type":"project","projectType":"sequential|recurring","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":60,"reason":"why this step"}],"recurringTask":{"text":"session description","estimatedMinutes":60,"frequency":"daily|weekdays|weekly","preferredSlot":"morning|afternoon|evening"}},
-  {"type":"goal","horizon":"1year|5year|10year","text":"goal text"}
+  {"type":"goal","horizon":"1year|5year|10year","text":"goal text"},
+  {"type":"schedule","slots":[
+    {"time":"08:00","eventLabel":"Deep work","tasks":["Task text exactly as created above","Second task text"]},
+    {"time":"14:00","eventLabel":"Arvo work","tasks":["Third task text"]}
+  ]}
 ],"summary":"One sentence plan summary","sessionNote":"optional note for logs"}
+
+SCHEDULE ACTION (for morning mode only):
+- Include ONE "schedule" action that maps today's tasks to their time slots
+- "time" = 24hr start time of the block/event (e.g. "08:00", "13:30")
+- "eventLabel" = the calendar event or skeleton block name (use the exact name from LIVE DEVICE DATA above — e.g. "NCVH", "Deep work", "Arvo work")
+- "tasks" = the task texts you created above, in the order they should be done in that slot
+- A task can only appear in ONE slot. Each slot can have 1–4 tasks.
+- Only include slots that have at least one task. Skip free/empty time.
+- Free time between calendar events = the slot before the next event
 
 TASK SIZING — the 30-minute block rule (enforce strictly):
 - estimatedMinutes MUST be a multiple of 30: use 30, 60, 90, or 120 only. Never 15, 45, or any other number.
@@ -173,6 +211,13 @@ TASK REASON field — always include a short, honest reason:
 - "Do this first so the rest of the week has a clear target"
 
 isMIT: true for MAXIMUM 3 tasks total — the ruthless few that must happen today. Prefer 1–2.
+
+CRITICAL — dueDate rules:
+- isMIT tasks → dueDate "today"
+- Tasks the person explicitly says they'll do today → "today"
+- Everything else → use a FUTURE date (tomorrow, or a specific YYYY-MM-DD)
+- Project subtasks from a planning breakdown → spread them across the coming days/weeks, NOT all today
+- NEVER set all tasks to "today". Only 1–3 tasks max should have dueDate "today".
 
 PROJECT vs AREA:
 A PROJECT has a clear end state. An AREA is ongoing. Areas never become projects.
@@ -491,22 +536,17 @@ function parseActions(text: string): any | null {
     try {
       return JSON.parse(jsonStr);
     } catch {
-      // Second attempt — Claude occasionally uses "smart quotes" or unescaped apostrophes
-      // in string values (e.g. "you've been avoiding this"). Fix by escaping bare apostrophes
-      // inside string values only (not structural characters).
+      // Second attempt — normalise curly/smart quotes to straight quotes
+      // (Claude occasionally outputs typographic quotes in string values)
       const cleaned = jsonStr
-        // Replace smart/curly quotes with straight quotes
-        .replace(/[\u2018\u2019]/g, "'")
-        .replace(/[\u201C\u201D]/g, '"')
-        // Escape bare apostrophes inside JSON string values
-        // (match apostrophe not preceded by a backslash)
-        .replace(/(?<!\\)'/g, "\\'");
+        .replace(/[\u2018\u2019]/g, "'")   // curly single → straight
+        .replace(/[\u201C\u201D]/g, '"');  // curly double → straight
 
       try {
         return JSON.parse(cleaned);
       } catch {
-        // Final attempt — strip any trailing comma before } or ] (common Claude mistake)
-        const noTrailingCommas = jsonStr.replace(/,\s*([}\]])/g, '$1');
+        // Third attempt — strip trailing commas before } or ] (common Claude mistake)
+        const noTrailingCommas = cleaned.replace(/,\s*([}\]])/g, '$1');
         return JSON.parse(noTrailingCommas);
       }
     }
@@ -530,6 +570,8 @@ function EditableTaskRow({ action, onChange, onRemove, mitCount }: {
   onRemove: () => void;
   mitCount: number;  // how many MITs are currently marked in the full list
 }) {
+  const C = useColors();
+  const rv = useMemo(() => makeRv(C), [C]);
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(action.text);
 
@@ -590,6 +632,8 @@ function PlanReviewSheet({ parsed, onApply, onDiscard }: {
   onApply: (edited: typeof parsed) => void;
   onDiscard: () => void;
 }) {
+  const C = useColors();
+  const rv = useMemo(() => makeRv(C), [C]);
   const [actions, setActions] = useState<any[]>(parsed.actions);
 
   const mitCount = actions.filter(a => a.type === 'task' && a.isMIT).length;
@@ -687,80 +731,166 @@ function PlanReviewSheet({ parsed, onApply, onDiscard }: {
   );
 }
 
-const rv = StyleSheet.create({
-  overlay:  { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    paddingTop: 12, paddingHorizontal: 20, paddingBottom: 36,
-    maxHeight: '88%',
-  },
-  handle:    { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E0E0E0', alignSelf: 'center', marginBottom: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 },
-  title:     { fontSize: 20, fontWeight: '700', color: '#111', letterSpacing: -0.5 },
-  meta:      { fontSize: 12, color: '#888', fontWeight: '500' },
-  summary:   { fontSize: 14, color: '#555', marginBottom: 12, lineHeight: 20 },
+function makeRv(C: any) {
+  return StyleSheet.create({
+    overlay:  { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+    sheet: {
+      backgroundColor: C.surfaceElevated,
+      borderTopLeftRadius: 28, borderTopRightRadius: 28,
+      paddingTop: 12, paddingHorizontal: 20, paddingBottom: 36,
+      maxHeight: '88%',
+    },
+    handle:    { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
+    headerRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 },
+    title:     { fontSize: 20, fontWeight: '700', color: '#111', letterSpacing: -0.5 },
+    meta:      { fontSize: 12, color: '#888', fontWeight: '500' },
+    summary:   { fontSize: 14, color: '#555', marginBottom: 12, lineHeight: 20 },
 
-  mitWarning: {
-    backgroundColor: '#FFF8E1', borderRadius: 8, padding: 10, marginBottom: 10,
-  },
-  mitWarningText: { fontSize: 12, color: '#B8860B', fontWeight: '500' },
+    mitWarning: {
+      backgroundColor: '#FFF8E1', borderRadius: 8, padding: 10, marginBottom: 10,
+    },
+    mitWarningText: { fontSize: 12, color: '#B8860B', fontWeight: '500' },
 
-  scroll: { flexGrow: 0, marginHorizontal: -4 },
+    scroll: { flexGrow: 0, marginHorizontal: -4 },
 
-  // Task row
-  taskRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 12, paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EEE',
-  },
-  mitDot: {
-    width: 26, height: 26, borderRadius: 13,
-    borderWidth: 1.5, borderColor: '#CCC',
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  mitDotActive: { backgroundColor: '#111', borderColor: '#111' },
-  mitStar:      { fontSize: 12, color: '#FFF', fontWeight: '700' },
+    // Task row
+    taskRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 10,
+      paddingVertical: 12, paddingHorizontal: 4,
+      borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EEE',
+    },
+    mitDot: {
+      width: 26, height: 26, borderRadius: 13,
+      borderWidth: 1.5, borderColor: '#CCC',
+      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    },
+    mitDotActive: { backgroundColor: '#111', borderColor: '#111' },
+    mitStar:      { fontSize: 12, color: '#FFF', fontWeight: '700' },
 
-  taskText:      { fontSize: 15, color: '#111', fontWeight: '400', lineHeight: 20 },
-  taskReason:    { fontSize: 12, color: '#888', marginTop: 2, lineHeight: 16, fontStyle: 'italic' },
-  taskEditInput: {
-    fontSize: 15, color: '#111', fontWeight: '400',
-    borderBottomWidth: 1.5, borderBottomColor: '#111',
-    paddingVertical: 2, paddingHorizontal: 0,
-  },
+    taskText:      { fontSize: 15, color: '#111', fontWeight: '400', lineHeight: 20 },
+    taskReason:    { fontSize: 12, color: '#888', marginTop: 2, lineHeight: 16, fontStyle: 'italic' },
+    taskEditInput: {
+      fontSize: 15, color: '#111', fontWeight: '400',
+      borderBottomWidth: 1.5, borderBottomColor: '#111',
+      paddingVertical: 2, paddingHorizontal: 0,
+    },
 
-  minsBadge: {
-    backgroundColor: '#F0F0F0', borderRadius: 8,
-    paddingHorizontal: 8, paddingVertical: 5, flexShrink: 0,
-  },
-  minsText: { fontSize: 12, color: '#555', fontWeight: '600' },
+    minsBadge: {
+      backgroundColor: '#F0F0F0', borderRadius: 8,
+      paddingHorizontal: 8, paddingVertical: 5, flexShrink: 0,
+    },
+    minsText: { fontSize: 12, color: '#555', fontWeight: '600' },
 
-  removeBtn:     { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  removeBtnText: { fontSize: 20, color: '#CCC', lineHeight: 24 },
+    removeBtn:     { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    removeBtnText: { fontSize: 20, color: '#CCC', lineHeight: 24 },
 
-  // Project row
-  projectRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    paddingVertical: 12, paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EEE',
-  },
-  projectBadge: {
-    backgroundColor: '#EEF2FF', borderRadius: 6,
-    paddingHorizontal: 7, paddingVertical: 3, flexShrink: 0, marginTop: 2,
-  },
-  projectBadgeText: { fontSize: 10, fontWeight: '700', color: '#4F6EF7', letterSpacing: 0.5 },
-  projectTitle:     { fontSize: 15, color: '#111', fontWeight: '600' },
-  projectSub:       { fontSize: 12, color: '#888', marginTop: 2 },
+    // Project row
+    projectRow: {
+      flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+      paddingVertical: 12, paddingHorizontal: 4,
+      borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EEE',
+    },
+    projectBadge: {
+      backgroundColor: '#EEF2FF', borderRadius: 6,
+      paddingHorizontal: 7, paddingVertical: 3, flexShrink: 0, marginTop: 2,
+    },
+    projectBadgeText: { fontSize: 10, fontWeight: '700', color: '#4F6EF7', letterSpacing: 0.5 },
+    projectTitle:     { fontSize: 15, color: '#111', fontWeight: '600' },
+    projectSub:       { fontSize: 12, color: '#888', marginTop: 2 },
 
-  // Apply / discard
-  applyBtn:    { backgroundColor: '#111', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 16, marginBottom: 10 },
-  applyBtnOff: { opacity: 0.4 },
-  applyBtnText:{ color: '#FFF', fontSize: 16, fontWeight: '700' },
-  discardBtn:  { alignItems: 'center', paddingVertical: 10 },
-  discardText: { color: '#999', fontSize: 15 },
-});
+    // Apply / discard
+    applyBtn:    { backgroundColor: '#111', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 16, marginBottom: 10 },
+    applyBtnOff: { opacity: 0.4 },
+    applyBtnText:{ color: '#FFF', fontSize: 16, fontWeight: '700' },
+    discardBtn:  { alignItems: 'center', paddingVertical: 10 },
+    discardText: { color: '#999', fontSize: 15 },
+  });
+}
+
+// ── Calendar Export Modal ──────────────────────────────────────────────────────
+
+function CalendarExportModal({
+  dayPlan,
+  onConfirm,
+  onDismiss,
+}: {
+  dayPlan: DayPlan | undefined;
+  onConfirm: () => void;
+  onDismiss: () => void;
+}) {
+  const C = useColors();
+  const ce = useMemo(() => makeCalendarExport(C), [C]);
+
+  if (!dayPlan?.slots || dayPlan.slots.length === 0) return null;
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onDismiss}>
+      <View style={ce.overlay}>
+        <TouchableOpacity style={ce.backdrop} activeOpacity={1} onPress={onDismiss} />
+        <View style={ce.sheet}>
+          <View style={ce.handle} />
+
+          <Text style={ce.title}>Add to calendar?</Text>
+          <Text style={ce.subtitle}>Push today's plan to your iPhone calendar so it shows alongside your meetings.</Text>
+
+          {/* Preview list of slots */}
+          <View style={ce.previewContainer}>
+            {dayPlan.slots.map((slot, idx) => (
+              <View key={idx} style={ce.slotRow}>
+                <Text style={ce.slotTime}>{slot.time}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={ce.slotLabel}>{slot.eventLabel}</Text>
+                  <Text style={ce.slotTaskCount}>{slot.tasks.length} task{slot.tasks.length !== 1 ? 's' : ''}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={ce.confirmBtn}
+            onPress={onConfirm}
+            activeOpacity={0.85}
+          >
+            <Text style={ce.confirmBtnText}>Yes, add to calendar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={ce.dismissBtn} onPress={onDismiss} activeOpacity={0.75}>
+            <Text style={ce.dismissText}>Not now</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function makeCalendarExport(C: any) {
+  return StyleSheet.create({
+    overlay:  { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
+    sheet: {
+      backgroundColor: C.surface,
+      borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
+      padding: Spacing.lg, paddingBottom: 40,
+    },
+    handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 16 },
+    title: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 6 },
+    subtitle: { fontSize: 14, color: C.textSecondary, marginBottom: 16, lineHeight: 20 },
+
+    previewContainer: { backgroundColor: C.background, borderRadius: Radius.md, padding: Spacing.base, marginBottom: 20 },
+    slotRow: {
+      flexDirection: 'row', alignItems: 'center', gap: Spacing.base,
+      paddingVertical: Spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
+    },
+    slotTime: { fontSize: 14, fontWeight: '600', color: C.primary, minWidth: 50 },
+    slotLabel: { fontSize: 15, fontWeight: '500', color: C.textPrimary },
+    slotTaskCount: { fontSize: 12, color: C.textTertiary, marginTop: 2 },
+
+    confirmBtn: { backgroundColor: C.ink, borderRadius: Radius.md, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
+    confirmBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+    dismissBtn: { alignItems: 'center', paddingVertical: 12 },
+    dismissText: { color: C.textSecondary, fontSize: 15 },
+  });
+}
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
@@ -769,14 +899,21 @@ export default function ChatScreen({ navigation, route }: any) {
   const meta = MODE_META[mode];
   const insets = useSafeAreaInsets();
 
-  const { profile, tasks, projects, goals, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait } = useStore();
-  const apiKey      = profile.anthropicKey || ENV_API_KEY;
-  const voiceApiKey = profile.openAiKey || ENV_OPENAI_KEY; // Whisper still uses OpenAI
+  const C = useColors();
+  const rv = useMemo(() => makeRv(C), [C]);
+  const styles = useMemo(() => makeStyles(C), [C]);
 
+  const { profile, tasks, projects, goals, areas, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait, saveDayPlan } = useStore();
+  const userAnthropicKey = profile.anthropicKey || undefined; // personal key or undefined → proxy
+  const userOpenAiKey    = profile.openAiKey || ENV_OPENAI_KEY || undefined; // personal key or undefined → proxy
+
+  // Rebuild context when task completion changes, project progress changes, or counts change.
+  // Using a lightweight fingerprint avoids rebuilding on every render while staying accurate.
+  const ctxFingerprint = `${profile.name}|${tasks.length}:${tasks.filter(t => t.completed).length}|${projects.length}:${projects.reduce((n, p) => n + p.tasks.filter(t => t.completed).length, 0)}|${goals.length}|${areas.length}`;
   const contextBlock = useMemo(
-    () => buildContextBlock({ profile, tasks, projects, goals }),
+    () => buildContextBlock({ profile, tasks, projects, goals, areas }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [profile.name, tasks.length, projects.length, goals.length],
+    [ctxFingerprint],
   );
 
   const [calendarContext, setCalendarContext] = useState('');
@@ -802,7 +939,7 @@ export default function ChatScreen({ navigation, route }: any) {
           if (skeletonCtx) setCalendarContext(skeletonCtx);
         });
     }
-  }, [mode]);
+  }, [mode, profile.weekTemplate]);
 
   const [messages,        setMessages]        = useState<ChatMessage[]>([]);
   const [input,           setInput]           = useState('');
@@ -812,6 +949,7 @@ export default function ChatScreen({ navigation, route }: any) {
   const [recording,       setRecording]       = useState<Audio.Recording | null>(null);
   const [isRecording,     setIsRecording]     = useState(false);
   const [transcribing,    setTranscribing]    = useState(false);
+  const [showCalendarExport, setShowCalendarExport] = useState(false);
   const pulseAnim    = useRef(new Animated.Value(1)).current;
   const listRef      = useRef<FlatList>(null);
   const messagesRef  = useRef<ChatMessage[]>([]);  // always up-to-date for unmount closure
@@ -825,7 +963,7 @@ export default function ChatScreen({ navigation, route }: any) {
   useEffect(() => {
     return () => {
       const msgs = messagesRef.current;
-      const liveKey = useStore.getState().profile.anthropicKey || ENV_API_KEY;
+      const liveKey = useStore.getState().profile.anthropicKey || undefined;
       if (msgs.length >= 4 && liveKey) {
         updatePortrait(msgs, useStore.getState().profile.portrait ?? '', liveKey, mode)
           .then(newPortrait => {
@@ -862,40 +1000,25 @@ export default function ChatScreen({ navigation, route }: any) {
       role, content,
       timestamp: new Date().toISOString(),
     };
-    setMessages(prev => {
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
-      return [...prev, msg];
-    });
+    setMessages(prev => [...prev, msg]);
     return msg;
   }
 
   async function sendToLLM(history: ChatMessage[]) {
-    if (!apiKey) {
-      appendMessage('assistant', "I need an Anthropic API key to work. Add it in Settings.");
-      return;
-    }
     setLoading(true);
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-5-20250929',
-          max_tokens: 900,
-          system: systemPrompt,
-          // Anthropic requires: (a) non-empty array, (b) first message must be user role.
-          // We prepend a silent kickoff so the AI opens the conversation as the system prompt instructs.
-          messages: [
-            { role: 'user', content: 'Hello' },
-            ...history.map(m => ({ role: m.role, content: m.content })),
-          ],
-          temperature: 0.7,
-        }),
-      });
+      const res = await fetchAnthropic({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 1800,
+        system: systemPrompt,
+        // Anthropic requires: (a) non-empty array, (b) first message must be user role.
+        // We prepend a silent kickoff so the AI opens the conversation as the system prompt instructs.
+        messages: [
+          { role: 'user', content: 'Hello' },
+          ...history.map(m => ({ role: m.role, content: m.content })),
+        ],
+        temperature: 0.7,
+      }, userAnthropicKey);
       const data = await res.json();
       if (!res.ok) {
         const errMsg = data?.error?.message ?? `API error ${res.status}`;
@@ -931,7 +1054,7 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   }
 
-  function applyActions(parsed: { actions: any[]; sessionNote?: string }) {
+  function applyActions(parsed: { actions: any[]; summary?: string; sessionNote?: string }) {
     const today    = format(new Date(), 'yyyy-MM-dd');
     const tomorrow = format(new Date(Date.now() + 86400000), 'yyyy-MM-dd');
 
@@ -945,7 +1068,9 @@ export default function ChatScreen({ navigation, route }: any) {
       }
     });
 
-    // Second pass: tasks and goals
+    // Second pass: tasks and goals — track text→id for schedule mapping
+    const textToTaskId: Record<string, string> = {};
+
     parsed.actions.forEach((action: any) => {
       if (action.type === 'task') {
         const dueDate = action.dueDate === 'today'
@@ -968,6 +1093,11 @@ export default function ChatScreen({ navigation, route }: any) {
           estimatedMinutes:  action.estimatedMinutes ?? 60,
           reason:            action.reason ?? undefined,
         });
+
+        // Capture the new task's ID so we can reference it in the schedule
+        const allTasks = useStore.getState().tasks;
+        const newTask  = allTasks.find(t => t.text === action.text && !t.completed);
+        if (newTask) textToTaskId[action.text] = newTask.id;
       }
 
       if (action.type === 'goal') {
@@ -980,6 +1110,24 @@ export default function ChatScreen({ navigation, route }: any) {
       }
     });
 
+    // Third pass: build and save the day plan from schedule action
+    const scheduleAction = parsed.actions.find((a: any) => a.type === 'schedule');
+    if (scheduleAction?.slots && mode === 'morning') {
+      const slots: PlannedSlot[] = (scheduleAction.slots as any[]).map((slot: any) => ({
+        time:       slot.time ?? '08:00',
+        eventLabel: slot.eventLabel ?? 'Work block',
+        tasks:      (slot.tasks as string[]).map((text: string) => ({
+          id:   textToTaskId[text] ?? `plan-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          text,
+          done: false,
+        })),
+      })).filter((s: PlannedSlot) => s.tasks.length > 0);
+
+      if (slots.length > 0) {
+        saveDayPlan({ date: today, slots, summary: parsed.summary ?? '' });
+      }
+    }
+
     // Session log updates
     if (parsed.sessionNote && mode === 'evening') {
       updateTodayLog({ eveningCompleted: true, eveningNote: parsed.sessionNote });
@@ -989,10 +1137,18 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   }
 
-  function handleReviewApply(edited: { actions: any[]; sessionNote?: string }) {
+  function handleReviewApply(edited: { actions: any[]; summary?: string; sessionNote?: string }) {
     applyActions(edited);
     setPendingActions(null);
     setActionTaken(true);
+
+    // Check if a day plan was just saved and offer to add to calendar
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const dayPlan = useStore.getState().dayPlan;
+    if (mode === 'morning' && dayPlan?.date === today && dayPlan?.slots?.length > 0) {
+      // Delay slightly to ensure applyActions completed
+      setTimeout(() => setShowCalendarExport(true), 100);
+    }
 
     // After first morning/quick plan: ask for notification permissions and schedule reminders
     if (mode === 'morning' || mode === 'quick') {
@@ -1003,6 +1159,42 @@ export default function ChatScreen({ navigation, route }: any) {
           const eveningTime = profile.eveningTime || '20:00';
           await n.scheduleDailyNotifications(morningTime, eveningTime);
           await n.cancelLapseNotification();
+
+          // Feature 3: Schedule drift nudge for any newly created MITs
+          if (mode === 'morning') {
+            const allTasks = useStore.getState().tasks;
+            const todayMITs = allTasks.filter(t => t.date === today && t.isMIT && !t.completed);
+
+            if (todayMITs.length > 0 && dayPlan?.slots && dayPlan.slots.length > 0) {
+              const firstMIT = todayMITs[0];
+              // Find the scheduled time from the day plan
+              let scheduledTime: string | undefined;
+              for (const slot of dayPlan.slots) {
+                const mitInSlot = slot.tasks.find((t: any) => t.id === firstMIT.id);
+                if (mitInSlot) {
+                  scheduledTime = slot.time;
+                  break;
+                }
+              }
+
+              if (firstMIT.text) {
+                await n.scheduleDriftNudge(firstMIT.text, scheduledTime, firstMIT.id);
+              }
+            }
+          }
+
+          // Feature 4: Schedule morning brief for tomorrow with tomorrow's task data
+          if (mode === 'morning') {
+            const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+            const tomorrowTasks = useStore.getState().tasks.filter(t => t.date === tomorrow);
+            const tomorrowMITs = tomorrowTasks.filter(t => t.isMIT && !t.completed);
+
+            if (tomorrowMITs.length > 0 || tomorrowTasks.length > 0) {
+              const morningBriefTime = profile.morningTime || '08:00';
+              const firstMITText = tomorrowMITs.length > 0 ? tomorrowMITs[0].text : undefined;
+              await n.scheduleMorningBrief(morningBriefTime, firstMITText, tomorrowTasks.length);
+            }
+          }
         }
       }).catch(() => {});
     }
@@ -1011,6 +1203,39 @@ export default function ChatScreen({ navigation, route }: any) {
   function handleReviewDiscard() {
     setPendingActions(null);
     // Keep conversation going — user can revise and AI can re-output
+  }
+
+  async function writePlanToCalendar() {
+    try {
+      const dayPlan = useStore.getState().dayPlan;
+      if (!dayPlan?.slots || dayPlan.slots.length === 0) {
+        setShowCalendarExport(false);
+        return;
+      }
+
+      // Request permissions and write plan to calendar
+      const hasPermission = await requestCalendarPermissions();
+      if (!hasPermission) {
+        appendMessage('assistant', 'Calendar permission denied. Please enable it in iPhone Settings.');
+        setShowCalendarExport(false);
+        return;
+      }
+
+      const calendarId = await findOrCreateSynapseCalendar();
+      const count = await writeDayPlanToCalendar(dayPlan.slots, dayPlan.date, calendarId);
+
+      setShowCalendarExport(false);
+
+      if (count > 0) {
+        appendMessage('assistant', `Plan added to calendar ✓\n\n${count} event${count !== 1 ? 's' : ''} created from today's schedule.`);
+      } else {
+        appendMessage('assistant', 'Could not add plan to calendar. Try again later.');
+      }
+    } catch (e) {
+      console.error('[ChatScreen] writePlanToCalendar failed:', e);
+      appendMessage('assistant', 'Something went wrong. Try again later.');
+      setShowCalendarExport(false);
+    }
   }
 
   function addProjectWithTasks(data: any): string | null {
@@ -1028,7 +1253,7 @@ export default function ChatScreen({ navigation, route }: any) {
       // If the AI gave us subtasks, set them on the new project
       if (newId && Array.isArray(data.tasks) && data.tasks.length > 0) {
         setProjectTasks(newId, data.tasks.map((t: any, i: number) => ({
-          id:               `ai-${Date.now()}-${i}`,
+          id:               uid(),
           text:             t.text ?? t,
           completed:        false,
           estimatedMinutes: t.estimatedMinutes ?? undefined,
@@ -1072,20 +1297,38 @@ export default function ChatScreen({ navigation, route }: any) {
       const uri = recording.getURI();
       setRecording(null);
       if (!uri) { setTranscribing(false); return; }
-      if (!voiceApiKey) {
-        appendMessage('assistant', "Voice needs an OpenAI API key for transcription. Add it in Settings → Voice API key.");
-        setTranscribing(false);
-        return;
-      }
       const formData = new FormData();
       formData.append('file', { uri, type: 'audio/m4a', name: 'voice.m4a' } as any);
       formData.append('model', 'whisper-1');
-      const res  = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${voiceApiKey}` },
-        body: formData,
-      });
+
+      let res: Response;
+      if (userOpenAiKey) {
+        // User's own OpenAI key — call Whisper directly
+        res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${userOpenAiKey}` },
+          body: formData,
+        });
+      } else {
+        // No personal key — use the secure server proxy
+        let { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          session = refreshed.session;
+        }
+        const proxyUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/openai-proxy`;
+        res = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+          body: formData,
+        });
+      }
       const data = await res.json();
+      if (!res.ok) {
+        const errMsg = data?.error?.message ?? `Transcription error ${res.status}`;
+        appendMessage('assistant', `Voice error: ${errMsg}`);
+        return;
+      }
       const transcript: string = data.text ?? '';
       if (transcript.trim()) {
         setInput(transcript.trim());
@@ -1098,7 +1341,7 @@ export default function ChatScreen({ navigation, route }: any) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const renderMessage = ({ item }: { item: ChatMessage }) => {
+  const renderMessage = useCallback(({ item }: { item: ChatMessage }) => {
     const isUser = item.role === 'user';
     return (
       <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAssistant]}>
@@ -1114,7 +1357,7 @@ export default function ChatScreen({ navigation, route }: any) {
         </View>
       </View>
     );
-  };
+  }, [styles]);
 
   return (
     <KeyboardAvoidingView
@@ -1152,7 +1395,7 @@ export default function ChatScreen({ navigation, route }: any) {
           <View style={styles.typingRow}>
             <View style={styles.avatar}><Text style={styles.avatarInitial}>S</Text></View>
             <View style={styles.typingBubble}>
-              <ActivityIndicator size="small" color={Colors.primary} />
+              <ActivityIndicator size="small" color={C.primary} />
               {transcribing && <Text style={styles.transcribingText}>Listening…</Text>}
             </View>
           </View>
@@ -1174,6 +1417,15 @@ export default function ChatScreen({ navigation, route }: any) {
           parsed={pendingActions}
           onApply={handleReviewApply}
           onDiscard={handleReviewDiscard}
+        />
+      )}
+
+      {/* Calendar export offer — shown after morning plan approval */}
+      {showCalendarExport && (
+        <CalendarExportModal
+          dayPlan={useStore.getState().dayPlan}
+          onConfirm={writePlanToCalendar}
+          onDismiss={() => setShowCalendarExport(false)}
         />
       )}
 
@@ -1206,7 +1458,7 @@ export default function ChatScreen({ navigation, route }: any) {
               }
             }}
             placeholder={isRecording ? 'Recording…' : 'Message…'}
-            placeholderTextColor={Colors.textTertiary}
+            placeholderTextColor={C.textTertiary}
             multiline
             returnKeyType="send"
             blurOnSubmit={false}
@@ -1227,63 +1479,65 @@ export default function ChatScreen({ navigation, route }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  safe:      { flex: 1 },
+function makeStyles(C: any) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: C.background },
+    safe:      { flex: 1 },
 
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
-    backgroundColor: Colors.surfaceSecondary,
-  },
-  backBtn:      { width: 60 },
-  backText:     { fontSize: 15, color: Colors.primary, fontWeight: '600' },
-  headerCenter: { alignItems: 'center' },
-  headerTitle:  { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.2 },
-  headerSub:    { fontSize: 12, color: Colors.textTertiary, marginTop: 2 },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: Spacing.base, paddingVertical: 10,
+      borderBottomWidth: 1, borderBottomColor: C.border,
+      backgroundColor: C.surfaceSecondary,
+    },
+    backBtn:      { width: 60 },
+    backText:     { fontSize: 15, color: C.primary, fontWeight: '600' },
+    headerCenter: { alignItems: 'center' },
+    headerTitle:  { fontSize: 15, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.2 },
+    headerSub:    { fontSize: 12, color: C.textTertiary, marginTop: 2 },
 
-  messageList: { padding: Spacing.base, gap: 14, paddingBottom: Spacing.xl },
+    messageList: { padding: Spacing.base, gap: 14, paddingBottom: Spacing.xl },
 
-  msgRow:          { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 4 },
-  msgRowUser:      { flexDirection: 'row-reverse' },
-  msgRowAssistant: {},
+    msgRow:          { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 4 },
+    msgRowUser:      { flexDirection: 'row-reverse' },
+    msgRowAssistant: {},
 
-  avatar:        { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.primaryMid },
-  avatarInitial: { fontSize: 13, fontWeight: '700', color: Colors.primary },
+    avatar:        { width: 32, height: 32, borderRadius: 16, backgroundColor: C.primaryLight, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.primaryMid },
+    avatarInitial: { fontSize: 13, fontWeight: '700', color: C.primary },
 
-  bubble:              { maxWidth: '78%', borderRadius: Radius.xl, paddingHorizontal: 16, paddingVertical: 12 },
-  bubbleUser:          { backgroundColor: Colors.ink, borderBottomRightRadius: 6 },
-  bubbleAssistant:     { backgroundColor: Colors.surfaceSecondary, borderBottomLeftRadius: 6, borderWidth: 1, borderColor: Colors.border },
-  bubbleText:          { fontSize: 16, lineHeight: 25 },
-  bubbleTextUser:      { color: '#FFFFFF' },
-  bubbleTextAssistant: { color: Colors.textPrimary },
+    bubble:              { maxWidth: '78%', borderRadius: Radius.xl, paddingHorizontal: 16, paddingVertical: 12 },
+    bubbleUser:          { backgroundColor: C.ink, borderBottomRightRadius: 6 },
+    bubbleAssistant:     { backgroundColor: C.surfaceSecondary, borderBottomLeftRadius: 6, borderWidth: 1, borderColor: C.border },
+    bubbleText:          { fontSize: 16, lineHeight: 25 },
+    bubbleTextUser:      { color: '#FFFFFF' },
+    bubbleTextAssistant: { color: C.textPrimary },
 
-  typingRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: Spacing.base, paddingBottom: 8 },
-  typingBubble:     { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surfaceSecondary, borderRadius: Radius.xl, padding: 12, borderWidth: 1, borderColor: Colors.border },
-  transcribingText: { fontSize: 13, color: Colors.textSecondary },
+    typingRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: Spacing.base, paddingBottom: 8 },
+    typingBubble:     { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surfaceSecondary, borderRadius: Radius.xl, padding: 12, borderWidth: 1, borderColor: C.border },
+    transcribingText: { fontSize: 13, color: C.textSecondary },
 
-  doneBar: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: Spacing.base, backgroundColor: Colors.primaryLight,
-    borderTopWidth: 1, borderTopColor: Colors.primaryMid,
-  },
-  doneText:   { fontSize: 14, color: Colors.primary, fontWeight: '700' },
-  doneAction: { fontSize: 14, color: Colors.primary, fontWeight: '600' },
+    doneBar: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      padding: Spacing.base, backgroundColor: C.primaryLight,
+      borderTopWidth: 1, borderTopColor: C.primaryMid,
+    },
+    doneText:   { fontSize: 14, color: C.primary, fontWeight: '700' },
+    doneAction: { fontSize: 14, color: C.primary, fontWeight: '600' },
 
-  inputSafe: { backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.border },
-  inputRow:  { flexDirection: 'row', alignItems: 'flex-end', padding: 12, gap: 10 },
+    inputSafe: { backgroundColor: C.background, borderTopWidth: 1, borderTopColor: C.border },
+    inputRow:  { flexDirection: 'row', alignItems: 'flex-end', padding: 12, gap: 10 },
 
-  micBtn:       { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surfaceSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border },
-  micBtnActive: { backgroundColor: '#FEE2E2', borderColor: Colors.error },
-  micLabel:     { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, letterSpacing: 0.3 },
+    micBtn:       { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surfaceSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
+    micBtnActive: { backgroundColor: '#FEE2E2', borderColor: C.error },
+    micLabel:     { fontSize: 11, fontWeight: '700', color: C.textSecondary, letterSpacing: 0.3 },
 
-  input: {
-    flex: 1, backgroundColor: Colors.surfaceSecondary, borderRadius: Radius.xxl,
-    paddingHorizontal: 18, paddingVertical: 12, fontSize: 16, color: Colors.textPrimary,
-    maxHeight: 120, lineHeight: 22, borderWidth: 1, borderColor: Colors.border,
-  },
-  sendBtn:         { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center' },
-  sendBtnDisabled: { backgroundColor: Colors.border },
-  sendBtnText:     { fontSize: 20, color: '#FFFFFF', fontWeight: '700', lineHeight: 24 },
-});
+    input: {
+      flex: 1, backgroundColor: C.surfaceSecondary, borderRadius: Radius.xxl,
+      paddingHorizontal: 18, paddingVertical: 12, fontSize: 16, color: C.textPrimary,
+      maxHeight: 120, lineHeight: 22, borderWidth: 1, borderColor: C.border,
+    },
+    sendBtn:         { width: 44, height: 44, borderRadius: 22, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
+    sendBtnDisabled: { backgroundColor: C.border },
+    sendBtnText:     { fontSize: 20, color: '#FFFFFF', fontWeight: '700', lineHeight: 24 },
+  });
+}

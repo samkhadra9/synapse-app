@@ -169,11 +169,13 @@ export interface TodayReminder {
 }
 
 export async function getTodayCalendarEvents(): Promise<TodayEvent[]> {
+  try {
   const hasPermission = await requestCalendarPermissions();
   if (!hasPermission) return [];
 
   const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
   const calIds    = calendars.map(c => c.id);
+  if (calIds.length === 0) return [];
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -183,7 +185,9 @@ export async function getTodayCalendarEvents(): Promise<TodayEvent[]> {
 
   const events = await Calendar.getEventsAsync(calIds, startOfDay, endOfDay);
 
-  return events.map(e => {
+  // Filter out Synapse's own time-block events — they're already surfaced via
+  // buildSkeletonContext, so including them here would double-count committed time.
+  return events.filter(e => !e.title?.startsWith('[Synapse]')).map(e => {
     const start = e.allDay
       ? 'all-day'
       : new Date(e.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -203,6 +207,10 @@ export async function getTodayCalendarEvents(): Promise<TodayEvent[]> {
     if (!a.allDay && b.allDay) return -1;
     return a.start.localeCompare(b.start);
   });
+  } catch (e) {
+    console.warn('[calendar] getTodayCalendarEvents failed:', e);
+    return [];
+  }
 }
 
 export async function getTodayReminders(): Promise<TodayReminder[]> {
@@ -257,7 +265,9 @@ function formatHHMM(t: string): string {
 function addMinutes(hhmm: string, mins: number): string {
   const [h, m] = hhmm.split(':').map(Number);
   const total = h * 60 + m + mins;
-  return `${Math.floor(total / 60).toString().padStart(2, '0')}:${(total % 60).toString().padStart(2, '0')}`;
+  const hours = Math.floor(total / 60) % 24; // wrap past midnight correctly
+  const minutes = total % 60;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
 /** Returns a plain-text description of today's planned blocks from the week skeleton */
@@ -284,6 +294,163 @@ export function buildSkeletonContext(weekTemplate: TimeBlock[]): string {
 }
 
 // ── Format calendar + reminders into a context string for the AI ──────────────
+
+// ── Permission helper (calendar + reminders together) ─────────────────────────
+
+export async function requestAllCalendarPermissions(): Promise<{ calendar: boolean; reminders: boolean }> {
+  const [calResult, remResult] = await Promise.all([
+    Calendar.requestCalendarPermissionsAsync(),
+    Calendar.requestRemindersPermissionsAsync(),
+  ]);
+  return {
+    calendar: calResult.status === 'granted',
+    reminders: remResult.status === 'granted',
+  };
+}
+
+// ── Reminders ↔ Tasks bidirectional sync ──────────────────────────────────────
+
+export interface ReminderImport {
+  reminderId: string;
+  text:       string;
+  date?:      string; // YYYY-MM-DD
+}
+
+/** Returns iOS Reminders that haven't been imported into the app yet */
+export async function getUnimportedReminders(
+  existingReminderIds: string[],
+): Promise<ReminderImport[]> {
+  try {
+    const { status } = await Calendar.requestRemindersPermissionsAsync();
+    if (status !== 'granted') return [];
+
+    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.REMINDER);
+    const calIds    = calendars.map(c => c.id);
+    if (!calIds.length) return [];
+
+    // Fetch incomplete reminders from a wide window (past year → end of next year)
+    // getRemindersAsync requires a startDate on iOS — we use a wide range to catch
+    // undated reminders (they fall back to their creation date internally).
+    const startWindow = new Date();
+    startWindow.setFullYear(startWindow.getFullYear() - 1);
+    const endWindow = new Date();
+    endWindow.setFullYear(endWindow.getFullYear() + 2);
+
+    const reminders = await Calendar.getRemindersAsync(
+      calIds,
+      Calendar.ReminderStatus.INCOMPLETE,
+      startWindow,
+      endWindow,
+    );
+
+    return reminders
+      .filter(r => {
+        if (!r.id) return false;
+        if (existingReminderIds.includes(r.id)) return false;
+        // Skip ones we created (marked with synapse-task: in notes)
+        if ((r.notes ?? '').startsWith('synapse-task:')) return false;
+        return true;
+      })
+      .map(r => ({
+        reminderId: r.id!,
+        text: r.title ?? '(no title)',
+        date: r.dueDate
+          ? new Date(r.dueDate).toISOString().slice(0, 10)
+          : undefined,
+      }));
+  } catch (e) {
+    console.warn('[calendar] getUnimportedReminders failed:', e);
+    return [];
+  }
+}
+
+/** Creates an iOS Reminder linked to a Synapse task */
+export async function createReminderForTask(
+  taskId: string,
+  text:   string,
+  date?:  string, // YYYY-MM-DD
+): Promise<string | null> {
+  try {
+    const { status } = await Calendar.requestRemindersPermissionsAsync();
+    if (status !== 'granted') return null;
+
+    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.REMINDER);
+    const target    = calendars.find(c => c.title === 'Reminders') ?? calendars[0];
+    if (!target) return null;
+
+    const dueDate = date ? new Date(`${date}T09:00:00`) : undefined;
+
+    const reminderId = await Calendar.createReminderAsync(target.id, {
+      title:   text,
+      dueDate,
+      notes:   `synapse-task:${taskId}`,
+    });
+
+    return reminderId;
+  } catch (e) {
+    console.warn('[calendar] createReminderForTask failed:', e);
+    return null;
+  }
+}
+
+/** Marks an iOS Reminder complete */
+export async function completeReminder(reminderId: string): Promise<void> {
+  try {
+    await Calendar.updateReminderAsync(reminderId, { completed: true });
+  } catch (e) {
+    console.warn('[calendar] completeReminder failed:', e);
+  }
+}
+
+/** Creates calendar events for a planned day's slots */
+export async function writeDayPlanToCalendar(
+  slots: import('../store/useStore').PlannedSlot[],
+  dateStr: string,   // "YYYY-MM-DD"
+  calendarId?: string,
+): Promise<number> {
+  try {
+    const hasPermission = await requestCalendarPermissions();
+    if (!hasPermission) return 0;
+
+    const cid = calendarId ?? (await findOrCreateSynapseCalendar());
+    let createdCount = 0;
+
+    for (const slot of slots) {
+      try {
+        // Parse slot.time ("HH:MM") to build start date
+        const [hours, minutes] = slot.time.split(':').map(Number);
+        const startDate = new Date(`${dateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`);
+
+        // End time: start + 90 minutes (default duration)
+        const endDate = new Date(startDate.getTime() + 90 * 60000);
+
+        // Build task notes list
+        const taskNotes = slot.tasks
+          .map(t => `• ${t.text}`)
+          .join('\n');
+
+        const eventId = await Calendar.createEventAsync(cid, {
+          title: slot.eventLabel,
+          startDate,
+          endDate,
+          notes: taskNotes,
+          alarms: [{ relativeOffset: -10 }], // 10-min reminder
+        });
+
+        if (eventId) createdCount++;
+      } catch (e) {
+        console.warn(`[calendar] Failed to create event for slot "${slot.eventLabel}":`, e);
+      }
+    }
+
+    return createdCount;
+  } catch (e) {
+    console.warn('[calendar] writeDayPlanToCalendar failed:', e);
+    return 0;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function buildTodayCalendarContext(): Promise<string> {
   const [events, reminders] = await Promise.all([
@@ -315,4 +482,34 @@ export async function buildTodayCalendarContext(): Promise<string> {
   }
 
   return lines.join('\n');
+}
+
+// ── Sync a single task to Calendar (for recurring tasks) ─────────────────────
+
+export async function createCalendarEventForTask(
+  taskId: string,
+  text: string,
+  date: string,
+  calendarId?: string,
+): Promise<string | null> {
+  try {
+    const hasPermission = await requestCalendarPermissions();
+    if (!hasPermission) return null;
+
+    const cid = calendarId ?? (await findOrCreateSynapseCalendar());
+
+    const startDate = new Date(date + 'T09:00:00');
+    const endDate   = new Date(date + 'T09:30:00');
+
+    const eventId = await Calendar.createEventAsync(cid, {
+      title:    text,
+      startDate,
+      endDate,
+      notes:    `synapse-task:${taskId}`,
+      alarms:   [{ relativeOffset: -15 }],
+    });
+    return eventId;
+  } catch {
+    return null;
+  }
 }

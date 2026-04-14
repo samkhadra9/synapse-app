@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore, TimeBlock, TimeBlockType } from '../../store/useStore';
+import { fetchAnthropic } from '../../lib/anthropic';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -308,11 +309,9 @@ interface Msg {
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
 
-const ENV_API_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
-
 export default function SkeletonBuilderScreen({ navigation }: any) {
   const { profile, areas, setWeekTemplate } = useStore();
-  const apiKey = profile.anthropicKey || ENV_API_KEY;
+  const userAnthropicKey = profile.anthropicKey || undefined;
   const insets = useSafeAreaInsets();
 
   const [messages,    setMessages]    = useState<Msg[]>([]);
@@ -322,9 +321,17 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
   const [blocks,      setBlocks]      = useState<TimeBlock[]>([]);
   const [showGrid,    setShowGrid]    = useState(false);
 
-  const listRef  = useRef<FlatList>(null);
-  const btnAnim  = useRef(new Animated.Value(0)).current;
-  const gridAnim = useRef(new Animated.Value(0)).current;
+  const listRef      = useRef<FlatList>(null);
+  const btnAnim      = useRef(new Animated.Value(0)).current;
+  const gridAnim     = useRef(new Animated.Value(0)).current;
+  const navTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel pending navigation timer on unmount to prevent navigation after screen is gone
+  useEffect(() => {
+    return () => {
+      if (navTimerRef.current) clearTimeout(navTimerRef.current);
+    };
+  }, []);
 
   const systemPrompt = buildSkeletonPrompt(
     profile.name,
@@ -349,30 +356,18 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
   }
 
   async function sendToLLM(history: Msg[], isFirst = false) {
-    if (!apiKey) {
-      appendMessage('assistant', "I need an Anthropic API key to work. Add it in Settings and come back.");
-      return;
-    }
     setLoading(true);
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-5-20250929',
-          max_tokens: 1400,
-          system: systemPrompt,
-          messages: [
-            { role: 'user', content: 'Hello' },
-            ...history.map(m => ({ role: m.role, content: m.content })),
-          ],
-          temperature: 0.75,
-        }),
-      });
+      const res = await fetchAnthropic({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 1400,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: 'Hello' },
+          ...history.map(m => ({ role: m.role, content: m.content })),
+        ],
+        temperature: 0.75,
+      }, userAnthropicKey);
       const data = await res.json();
       if (!res.ok || data.error) {
         appendMessage('assistant', `API error: ${data.error?.message ?? res.status}`);
@@ -399,7 +394,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
               Animated.timing(gridAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
             ]).start(() => {
               // Auto-navigate to CalendarExport after grid animates in
-              setTimeout(() => navigation.navigate('CalendarExport'), 1800);
+              navTimerRef.current = setTimeout(() => navigation.navigate('CalendarExport'), 1800);
             });
           }, 400);
         } else {

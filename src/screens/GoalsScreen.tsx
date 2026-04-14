@@ -8,13 +8,13 @@
  * Future: graph view showing goal → project → task connections (v3)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, TextInput, StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors, Spacing, Radius, DomainColors } from '../theme';
+import { useColors, Colors, Spacing, Radius, DomainColors } from '../theme';
 import { useStore, DomainKey, TimeHorizon, ALL_DOMAINS } from '../store/useStore';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -42,12 +42,14 @@ function GoalCard({ domain, horizon }: { domain: DomainKey; horizon: TimeHorizon
   const goals      = useStore(s => s.goals);
   const updateGoal = useStore(s => s.updateGoal);
   const addGoal    = useStore(s => s.addGoal);
+  const C          = useColors();
 
   const goal = goals.find(g => g.domain === domain && g.horizon === horizon);
   const dc   = DomainColors[domain] ?? DomainColors.work;
 
   const [editing, setEditing] = useState(false);
   const [text,    setText]    = useState(goal?.text ?? '');
+  const styles = useMemo(() => makeStyles_goalCard(C), [C]);
 
   function save() {
     const trimmed = text.trim();
@@ -89,7 +91,7 @@ function GoalCard({ domain, horizon }: { domain: DomainKey; horizon: TimeHorizon
               value={text}
               onChangeText={setText}
               placeholder={`Your ${DOMAIN_LABELS[domain].toLowerCase()} goal for this horizon…`}
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={C.textTertiary}
               multiline
               autoFocus
               textAlignVertical="top"
@@ -118,6 +120,7 @@ function GoalCard({ domain, horizon }: { domain: DomainKey; horizon: TimeHorizon
 export default function GoalsScreen({ navigation }: any) {
   const goals   = useStore(s => s.goals);
   const profile = useStore(s => s.profile);
+  const C       = useColors();
 
   const [selectedHorizon, setSelectedHorizon] = useState<TimeHorizon>('1year');
 
@@ -126,6 +129,7 @@ export default function GoalsScreen({ navigation }: any) {
 
   const currentHorizon = HORIZONS.find(h => h.key === selectedHorizon)!;
   const setCount       = goals.filter(g => g.horizon === selectedHorizon).length;
+  const styles = useMemo(() => makeStyles(C), [C]);
 
   return (
     <View style={styles.root}>
@@ -197,92 +201,97 @@ export default function GoalsScreen({ navigation }: any) {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Colors.background },
-  safe: { flex: 1 },
+function makeStyles_goalCard(C: any) {
+  return StyleSheet.create({
+    card: {
+      flexDirection: 'row',
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: C.border,
+      backgroundColor: C.surface,
+      marginBottom: 10,
+      overflow: 'hidden',
+    },
+    cardAccent: { width: 3, alignSelf: 'stretch' },
+    cardBody:   { flex: 1, padding: 14, gap: 8 },
 
-  // Header
-  header: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.base,
-    paddingBottom: Spacing.sm,
-  },
-  title:    { fontSize: 38, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1.5, lineHeight: 42 },
-  subtitle: { fontSize: 13, color: Colors.textTertiary, marginTop: 4, fontWeight: '500' },
+    cardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    domainLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
+    editLink:    { fontSize: 13, color: C.primary, fontWeight: '600' },
 
-  // Horizon tabs — text pills, no emoji
-  tabs: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.base, gap: 8 },
-  tab: {
-    paddingHorizontal: 18, paddingVertical: 8,
-    borderRadius: Radius.full,
-    borderWidth: 1.5, borderColor: Colors.border,
-    backgroundColor: Colors.background,
-  },
-  tabActive:     { backgroundColor: Colors.ink, borderColor: Colors.ink },
-  tabText:       { fontSize: 14, fontWeight: '500', color: Colors.textSecondary },
-  tabTextActive: { color: '#fff', fontWeight: '700' },
+    goalText:  { fontSize: 15, color: C.textPrimary, lineHeight: 22, fontWeight: '400' },
+    emptyText: { fontSize: 14, color: C.textTertiary, fontStyle: 'italic' },
 
-  // Tagline
-  tagline: {
-    fontSize: 15,
-    color: Colors.textSecondary,
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.base,
-    lineHeight: 22,
-    fontStyle: 'italic',
-  },
+    // Inline edit
+    input: {
+      borderWidth: 1, borderColor: C.border,
+      borderRadius: Radius.md,
+      padding: 12, fontSize: 15,
+      color: C.textPrimary,
+      minHeight: 72,
+      lineHeight: 22,
+      backgroundColor: C.surfaceSecondary,
+    },
+    inputActions: {
+      flexDirection: 'row', justifyContent: 'flex-end',
+      alignItems: 'center', gap: 12,
+    },
+    cancelLink:   { fontSize: 14, color: C.textSecondary, fontWeight: '500' },
+    saveBtn:      { backgroundColor: C.ink, borderRadius: Radius.full, paddingHorizontal: 20, paddingVertical: 9 },
+    saveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 14 },
+  });
+}
 
-  scroll: { paddingHorizontal: Spacing.lg },
+function makeStyles(C: any) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: C.background },
+    safe: { flex: 1 },
 
-  // Goal cards
-  card: {
-    flexDirection: 'row',
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  cardAccent: { width: 3, alignSelf: 'stretch' },
-  cardBody:   { flex: 1, padding: 14, gap: 8 },
+    // Header
+    header: {
+      paddingHorizontal: Spacing.lg,
+      paddingTop: Spacing.base,
+      paddingBottom: Spacing.sm,
+    },
+    title:    { fontSize: 38, fontWeight: '800', color: C.textPrimary, letterSpacing: -1.5, lineHeight: 42 },
+    subtitle: { fontSize: 13, color: C.textTertiary, marginTop: 4, fontWeight: '500' },
 
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  domainLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
-  editLink:    { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+    // Horizon tabs — text pills, no emoji
+    tabs: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.base, gap: 8 },
+    tab: {
+      paddingHorizontal: 18, paddingVertical: 8,
+      borderRadius: Radius.full,
+      borderWidth: 1.5, borderColor: C.border,
+      backgroundColor: C.background,
+    },
+    tabActive:     { backgroundColor: C.ink, borderColor: C.ink },
+    tabText:       { fontSize: 14, fontWeight: '500', color: C.textSecondary },
+    tabTextActive: { color: '#fff', fontWeight: '700' },
 
-  goalText:  { fontSize: 15, color: Colors.textPrimary, lineHeight: 22, fontWeight: '400' },
-  emptyText: { fontSize: 14, color: Colors.textTertiary, fontStyle: 'italic' },
+    // Tagline
+    tagline: {
+      fontSize: 15,
+      color: C.textSecondary,
+      paddingHorizontal: Spacing.lg,
+      paddingBottom: Spacing.base,
+      lineHeight: 22,
+      fontStyle: 'italic',
+    },
 
-  // Inline edit
-  input: {
-    borderWidth: 1, borderColor: Colors.border,
-    borderRadius: Radius.md,
-    padding: 12, fontSize: 15,
-    color: Colors.textPrimary,
-    minHeight: 72,
-    lineHeight: 22,
-    backgroundColor: Colors.surfaceSecondary,
-  },
-  inputActions: {
-    flexDirection: 'row', justifyContent: 'flex-end',
-    alignItems: 'center', gap: 12,
-  },
-  cancelLink:   { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
-  saveBtn:      { backgroundColor: Colors.ink, borderRadius: Radius.full, paddingHorizontal: 20, paddingVertical: 9 },
-  saveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 14 },
+    scroll: { paddingHorizontal: Spacing.lg },
 
-  // Bottom CTA
-  synapseCTA: {
-    marginTop: Spacing.base,
-    paddingVertical: 14, paddingHorizontal: 16,
-    borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.primaryMid,
-    backgroundColor: Colors.primaryLight,
-  },
-  synapseCTAText: { fontSize: 15, color: Colors.primary, fontWeight: '600' },
-});
+    // Bottom CTA
+    synapseCTA: {
+      marginTop: Spacing.base,
+      paddingVertical: 14, paddingHorizontal: 16,
+      borderRadius: Radius.lg,
+      borderWidth: 1, borderColor: C.primaryMid,
+      backgroundColor: C.primaryLight,
+    },
+    synapseCTAText: { fontSize: 15, color: C.primary, fontWeight: '600' },
+  });
+}

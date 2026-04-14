@@ -8,7 +8,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { format } from 'date-fns';
+import { format, addDays, isWeekend } from 'date-fns';
 import type { Session } from '@supabase/supabase-js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -30,6 +30,7 @@ export interface Area {
   domain: DomainKey;
   description: string;
   isActive: boolean;
+  isArchived?: boolean;
 }
 
 export interface Milestone {
@@ -76,6 +77,10 @@ export interface Task {
   estimatedMinutes?: number;
   reason?: string;        // AI-generated one-liner: why this task, why now
   priority: 'high' | 'medium' | 'low';
+  createdAt?: string;     // ISO timestamp — preserved through Supabase round-trips
+  reminderId?: string;    // iOS Reminder ID — links task to its paired Reminder
+  recurrence?: 'daily' | 'weekly' | 'weekdays' | 'monthly';
+  recurrenceGroupId?: string;
 }
 
 export type Todo = Task;
@@ -149,9 +154,27 @@ export interface DailyLog {
   rawMorningText?: string;
   topPriorities: string[];
   focusScore?: number;
+  energyLevel?: number;   // 1–5, captured during morning planning
   eveningNote?: string;
   morningCompleted: boolean;
   eveningCompleted: boolean;
+}
+
+/** One time-slot in a planned day — tasks nested under a calendar/skeleton block */
+export interface PlannedSlot {
+  /** "08:00" 24-hour — matches a calendar event start or skeleton block */
+  time: string;
+  /** Display label — the event name (e.g. "NCVH", "Arvo work") */
+  eventLabel: string;
+  /** Task texts in order — stored as text so they survive task edits */
+  tasks: Array<{ id: string; text: string; done: boolean }>;
+}
+
+/** AI-generated schedule for a specific day */
+export interface DayPlan {
+  date: string;          // "YYYY-MM-DD"
+  slots: PlannedSlot[];
+  summary?: string;      // one-sentence overview
 }
 
 export interface UserProfile {
@@ -201,6 +224,7 @@ interface SynapseState {
   addArea: (area: Omit<Area, 'id'>) => void;
   updateArea: (id: string, patch: Partial<Area>) => void;
   deleteArea: (id: string) => void;
+  archiveArea: (id: string) => void;
 
   projects: Project[];
   addProject: (project: Omit<Project, 'id' | 'createdAt' | 'isDecomposed' | 'tasks' | 'milestones'>) => void;
@@ -216,6 +240,9 @@ interface SynapseState {
   setMIT: (id: string, isMIT: boolean) => void;
   todaysTasks: () => Task[];
   todaysMITs: () => Task[];
+  updateTask: (id: string, patch: Partial<Task>) => void;
+  scheduleTaskToDate: (id: string, date: string) => void;
+  setPriority: (id: string, priority: 'high' | 'medium' | 'low') => void;
 
   todos: Task[];
   addTodo: (todo: Omit<Task, 'id'>) => void;
@@ -248,6 +275,11 @@ interface SynapseState {
   setWeekTemplate: (blocks: TimeBlock[]) => void;
   setPortrait: (portrait: string) => void;
   touchLastActive: () => void;
+
+  /** Today's AI-generated day plan (reactive calendar) */
+  dayPlan?: DayPlan;
+  saveDayPlan: (plan: DayPlan) => void;
+  togglePlannedTask: (slotTime: string, taskId: string) => void;
 
   appTheme: import('../theme/themes').ThemeName;
   setTheme: (theme: import('../theme/themes').ThemeName) => void;
@@ -319,8 +351,11 @@ export const useStore = create<SynapseState>()(
       // ── Profile ───────────────────────────────────────────────────────────────
       profile: defaultProfile,
       updateProfile: (patch) => {
-        set((s) => ({ profile: { ...s.profile, ...patch } }));
+        // Compute merged profile once — use the same object for both the local
+        // write and the sync call, avoiding the stale-closure bug where get()
+        // after set() would re-apply the patch to an already-patched profile.
         const updated = { ...get().profile, ...patch };
+        set({ profile: updated });
         syncIfAuthed(s => s.pushProfile(updated), get().session);
       },
 
@@ -339,6 +374,11 @@ export const useStore = create<SynapseState>()(
       deleteArea: (id) => {
         set((s) => ({ areas: s.areas.filter(a => a.id !== id) }));
         syncIfAuthed(s => s.deleteArea(id), get().session);
+      },
+      archiveArea: (id) => {
+        set((s) => ({ areas: s.areas.map(a => a.id === id ? { ...a, isArchived: true, isActive: false } : a) }));
+        const updated = get().areas.find(a => a.id === id);
+        if (updated) syncIfAuthed(s => s.pushArea(updated), get().session);
       },
 
       // ── Projects ──────────────────────────────────────────────────────────────
@@ -385,23 +425,77 @@ export const useStore = create<SynapseState>()(
       // ── Tasks ─────────────────────────────────────────────────────────────────
       tasks: [],
       addTask: (task) => {
-        const newTask = { ...task, id: uid() };
+        const newTask = { ...task, id: uid(), createdAt: new Date().toISOString() };
         set((s) => ({ tasks: [...s.tasks, newTask] }));
         syncIfAuthed(s => s.pushTask(newTask), get().session);
+        // If task has no paired reminder yet, create one in iOS Reminders (fire-and-forget)
+        if (!newTask.reminderId) {
+          import('../services/calendar')
+            .then(cal => cal.createReminderForTask(newTask.id, newTask.text, newTask.date || undefined))
+            .then(reminderId => {
+              if (reminderId) {
+                // Patch reminderId back onto the task quietly
+                set(s => ({ tasks: s.tasks.map(t => t.id === newTask.id ? { ...t, reminderId } : t) }));
+              }
+            })
+            .catch(() => {});
+        }
       },
       toggleTask: (id) => {
         set((s) => ({
           tasks: s.tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t)
         }));
         const updated = get().tasks.find(t => t.id === id);
-        if (updated) syncIfAuthed(s => s.pushTask(updated), get().session);
+        if (updated) {
+          syncIfAuthed(s => s.pushTask(updated), get().session);
+          // If completing the task and it has a paired iOS Reminder, mark it done too
+          if (updated.completed && updated.reminderId) {
+            import('../services/calendar')
+              .then(cal => cal.completeReminder(updated.reminderId!))
+              .catch(() => {});
+          }
+
+          // Auto-create next recurrence when completing a recurring task
+          if (updated.completed && updated.recurrence && updated.date) {
+            const baseDate = new Date(updated.date + 'T12:00:00');
+            let nextDate: Date;
+            const r = updated.recurrence;
+            if (r === 'daily') {
+              nextDate = addDays(baseDate, 1);
+            } else if (r === 'weekly') {
+              nextDate = addDays(baseDate, 7);
+            } else if (r === 'weekdays') {
+              // Skip to next weekday
+              nextDate = addDays(baseDate, 1);
+              while (isWeekend(nextDate)) nextDate = addDays(nextDate, 1);
+            } else { // monthly
+              nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, baseDate.getDate());
+            }
+            const nextDateStr = format(nextDate, 'yyyy-MM-dd');
+            const nextTask: Task = {
+              ...updated,
+              id: uid(),
+              completed: false,
+              date: nextDateStr,
+              isToday: nextDateStr === format(new Date(), 'yyyy-MM-dd'),
+              isInbox: false,
+              createdAt: new Date().toISOString(),
+              reminderId: undefined,
+              isMIT: false,
+            };
+            set((s) => ({ tasks: [...s.tasks, nextTask] }));
+            syncIfAuthed(s => s.pushTask(nextTask), get().session);
+          }
+        }
       },
       deleteTask: (id) => {
         set((s) => ({ tasks: s.tasks.filter(t => t.id !== id) }));
         syncIfAuthed(s => s.deleteTask(id), get().session);
       },
       setMIT: (id, isMIT) => {
-        const mits = get().tasks.filter(t => t.isMIT && t.id !== id);
+        // Only count today's MITs — tasks from previous days shouldn't block today's limit
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const mits = get().tasks.filter(t => t.isMIT && t.id !== id && t.date === today);
         if (isMIT && mits.length >= 3) return;
         set((s) => ({ tasks: s.tasks.map(t => t.id === id ? { ...t, isMIT } : t) }));
         const updated = get().tasks.find(t => t.id === id);
@@ -414,6 +508,21 @@ export const useStore = create<SynapseState>()(
       todaysMITs: () => {
         const today = format(new Date(), 'yyyy-MM-dd');
         return get().tasks.filter(t => t.date === today && t.isMIT);
+      },
+      updateTask: (id, patch) => {
+        set((s) => ({ tasks: s.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }));
+        const updated = get().tasks.find(t => t.id === id);
+        if (updated) syncIfAuthed(s => s.pushTask(updated), get().session);
+      },
+      scheduleTaskToDate: (id, date) => {
+        set((s) => ({ tasks: s.tasks.map(t => t.id === id ? { ...t, date, isInbox: false, isToday: date === format(new Date(), 'yyyy-MM-dd') } : t) }));
+        const updated = get().tasks.find(t => t.id === id);
+        if (updated) syncIfAuthed(s => s.pushTask(updated), get().session);
+      },
+      setPriority: (id, priority) => {
+        set((s) => ({ tasks: s.tasks.map(t => t.id === id ? { ...t, priority } : t) }));
+        const updated = get().tasks.find(t => t.id === id);
+        if (updated) syncIfAuthed(s => s.pushTask(updated), get().session);
       },
 
       // Legacy aliases
@@ -433,15 +542,18 @@ export const useStore = create<SynapseState>()(
       },
       toggleHabitToday: (id) => {
         const today = format(new Date(), 'yyyy-MM-dd');
+        // Keep only the last 90 days to prevent unbounded AsyncStorage growth
+        const cutoff = format(new Date(Date.now() - 90 * 86400000), 'yyyy-MM-dd');
         set((s) => ({
           habits: s.habits.map(h => {
             if (h.id !== id) return h;
             const done = h.completedDates.includes(today);
+            const updated = done
+              ? h.completedDates.filter(d => d !== today)
+              : [...h.completedDates, today];
             return {
               ...h,
-              completedDates: done
-                ? h.completedDates.filter(d => d !== today)
-                : [...h.completedDates, today],
+              completedDates: updated.filter(d => d >= cutoff),
             };
           })
         }));
@@ -479,14 +591,17 @@ export const useStore = create<SynapseState>()(
         };
       },
       updateTodayLog: (patch) => {
-        const today = format(new Date(), 'yyyy-MM-dd');
+        const today  = format(new Date(), 'yyyy-MM-dd');
+        // Keep only 90 days of logs — prevents unbounded AsyncStorage growth
+        const cutoff = format(new Date(Date.now() - 90 * 86400000), 'yyyy-MM-dd');
         set((s) => {
-          const existing = s.dailyLogs.find(l => l.date === today);
+          const trimmed = s.dailyLogs.filter(l => l.date >= cutoff);
+          const existing = trimmed.find(l => l.date === today);
           if (existing) {
-            return { dailyLogs: s.dailyLogs.map(l => l.date === today ? { ...l, ...patch } : l) };
+            return { dailyLogs: trimmed.map(l => l.date === today ? { ...l, ...patch } : l) };
           }
           return {
-            dailyLogs: [...s.dailyLogs, {
+            dailyLogs: [...trimmed, {
               date: today, topPriorities: [], morningCompleted: false, eveningCompleted: false, ...patch,
             }]
           };
@@ -524,19 +639,46 @@ export const useStore = create<SynapseState>()(
 
       // ── Week Template ─────────────────────────────────────────────────────────
       setPortrait: (portrait) => {
-        set((s) => ({ profile: { ...s.profile, portrait } }));
+        const updated = { ...get().profile, portrait };
+        set({ profile: updated });
+        syncIfAuthed(s => s.pushProfile(updated), get().session);
       },
 
       touchLastActive: () => {
-        const today = new Date().toISOString().slice(0, 10);
-        set((s) => ({ profile: { ...s.profile, lastActiveDate: today } }));
+        const today   = new Date().toISOString().slice(0, 10);
+        const updated = { ...get().profile, lastActiveDate: today };
+        set({ profile: updated });
+        syncIfAuthed(s => s.pushProfile(updated), get().session);
       },
 
       setWeekTemplate: (blocks) => {
-        set((s) => ({
-          profile: { ...s.profile, weekTemplate: blocks, skeletonBuilt: blocks.length > 0 }
-        }));
+        const updated = { ...get().profile, weekTemplate: blocks, skeletonBuilt: blocks.length > 0 };
+        set({ profile: updated });
+        syncIfAuthed(s => s.pushProfile(updated), get().session);
       },
+
+      // ── Day Plan (reactive calendar) ─────────────────────────────────────────
+      dayPlan: undefined,
+
+      saveDayPlan: (plan: DayPlan) => set({ dayPlan: plan }),
+
+      togglePlannedTask: (slotTime: string, taskId: string) =>
+        set((s) => {
+          if (!s.dayPlan) return s;
+          return {
+            dayPlan: {
+              ...s.dayPlan,
+              slots: s.dayPlan.slots.map(slot =>
+                slot.time !== slotTime ? slot : {
+                  ...slot,
+                  tasks: slot.tasks.map(t =>
+                    t.id !== taskId ? t : { ...t, done: !t.done }
+                  ),
+                }
+              ),
+            },
+          };
+        }),
 
       // ── App Theme ────────────────────────────────────────────────────────────
       appTheme: 'forest',
@@ -554,7 +696,6 @@ export const useStore = create<SynapseState>()(
           areas:             [],
           projects:          [],
           tasks:             [],
-          todos:             [],
           habits:            defaultHabits,
           goals:             [],
           dailyLogs:         [],

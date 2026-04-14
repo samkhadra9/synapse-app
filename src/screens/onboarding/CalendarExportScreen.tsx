@@ -125,6 +125,19 @@ export default function CalendarExportScreen({ navigation }: any) {
 
   function finishOnboarding() {
     updateProfile({ onboardingCompleted: true, onboardingStep: 'done', skeletonBuilt: true });
+    // Schedule daily notifications now that morning/evening times are set.
+    // Fire-and-forget — don't block navigation if permission is denied.
+    import('../../services/notifications')
+      .then(async (n) => {
+        const granted = await n.requestPermissions();
+        if (granted) {
+          await n.scheduleDailyNotifications(
+            profile.morningTime || '07:30',
+            profile.eveningTime || '21:00',
+          );
+        }
+      })
+      .catch(() => {});
     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
   }
 
@@ -164,9 +177,19 @@ export default function CalendarExportScreen({ navigation }: any) {
         updateProfile({ synapseCalendarId: calId, selectedCalendarName: best.title });
       }
 
-      // Create recurring events for each block × each day
+      // Create recurring events for each block × each day.
+      // Deep-copy so we don't mutate store objects directly; also clears any
+      // stale calendarEventId from a previous failed sync attempt so we don't
+      // create duplicates on retry.
       let created = 0;
-      const updatedBlocks = [...blocks];
+      const updatedBlocks: typeof blocks = blocks.map(b => ({ ...b, calendarEventId: undefined }));
+
+      // Delete any pre-existing Synapse calendar events before re-creating them
+      for (const original of blocks) {
+        if (original.calendarEventId) {
+          await Calendar.deleteEventAsync(original.calendarEventId, { futureEvents: true }).catch(() => {});
+        }
+      }
 
       for (const block of updatedBlocks) {
         for (const day of block.dayOfWeek) {

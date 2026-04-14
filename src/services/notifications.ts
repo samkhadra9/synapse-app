@@ -60,7 +60,17 @@ export async function requestPermissions(): Promise<boolean> {
 // ── Schedule Daily Notifications ──────────────────────────────────────────────
 
 function parseTime(timeStr: string): { hour: number; minute: number } {
-  const [hour, minute] = timeStr.split(':').map(Number);
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeStr ?? '');
+  if (!match) {
+    console.warn('[notifications] Invalid time string, using fallback 08:00:', timeStr);
+    return { hour: 8, minute: 0 };
+  }
+  const hour   = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    console.warn('[notifications] Time out of range, using fallback 08:00:', timeStr);
+    return { hour: 8, minute: 0 };
+  }
   return { hour, minute };
 }
 
@@ -124,7 +134,6 @@ export async function scheduleDailyNotifications(
     } as Notifications.CalendarTriggerInput,
   });
 
-  console.log('Notifications scheduled:', { morning: morningTime, midday: '12:30', evening: eveningTime });
 }
 
 // ── Forgiveness / Lapse Recovery Notifications ────────────────────────────────
@@ -153,6 +162,104 @@ export async function scheduleLapseNotification(daysSilent: number): Promise<voi
 
 export async function cancelLapseNotification(): Promise<void> {
   await Notifications.cancelScheduledNotificationAsync(LAPSE_NOTIFICATION_ID).catch(() => {});
+}
+
+// ── Smart Morning Brief ────────────────────────────────────────────────────────
+// One-time notification with actual task data for today
+
+export async function scheduleMorningBrief(
+  morningTime: string,  // 'HH:mm' — user's set morning time
+  mitText?: string,     // text of today's top MIT (if one exists)
+  taskCount?: number,   // total tasks for today
+  calendarEventCount?: number, // number of calendar events today
+): Promise<void> {
+  // Cancel any existing brief
+  await Notifications.cancelScheduledNotificationAsync('synapse-morning-brief').catch(() => {});
+
+  const morning = parseTime(morningTime);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const fireDate = new Date(today);
+  fireDate.setHours(morning.hour, morning.minute, 0);
+
+  // If that time has already passed today, fire in 30 seconds instead
+  if (fireDate <= now) {
+    fireDate.setTime(now.getTime() + 30000);
+  }
+
+  const title = mitText ? '☀️ Morning, time to focus' : '☀️ Good morning';
+  const body = mitText
+    ? `Your MIT: ${mitText}. ${taskCount ?? 0} tasks + ${calendarEventCount ?? 0} events today.`
+    : `${taskCount ?? 0} tasks waiting. Tap to plan your day.`;
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: 'synapse-morning-brief',
+    content: {
+      title,
+      body,
+      data: { screen: 'Home' },
+      sound: true,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+    } as Notifications.DateTriggerInput,
+  });
+}
+
+export async function cancelMorningBrief(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync('synapse-morning-brief').catch(() => {});
+}
+
+// ── Drift Detection Nudge ───────────────────────────────────────────────────────
+// Gentle nudge if MIT hasn't been completed by its scheduled time + 20 min
+
+export async function scheduleDriftNudge(
+  mitText: string,
+  scheduledTime?: string,  // 'HH:mm' — when the MIT was planned for
+  mitId?: string,
+): Promise<void> {
+  // Cancel any existing drift nudge first
+  await Notifications.cancelScheduledNotificationAsync('synapse-drift-nudge').catch(() => {});
+
+  // Calculate fire time
+  let fireDate: Date;
+  const now = new Date();
+
+  if (scheduledTime) {
+    const scheduled = parseTime(scheduledTime);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    fireDate = new Date(today);
+    fireDate.setHours(scheduled.hour, scheduled.minute, 0);
+    // Add 20 minutes
+    fireDate.setMinutes(fireDate.getMinutes() + 20);
+  } else {
+    // Current time + 45 minutes
+    fireDate = new Date(now.getTime() + 45 * 60 * 1000);
+  }
+
+  // If fire time is in the past, don't schedule
+  if (fireDate <= now) {
+    return;
+  }
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: 'synapse-drift-nudge',
+    content: {
+      title: 'Still with you 👋',
+      body: `You planned: "${mitText.slice(0, 60)}" — still want to do this today?`,
+      data: { screen: 'Home', mitId: mitId ?? undefined },
+      sound: false,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+    } as Notifications.DateTriggerInput,
+  });
+}
+
+export async function cancelDriftNudge(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync('synapse-drift-nudge').catch(() => {});
 }
 
 // ── One-Off Notification (for testing) ────────────────────────────────────────

@@ -6,7 +6,7 @@
  *   2. AI structure — sends text to OpenAI, shows structured plan
  *   3. Confirm    — user picks their Top 3 MITs and accepts the plan
  */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, SafeAreaView,
   ScrollView, TextInput, KeyboardAvoidingView, Platform,
@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { format } from 'date-fns';
-import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
+import { Colors, Typography, Spacing, Radius, Shadow, useColors } from '../theme';
 import { useStore } from '../store/useStore';
 import { structureMorningText, StructuredTask } from '../services/openai';
 
@@ -22,6 +22,7 @@ type Step = 'dump' | 'loading' | 'review' | 'done';
 
 export default function MorningPlanningScreen() {
   const navigation = useNavigation();
+  const C = useColors();
   const profile = useStore(s => s.profile);
   const addTask = useStore(s => s.addTask);
   const updateTodayLog = useStore(s => s.updateTodayLog);
@@ -34,29 +35,12 @@ export default function MorningPlanningScreen() {
   const [energyLevel, setEnergyLevel] = useState<number>(3);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const styles = useMemo(() => makeStyles(C), [C]);
 
   // Step 1 → 2: send to AI
   const structureText = async () => {
     if (!rawText.trim()) {
       Alert.alert('Nothing to plan', 'Write at least a few words about what you need to do today.');
-      return;
-    }
-
-    if (!profile.anthropicKey) {
-      // Skip AI, let user manually set priorities
-      const fallbackTasks: StructuredTask[] = rawText
-        .split(/\n|,/)
-        .map(t => t.trim())
-        .filter(Boolean)
-        .map((text, i) => ({ text, priority: i + 1, estimatedMinutes: 30, defer: false }));
-
-      setStructured({
-        topPriorities: fallbackTasks.slice(0, 3).map(t => t.text),
-        todos: fallbackTasks,
-        energySuggestion: 'Set up your OpenAI key in Settings for AI-powered planning.',
-        warnings: [],
-      });
-      setStep('review');
       return;
     }
 
@@ -69,7 +53,10 @@ export default function MorningPlanningScreen() {
       .join('; ');
 
     try {
-      const result = await structureMorningText(rawText, profile.anthropicKey, { energyLevel });
+      const result = await structureMorningText(rawText, profile.anthropicKey || undefined, {
+        energyLevel,
+        goalContext: goalContext || undefined,
+      });
       setStructured(result);
       // Pre-select the AI's top 3
       const preSelected = new Set<number>();
@@ -79,7 +66,9 @@ export default function MorningPlanningScreen() {
       setSelectedMITs(preSelected);
       setStep('review');
     } catch (e: any) {
-      Alert.alert('AI error', e.message ?? 'Could not connect to OpenAI. Check your API key in Settings.');
+      Alert.alert('AI error', e.message ?? 'Could not reach Anthropic. Check your API key in Settings.');
+      setStructured(null);   // clear any stale result from a previous attempt
+      setSelectedMITs(new Set());
       setStep('dump');
     }
   };
@@ -145,7 +134,7 @@ export default function MorningPlanningScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.doneContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <ActivityIndicator size="large" color={C.primary} />
           <Text style={[styles.doneSub, { marginTop: Spacing.base }]}>
             Structuring your day…
           </Text>
@@ -191,7 +180,7 @@ export default function MorningPlanningScreen() {
                       <Text style={styles.energyBtnEmoji}>
                         {n === 1 ? '😴' : n === 2 ? '😔' : n === 3 ? '🙂' : n === 4 ? '😊' : '⚡'}
                       </Text>
-                      <Text style={[styles.energyBtnLabel, energyLevel === n && { color: Colors.primary }]}>{n}</Text>
+                      <Text style={[styles.energyBtnLabel, energyLevel === n && { color: C.primary }]}>{n}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -207,7 +196,7 @@ export default function MorningPlanningScreen() {
                   `- Research gym memberships\n` +
                   `- Team standup at 10am`
                 }
-                placeholderTextColor={Colors.textLight}
+                placeholderTextColor={C.textLight}
                 multiline
                 value={rawText}
                 onChangeText={setRawText}
@@ -237,7 +226,7 @@ export default function MorningPlanningScreen() {
               )}
 
               {structured.energySuggestion ? (
-                <View style={[styles.card, { backgroundColor: Colors.primaryLight, marginBottom: Spacing.base }]}>
+                <View style={[styles.card, { backgroundColor: C.primaryLight, marginBottom: Spacing.base }]}>
                   <Text style={styles.energySuggestionText}>💡  {structured.energySuggestion}</Text>
                 </View>
               ) : null}
@@ -274,7 +263,7 @@ export default function MorningPlanningScreen() {
                       {isSelected && <Text style={styles.reviewCheckMark}>★</Text>}
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.reviewTaskText, task.defer && { color: Colors.textLight }]}>
+                      <Text style={[styles.reviewTaskText, task.defer && { color: C.textLight }]}>
                         {task.defer ? '→ defer: ' : ''}{task.text}
                       </Text>
                       {task.estimatedMinutes && (
@@ -306,67 +295,69 @@ export default function MorningPlanningScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { padding: Spacing.xl },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl },
-  closeBtn: { padding: 8 },
-  closeBtnText: { fontSize: 18, color: Colors.textMuted },
-  steps: { flexDirection: 'row', gap: 8 },
-  stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.gray200 },
-  stepDotActive: { backgroundColor: Colors.primary, width: 24 },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, marginBottom: 10 },
-  sub: { fontSize: Typography.size.base, color: Colors.textMuted, lineHeight: 22, marginBottom: Spacing.xl },
-  card: { backgroundColor: Colors.card, borderRadius: Radius.md, padding: Spacing.base },
-  cardTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: Colors.textPrimary, marginBottom: Spacing.sm },
-  energyRow: { flexDirection: 'row', gap: 8 },
-  energyBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: Radius.sm, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.gray100 },
-  energyBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
-  energyBtnEmoji: { fontSize: 20 },
-  energyBtnLabel: { fontSize: Typography.size.xs, color: Colors.textMuted, fontWeight: Typography.weight.semibold },
-  dumpInput: {
-    borderWidth: 1.5, borderColor: Colors.border, borderRadius: Radius.md,
-    padding: Spacing.base, fontSize: Typography.size.base, color: Colors.text,
-    minHeight: 200, textAlignVertical: 'top', lineHeight: 24,
-    backgroundColor: Colors.card, marginBottom: Spacing.xl,
-  },
-  btn: {
-    backgroundColor: Colors.primary, borderRadius: Radius.lg,
-    paddingVertical: 18, alignItems: 'center', marginBottom: Spacing.sm,
-  },
-  btnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
-  warningBox: { backgroundColor: '#FFF3CD', borderRadius: Radius.sm, padding: Spacing.sm, marginBottom: Spacing.base, borderLeftWidth: 3, borderLeftColor: '#FFC107' },
-  warningText: { fontSize: Typography.size.sm, color: '#856404', marginBottom: 2 },
-  energySuggestionText: { fontSize: Typography.size.sm, color: Colors.primaryDark, lineHeight: 20 },
-  reviewLabel: { fontSize: Typography.size.sm, color: Colors.textMuted, fontWeight: Typography.weight.semibold, marginBottom: Spacing.sm, textTransform: 'uppercase', letterSpacing: 0.8 },
-  reviewTask: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    backgroundColor: Colors.card, borderRadius: Radius.md,
-    padding: Spacing.base, marginBottom: 8,
-    borderWidth: 2, borderColor: 'transparent',
-  },
-  reviewTaskSelected: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
-  reviewTaskDeferred: { opacity: 0.5 },
-  reviewCheck: {
-    width: 26, height: 26, borderRadius: 13,
-    borderWidth: 2, borderColor: Colors.gray200,
-    marginRight: Spacing.sm, justifyContent: 'center', alignItems: 'center', marginTop: 1,
-  },
-  reviewCheckSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  reviewCheckMark: { color: Colors.white, fontSize: 14 },
-  reviewTaskText: { fontSize: Typography.size.base, color: Colors.text, lineHeight: 22 },
-  reviewTaskMeta: { fontSize: Typography.size.xs, color: Colors.textLight, marginTop: 3 },
-  mitCountLabel: { textAlign: 'center', color: Colors.textMuted, fontSize: Typography.size.sm, marginBottom: Spacing.base },
-  backBtn: { alignItems: 'center', paddingVertical: 12 },
-  backBtnText: { color: Colors.textMuted, fontSize: Typography.size.sm },
-  // Done state
-  doneContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
-  doneEmoji: { fontSize: 64, marginBottom: Spacing.base },
-  doneTitle: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: Colors.textPrimary, textAlign: 'center', marginBottom: 12 },
-  doneSub: { fontSize: Typography.size.base, color: Colors.textMuted, textAlign: 'center', lineHeight: 24, marginBottom: Spacing.xl },
-  doneBtn: {
-    backgroundColor: Colors.primary, borderRadius: Radius.lg,
-    paddingVertical: 18, paddingHorizontal: 48, alignItems: 'center',
-  },
-  doneBtnText: { color: Colors.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
-});
+function makeStyles(C: any) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: C.background },
+    scroll: { padding: Spacing.xl },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl },
+    closeBtn: { padding: 8 },
+    closeBtnText: { fontSize: 18, color: C.textMuted },
+    steps: { flexDirection: 'row', gap: 8 },
+    stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.gray200 },
+    stepDotActive: { backgroundColor: C.primary, width: 24 },
+    title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: C.textPrimary, marginBottom: 10 },
+    sub: { fontSize: Typography.size.base, color: C.textMuted, lineHeight: 22, marginBottom: Spacing.xl },
+    card: { backgroundColor: C.card, borderRadius: Radius.md, padding: Spacing.base },
+    cardTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: C.textPrimary, marginBottom: Spacing.sm },
+    energyRow: { flexDirection: 'row', gap: 8 },
+    energyBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: Radius.sm, borderWidth: 1, borderColor: C.border, backgroundColor: C.gray100 },
+    energyBtnActive: { borderColor: C.primary, backgroundColor: C.primaryLight },
+    energyBtnEmoji: { fontSize: 20 },
+    energyBtnLabel: { fontSize: Typography.size.xs, color: C.textMuted, fontWeight: Typography.weight.semibold },
+    dumpInput: {
+      borderWidth: 1.5, borderColor: C.border, borderRadius: Radius.md,
+      padding: Spacing.base, fontSize: Typography.size.base, color: C.text,
+      minHeight: 200, textAlignVertical: 'top', lineHeight: 24,
+      backgroundColor: C.card, marginBottom: Spacing.xl,
+    },
+    btn: {
+      backgroundColor: C.primary, borderRadius: Radius.lg,
+      paddingVertical: 18, alignItems: 'center', marginBottom: Spacing.sm,
+    },
+    btnText: { color: C.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
+    warningBox: { backgroundColor: '#FFF3CD', borderRadius: Radius.sm, padding: Spacing.sm, marginBottom: Spacing.base, borderLeftWidth: 3, borderLeftColor: '#FFC107' },
+    warningText: { fontSize: Typography.size.sm, color: '#856404', marginBottom: 2 },
+    energySuggestionText: { fontSize: Typography.size.sm, color: C.primaryDark, lineHeight: 20 },
+    reviewLabel: { fontSize: Typography.size.sm, color: C.textMuted, fontWeight: Typography.weight.semibold, marginBottom: Spacing.sm, textTransform: 'uppercase', letterSpacing: 0.8 },
+    reviewTask: {
+      flexDirection: 'row', alignItems: 'flex-start',
+      backgroundColor: C.card, borderRadius: Radius.md,
+      padding: Spacing.base, marginBottom: 8,
+      borderWidth: 2, borderColor: 'transparent',
+    },
+    reviewTaskSelected: { borderColor: C.primary, backgroundColor: C.primaryLight },
+    reviewTaskDeferred: { opacity: 0.5 },
+    reviewCheck: {
+      width: 26, height: 26, borderRadius: 13,
+      borderWidth: 2, borderColor: C.gray200,
+      marginRight: Spacing.sm, justifyContent: 'center', alignItems: 'center', marginTop: 1,
+    },
+    reviewCheckSelected: { backgroundColor: C.primary, borderColor: C.primary },
+    reviewCheckMark: { color: C.white, fontSize: 14 },
+    reviewTaskText: { fontSize: Typography.size.base, color: C.text, lineHeight: 22 },
+    reviewTaskMeta: { fontSize: Typography.size.xs, color: C.textLight, marginTop: 3 },
+    mitCountLabel: { textAlign: 'center', color: C.textMuted, fontSize: Typography.size.sm, marginBottom: Spacing.base },
+    backBtn: { alignItems: 'center', paddingVertical: 12 },
+    backBtnText: { color: C.textMuted, fontSize: Typography.size.sm },
+    // Done state
+    doneContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
+    doneEmoji: { fontSize: 64, marginBottom: Spacing.base },
+    doneTitle: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.heavy, color: C.textPrimary, textAlign: 'center', marginBottom: 12 },
+    doneSub: { fontSize: Typography.size.base, color: C.textMuted, textAlign: 'center', lineHeight: 24, marginBottom: Spacing.xl },
+    doneBtn: {
+      backgroundColor: C.primary, borderRadius: Radius.lg,
+      paddingVertical: 18, paddingHorizontal: 48, alignItems: 'center',
+    },
+    doneBtnText: { color: C.white, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
+  });
+}

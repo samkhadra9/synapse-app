@@ -11,14 +11,15 @@
  *               + Modal stack for Chat, DeepWork, ProjectDetail
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
+import { format } from 'date-fns';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Text, View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius } from '../theme';
+import { Colors, Radius, useColors } from '../theme';
 import { useStore } from '../store/useStore';
 import { supabase } from '../lib/supabase';
 import { pullAll } from '../services/sync';
@@ -40,6 +41,7 @@ import ProjectsScreen         from '../screens/ProjectsScreen';
 import ProjectDetailScreen    from '../screens/ProjectDetailScreen';
 import GoalsScreen            from '../screens/GoalsScreen';
 import AreasScreen            from '../screens/AreasScreen';
+import AreaDetailScreen       from '../screens/AreaDetailScreen';
 import SettingsScreen         from '../screens/SettingsScreen';
 import DeepWorkScreen         from '../screens/DeepWorkScreen';
 
@@ -55,6 +57,7 @@ export type RootStackParams = {
   Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'quick' | 'fatigue' };
   DeepWork:         undefined;
   ProjectDetail:    { projectId: string };
+  AreaDetail:       { areaId: string };
 };
 
 export type TabParams = {
@@ -95,6 +98,8 @@ const TAB_LABELS: Record<string, string> = {
 
 // Custom tab bar — Ionicons + floating Synapse button
 function CustomTabBar({ state, navigation }: any) {
+  const C = useColors();
+  const tabStyles = useMemo(() => makeTabStyles(C), [C]);
   const tabs = ['Dashboard', 'Projects', 'Areas', 'Settings'];
 
   return (
@@ -130,7 +135,7 @@ function CustomTabBar({ state, navigation }: any) {
               <Ionicons
                 name={iconName}
                 size={22}
-                color={focused ? Colors.primary : Colors.textTertiary}
+                color={focused ? C.primary : C.textTertiary}
               />
               <Text style={[tabStyles.label, focused && tabStyles.labelActive]}>
                 {TAB_LABELS[name]}
@@ -144,61 +149,64 @@ function CustomTabBar({ state, navigation }: any) {
   );
 }
 
-const tabStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    backgroundColor: Colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.borderLight,
-    paddingBottom: 26,
-    paddingTop: 8,
-    paddingHorizontal: 4,
-  },
+function makeTabStyles(C: any) {
+  return StyleSheet.create({
+    container: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      backgroundColor: C.surface,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: C.border,
+      paddingBottom: 26,
+      paddingTop: 8,
+      paddingHorizontal: 4,
+    },
 
-  // Regular tab
-  tab:         { flex: 1, alignItems: 'center', gap: 3 },
-  label:       { fontSize: 10, color: Colors.textTertiary, fontWeight: '400', letterSpacing: 0.2 },
-  labelActive: { color: Colors.primary, fontWeight: '600' },
-  activeDot:   { width: 3, height: 3, borderRadius: 1.5, backgroundColor: Colors.primary, marginTop: 1 },
+    // Regular tab
+    tab:         { flex: 1, alignItems: 'center', gap: 3 },
+    label:       { fontSize: 10, color: C.textTertiary, fontWeight: '400', letterSpacing: 0.2 },
+    labelActive: { color: C.primary, fontWeight: '600' },
+    activeDot:   { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.primary, marginTop: 1 },
 
-  // Synapse centre button — solid amber ring, dark core, white separator
-  centerWrap: { alignItems: 'center', gap: 3, marginBottom: 2, paddingHorizontal: 2 },
+    // Synapse centre button — solid amber ring, dark core, white separator
+    centerWrap: { alignItems: 'center', gap: 3, marginBottom: 2, paddingHorizontal: 2 },
 
-  // Outer amber ring with glow
-  centerRing: {
-    width: 64, height: 64, borderRadius: 32,
-    borderWidth: 2,
-    borderColor: '#D4621A',
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#D4621A',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    marginBottom: 2,
-  },
+    // Outer amber ring with glow
+    centerRing: {
+      width: 64, height: 64, borderRadius: 32,
+      borderWidth: 2,
+      borderColor: C.accent,
+      alignItems: 'center', justifyContent: 'center',
+      shadowColor: C.accent,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
+      marginBottom: 2,
+    },
 
-  // Inner dark button with white gap ring
-  centerBtn: {
-    width: 54, height: 54, borderRadius: 27,
-    backgroundColor: '#0D0D0D',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2.5,
-    borderColor: Colors.background,   // white gap between ring and button
-  },
+    // Inner dark button with theme-bg gap ring
+    centerBtn: {
+      width: 54, height: 54, borderRadius: 27,
+      backgroundColor: C.ink,
+      alignItems: 'center', justifyContent: 'center',
+      borderWidth: 2.5,
+      borderColor: C.background,
+    },
 
-  centerLetter: {
-    fontSize: 19,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
-  centerLabel: { fontSize: 10, color: Colors.textTertiary, fontWeight: '500', letterSpacing: 0.2 },
-});
+    centerLetter: {
+      fontSize: 19,
+      fontWeight: '700',
+      color: C.textInverse,   // dark on light button (light on dark button in ink mode)
+      letterSpacing: -0.3,
+    },
+    centerLabel: { fontSize: 10, color: C.textTertiary, fontWeight: '500', letterSpacing: 0.2 },
+  });
+}
 
 function MainTabs() {
   return (
     <Tab.Navigator
+      id="MainTabs"
       tabBar={props => <CustomTabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
@@ -243,16 +251,56 @@ function NotificationHandler() {
 
 // ── Auth-gated app navigator ──────────────────────────────────────────────────
 
+/** Prevent syncRemindersToTasks running more than once per app session */
+let reminderSyncDone = false;
+
+/** Import any iOS Reminders that aren't yet in the task store */
+async function syncRemindersToTasks() {
+  if (reminderSyncDone) return;
+  reminderSyncDone = true;
+  try {
+    const { getUnimportedReminders } = await import('../services/calendar');
+    const { tasks, addTask }         = useStore.getState();
+    const existingIds = tasks
+      .map(t => t.reminderId)
+      .filter((id): id is string => Boolean(id));
+
+    const newReminders = await getUnimportedReminders(existingIds);
+    if (!newReminders.length) return;
+
+    const today = format(new Date(), 'yyyy-MM-dd');
+    for (const r of newReminders) {
+      addTask({
+        text:        r.text,
+        completed:   false,
+        date:        r.date ?? today,
+        isToday:     !r.date || r.date === today,
+        isMIT:       false,
+        priority:    'medium',
+        reminderId:  r.reminderId,
+      });
+    }
+    console.log(`[nav] imported ${newReminders.length} reminder(s) as tasks`);
+  } catch (e) {
+    console.warn('[nav] reminder sync failed:', e);
+  }
+}
+
 /** Background sync — runs after login without blocking the UI */
 async function backgroundSync() {
   try {
     const result = await pullAll();
     console.log('[nav] sync complete:', { tasks: result.tasks.length, habits: result.habits.length });
 
-    const local = useStore.getState();
-
-    // Merge server data into store (server wins if it has records)
-    if (result.profile) local.updateProfile(result.profile);
+    // Merge server data into store (server wins if it has records).
+    // Use setState directly for profile so we don't re-trigger a Supabase push
+    // (updateProfile calls syncIfAuthed, which would immediately write back the
+    // profile we just pulled — a pointless circular write on every login).
+    if (result.profile) {
+      useStore.setState(s => ({
+        profile: { ...s.profile, ...result.profile },
+      }));
+    }
     if (result.areas.length > 0)            useStore.setState({ areas: result.areas });
     if (result.projects.length > 0)         useStore.setState({ projects: result.projects });
     if (result.tasks.length > 0)            useStore.setState({ tasks: result.tasks });
@@ -282,6 +330,7 @@ async function backgroundSync() {
 }
 
 function AppNavigator() {
+  const C = useColors();
   const { profile, session, setSession } = useStore();
 
   // Listen for Supabase auth state changes (login, logout, token refresh)
@@ -297,8 +346,9 @@ function AppNavigator() {
         console.log('[nav] auth event:', _event, 'session:', !!s);
         setSession(s);
 
-        // Only sync on actual sign-in — not on token refresh (which fires every hour)
-        if (s && _event === 'SIGNED_IN') {
+        // Sync on first load (INITIAL_SESSION) and on new sign-in.
+        // Skip TOKEN_REFRESHED (fires every hour) and USER_UPDATED.
+        if (s && (_event === 'SIGNED_IN' || _event === 'INITIAL_SESSION')) {
           backgroundSync();
         }
       }
@@ -307,22 +357,30 @@ function AppNavigator() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Request notification permissions and schedule daily reminders
-  // once the user has completed onboarding
+  // Request all permissions and schedule notifications once user is onboarded
   useEffect(() => {
     if (session && profile.onboardingCompleted) {
+      // Notifications
       requestPermissions().then(granted => {
         if (granted) {
           scheduleDailyNotifications(profile.morningTime, profile.eveningTime);
         }
       });
+
+      // Calendar + Reminders — request together so both prompts appear on first launch
+      import('../services/calendar').then(cal => {
+        cal.requestAllCalendarPermissions().catch(() => {});
+      });
+
+      // Pull any iOS Reminders into the task list (fire-and-forget)
+      syncRemindersToTasks();
     }
   }, [session, profile.onboardingCompleted, profile.morningTime, profile.eveningTime]);
 
   // Not logged in — show auth screen
   if (!session) {
     return (
-      <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+      <AuthStack.Navigator id="AuthStack" screenOptions={{ headerShown: false }}>
         <AuthStack.Screen name="Login" component={LoginScreen} />
       </AuthStack.Navigator>
     );
@@ -337,6 +395,7 @@ function AppNavigator() {
     <>
     <NotificationHandler />
     <Stack.Navigator
+      id="RootStack"
       initialRouteName={isOnboarded ? 'Main' : 'Welcome'}
       screenOptions={{
         headerShown: false,
@@ -352,8 +411,8 @@ function AppNavigator() {
           headerShown: true,
           headerTitle: '',
           headerBackTitle: 'Back',
-          headerTintColor: Colors.primary,
-          headerStyle: { backgroundColor: Colors.surface },
+          headerTintColor: C.primary,
+          headerStyle: { backgroundColor: C.surface },
           headerShadowVisible: false,
         }}
       />
@@ -384,8 +443,8 @@ function AppNavigator() {
           headerShown: true,
           headerTitle: 'Settings',
           headerBackTitle: 'Back',
-          headerTintColor: Colors.primary,
-          headerStyle: { backgroundColor: Colors.surface },
+          headerTintColor: C.primary,
+          headerStyle: { backgroundColor: C.surface },
           headerShadowVisible: false,
         }}
       />
@@ -408,9 +467,16 @@ function AppNavigator() {
           headerShown: true,
           headerTitle: 'Project',
           headerBackTitle: 'Back',
-          headerTintColor: Colors.primary,
-          headerStyle: { backgroundColor: Colors.surface },
+          headerTintColor: C.primary,
+          headerStyle: { backgroundColor: C.surface },
           headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="AreaDetail"
+        component={AreaDetailScreen}
+        options={{
+          headerShown: false,
         }}
       />
       <Stack.Screen

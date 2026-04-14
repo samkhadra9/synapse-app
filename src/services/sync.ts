@@ -52,19 +52,24 @@ function sanitiseDate(d?: string): string | null {
 export async function pushProfile(profile: UserProfile): Promise<void> {
   const uid = await getUserId();
   const { error } = await supabase.from('profiles').upsert({
-    id:                      uid,
-    name:                    profile.name,
-    morning_time:            profile.morningTime,
-    evening_time:            profile.eveningTime,
-    selected_domains:        profile.selectedDomains,
-    onboarding_completed:    profile.onboardingCompleted,
-    onboarding_step:         profile.onboardingStep,
-    deep_work_block_length:  profile.deepWorkBlockLength,
+    id:                        uid,
+    name:                      profile.name,
+    morning_time:              profile.morningTime,
+    evening_time:              profile.eveningTime,
+    selected_domains:          profile.selectedDomains,
+    onboarding_completed:      profile.onboardingCompleted,
+    onboarding_step:           profile.onboardingStep,
+    deep_work_block_length:    profile.deepWorkBlockLength,
     deep_work_blocks_per_week: profile.deepWorkBlocksPerWeek,
-    system_phase:            profile.systemPhase,
-    routines:                profile.routines ?? null,
-    synapse_calendar_id:     profile.synapseCalendarId ?? null,
-    updated_at:              new Date().toISOString(),
+    system_phase:              profile.systemPhase,
+    routines:                  profile.routines ?? null,
+    synapse_calendar_id:       profile.synapseCalendarId ?? null,
+    selected_calendar_name:    profile.selectedCalendarName ?? null,
+    week_template:             profile.weekTemplate ?? [],
+    skeleton_built:            profile.skeletonBuilt,
+    portrait:                  profile.portrait ?? null,
+    last_active_date:          profile.lastActiveDate ?? null,
+    updated_at:                new Date().toISOString(),
   });
   if (error) console.error('[sync] pushProfile:', error.message);
 }
@@ -81,17 +86,22 @@ export async function pullProfile(): Promise<Partial<UserProfile> | null> {
   if (error || !data) return null;
 
   return {
-    name:                   data.name          ?? '',
-    morningTime:            data.morning_time  ?? '07:30',
-    eveningTime:            data.evening_time  ?? '21:00',
+    name:                   data.name           ?? '',
+    morningTime:            data.morning_time   ?? '07:30',
+    eveningTime:            data.evening_time   ?? '21:00',
     selectedDomains:        data.selected_domains ?? [],
     onboardingCompleted:    data.onboarding_completed ?? false,
     onboardingStep:         data.onboarding_step ?? 'welcome',
     deepWorkBlockLength:    data.deep_work_block_length ?? 60,
     deepWorkBlocksPerWeek:  data.deep_work_blocks_per_week ?? 2,
-    systemPhase:            data.system_phase  ?? 1,
-    routines:               data.routines      ?? undefined,
-    synapseCalendarId:      data.synapse_calendar_id ?? undefined,
+    systemPhase:            data.system_phase   ?? 1,
+    routines:               data.routines       ?? undefined,
+    synapseCalendarId:      data.synapse_calendar_id    ?? undefined,
+    selectedCalendarName:   data.selected_calendar_name ?? undefined,
+    weekTemplate:           data.week_template  ?? [],
+    skeletonBuilt:          data.skeleton_built ?? false,
+    portrait:               data.portrait       ?? '',
+    lastActiveDate:         data.last_active_date ?? undefined,
   };
 }
 
@@ -150,6 +160,7 @@ export async function pushProject(project: Project): Promise<void> {
     status:           project.status,
     is_decomposed:    project.isDecomposed,
     calendar_event_id: project.calendarEventId ?? null,
+    created_at:       project.createdAt ?? new Date().toISOString(),
   });
   if (error) console.error('[sync] pushProject:', error.message);
 }
@@ -191,14 +202,18 @@ export async function pushTask(task: Task): Promise<void> {
     id:                 task.id,
     user_id:            uid,
     project_id:         task.projectId ?? null,
-    domain:             task.domain ?? null,
+    area_id:            task.areaId    ?? null,
+    domain:             task.domain    ?? null,
     text:               task.text,
     completed:          task.completed,
     date:               task.date,
     is_today:           task.isToday,
     is_mit:             task.isMIT,
+    is_inbox:           task.isInbox   ?? false,
     estimated_minutes:  task.estimatedMinutes ?? null,
     priority:           task.priority,
+    reason:             task.reason    ?? null,
+    created_at:         task.createdAt ?? new Date().toISOString(),
   });
   if (error) console.error('[sync] pushTask:', error.message);
 }
@@ -218,15 +233,19 @@ export async function pullTasks(): Promise<Task[]> {
   if (error || !data) return [];
   return data.map(r => ({
     id:                r.id,
-    projectId:         r.project_id ?? undefined,
-    domain:            r.domain ?? undefined,
+    projectId:         r.project_id        ?? undefined,
+    areaId:            r.area_id           ?? undefined,
+    domain:            r.domain            ?? undefined,
     text:              r.text,
     completed:         r.completed,
     date:              r.date,
     isToday:           r.is_today,
     isMIT:             r.is_mit,
-    estimatedMinutes:  r.estimated_minutes ?? undefined,
-    priority:          r.priority ?? 'medium',
+    isInbox:           r.is_inbox          ?? false,
+    estimatedMinutes:  r.estimated_minutes  ?? undefined,
+    priority:          r.priority           ?? 'medium',
+    reason:            r.reason             ?? undefined,
+    createdAt:         r.created_at         ?? undefined,
   }));
 }
 
@@ -283,6 +302,7 @@ export async function pushGoal(goal: LifeGoal): Promise<void> {
     horizon:    goal.horizon,
     text:       goal.text,
     milestones: goal.milestones,
+    created_at: goal.createdAt ?? new Date().toISOString(),
   });
   if (error) console.error('[sync] pushGoal:', error.message);
 }
@@ -394,12 +414,17 @@ export async function pushAll(store: {
   deepWorkSessions: DeepWorkSession[];
 }): Promise<void> {
   await pushProfile(store.profile);
-  await Promise.all([
-    ...store.areas.map(pushArea),
-    ...store.projects.map(pushProject),
-    ...store.tasks.map(pushTask),
-    ...store.habits.map(pushHabit),
-    ...store.goals.map(pushGoal),
-    ...store.deepWorkSessions.map(pushDeepWorkSession),
-  ]);
+  try {
+    await Promise.all([
+      ...store.areas.map(pushArea),
+      ...store.projects.map(pushProject),
+      ...store.tasks.map(pushTask),
+      ...store.habits.map(pushHabit),
+      ...store.goals.map(pushGoal),
+      ...store.deepWorkSessions.map(pushDeepWorkSession),
+    ]);
+  } catch (e: any) {
+    console.error('[sync] pushAll partial failure:', e?.message ?? e);
+    // Non-fatal: profile was already pushed; log and continue
+  }
 }

@@ -3,7 +3,7 @@
  * API key, notification times, profile, reset.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   TextInput, Alert, Switch, KeyboardAvoidingView, Platform,
@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Colors, Spacing, Radius, Shadow, THEMES } from '../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Spacing, Radius, Shadow, THEMES, useColors } from '../theme';
 import type { ThemeName } from '../theme';
 import { useStore } from '../store/useStore';
 import { listWritableCalendars, DeviceCalendar } from '../services/calendar';
@@ -21,18 +22,21 @@ import {
   requestPermissions,
 } from '../services/notifications';
 
-const ENV_ANTHROPIC_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
-const ENV_OPENAI_KEY    = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
+const ENV_OPENAI_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
 
 function SectionLabel({ label }: { label: string }) {
-  return <Text style={styles.sectionLabel}>{label}</Text>;
+  const C = useColors();
+  const s = useMemo(() => makeStyles(C), [C]);
+  return <Text style={s.sectionLabel}>{label}</Text>;
 }
 
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
+  const C = useColors();
+  const s = useMemo(() => makeStyles(C), [C]);
   return (
-    <View style={styles.settingRow}>
-      <Text style={styles.settingLabel}>{label}</Text>
-      <View style={styles.settingControl}>{children}</View>
+    <View style={s.settingRow}>
+      <Text style={s.settingLabel}>{label}</Text>
+      <View style={s.settingControl}>{children}</View>
     </View>
   );
 }
@@ -40,6 +44,8 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
   const { profile, updateProfile, resetOnboarding, wipeAllData, signOut, appTheme, setTheme } = useStore();
+  const C = useColors();
+  const styles = useMemo(() => makeStyles(C), [C]);
 
   const [name,           setName]           = useState(profile.name);
   const [newAnthropicKey,setNewAnthropicKey] = useState('');
@@ -49,6 +55,14 @@ export default function SettingsScreen() {
   const [morning,        setMorning]         = useState(profile.morningTime);
   const [evening,        setEvening]         = useState(profile.eveningTime);
   const [saved,          setSaved]           = useState(false);
+  const [showPrivacy,    setShowPrivacy]     = useState(false);
+
+  // Auto-clear the "Saved" confirmation after 2 s, with cleanup to avoid state updates on unmounted component
+  useEffect(() => {
+    if (!saved) return;
+    const t = setTimeout(() => setSaved(false), 2000);
+    return () => clearTimeout(t);
+  }, [saved]);
 
   // Calendar picker
   const [calendarList,    setCalendarList]    = useState<DeviceCalendar[]>([]);
@@ -74,8 +88,9 @@ export default function SettingsScreen() {
   }
 
   // Anthropic key (main AI)
-  const activeAnthropicKey  = profile.anthropicKey || ENV_ANTHROPIC_KEY;
-  const usingEnvAnthropic   = !!ENV_ANTHROPIC_KEY && !profile.anthropicKey;
+  // If user has their own key it's used directly; otherwise the secure server proxy is used.
+  const activeAnthropicKey  = profile.anthropicKey ?? '';
+  const usingProxy          = !activeAnthropicKey;
   const maskedAnthropicKey  = activeAnthropicKey.length > 8
     ? `sk-ant-...${activeAnthropicKey.slice(-4)}`
     : activeAnthropicKey ? '••••••••' : '';
@@ -86,11 +101,22 @@ export default function SettingsScreen() {
     ? `sk-...${activeOpenAiKey.slice(-4)}`
     : activeOpenAiKey ? '••••••••' : '';
 
+  function isValidTime(t: string) {
+    const m = t.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return false;
+    const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+    return h >= 0 && h <= 23 && min >= 0 && min <= 59;
+  }
+
   function handleSave() {
+    if (!isValidTime(morning) || !isValidTime(evening)) {
+      Alert.alert('Invalid time', 'Please enter times in HH:MM format, e.g. 07:30');
+      return;
+    }
     updateProfile({
       name,
-      ...(editingAI    && newAnthropicKey.trim() ? { anthropicKey: newAnthropicKey.trim() } : {}),
-      ...(editingVoice && newOpenAiKey.trim()    ? { openAiKey:    newOpenAiKey.trim()    } : {}),
+      ...(newAnthropicKey.trim() ? { anthropicKey: newAnthropicKey.trim() } : {}),
+      ...(newOpenAiKey.trim()    ? { openAiKey:    newOpenAiKey.trim()    } : {}),
       morningTime: morning,
       eveningTime: evening,
     });
@@ -99,7 +125,6 @@ export default function SettingsScreen() {
     setNewAnthropicKey('');
     setNewOpenAiKey('');
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
 
     // Reschedule notifications with updated times
     requestPermissions().then(granted => {
@@ -186,7 +211,7 @@ export default function SettingsScreen() {
                 value={name}
                 onChangeText={setName}
                 placeholder="Sam"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
               />
             </SettingRow>
           </View>
@@ -195,12 +220,12 @@ export default function SettingsScreen() {
           <SectionLabel label="AI CONNECTION" />
           <View style={styles.card}>
             {/* ── Anthropic key (main AI) ── */}
-            {usingEnvAnthropic ? (
+            {usingProxy ? (
               <View style={styles.envKeyBanner}>
                 <Text style={styles.envKeyIcon}>✓</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.envKeyTitle}>Anthropic key loaded from config</Text>
-                  <Text style={styles.envKeySubtitle}>Set via EXPO_PUBLIC_ANTHROPIC_KEY in .env</Text>
+                  <Text style={styles.envKeyTitle}>AI powered by Synapse</Text>
+                  <Text style={styles.envKeySubtitle}>No key needed — tap below to use your own instead</Text>
                 </View>
               </View>
             ) : activeAnthropicKey && !editingAI ? (
@@ -227,7 +252,7 @@ export default function SettingsScreen() {
                       value={newAnthropicKey}
                       onChangeText={setNewAnthropicKey}
                       placeholder="sk-ant-..."
-                      placeholderTextColor={Colors.textTertiary}
+                      placeholderTextColor={C.textTertiary}
                       secureTextEntry
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -273,7 +298,7 @@ export default function SettingsScreen() {
                       value={newOpenAiKey}
                       onChangeText={setNewOpenAiKey}
                       placeholder="sk-... (for voice)"
-                      placeholderTextColor={Colors.textTertiary}
+                      placeholderTextColor={C.textTertiary}
                       secureTextEntry
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -301,16 +326,19 @@ export default function SettingsScreen() {
               return (
                 <TouchableOpacity
                   key={key}
-                  style={[styles.themeChip, active && { borderColor: theme.tokens.primary, backgroundColor: theme.tokens.primaryLight }]}
+                  style={[styles.themeSwatch, active && styles.themeSwatchActive]}
                   onPress={() => setTheme(key)}
                   activeOpacity={0.78}
                 >
-                  <View style={[styles.themeSwatch, { backgroundColor: theme.tokens.primary }]} />
-                  <View style={[styles.themeSwatchAccent, { backgroundColor: theme.tokens.accent }]} />
-                  <Text style={[styles.themeChipLabel, active && { color: theme.tokens.primary, fontWeight: '700' }]}>
-                    {theme.emoji}{'  '}{theme.label}
-                  </Text>
-                  {active && <Text style={[styles.themeActive, { color: theme.tokens.primary }]}>✓</Text>}
+                  {/* Left half: background colour */}
+                  <View style={[styles.themeSwatchHalf, { backgroundColor: theme.tokens.background, borderTopLeftRadius: 20, borderBottomLeftRadius: 20 }]} />
+                  {/* Right half: primary / accent colour */}
+                  <View style={[styles.themeSwatchHalf, { backgroundColor: theme.tokens.primary, borderTopRightRadius: 20, borderBottomRightRadius: 20 }]} />
+                  {active && (
+                    <View style={styles.themeSwatchCheck}>
+                      <Ionicons name="checkmark" size={13} color="#fff" />
+                    </View>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -325,7 +353,7 @@ export default function SettingsScreen() {
                 value={morning}
                 onChangeText={setMorning}
                 placeholder="07:30"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
                 keyboardType="numbers-and-punctuation"
               />
             </SettingRow>
@@ -336,7 +364,7 @@ export default function SettingsScreen() {
                 value={evening}
                 onChangeText={setEvening}
                 placeholder="21:00"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={C.textTertiary}
                 keyboardType="numbers-and-punctuation"
               />
             </SettingRow>
@@ -359,7 +387,7 @@ export default function SettingsScreen() {
               disabled={loadingCals}
             >
               <View style={styles.calLeft}>
-                <View style={[styles.calDot, { backgroundColor: profile.synapseCalendarId ? Colors.primary : Colors.border }]} />
+                <View style={[styles.calDot, { backgroundColor: profile.synapseCalendarId ? C.primary : C.border }]} />
                 <View>
                   <Text style={styles.calTitle}>
                     {profile.selectedCalendarName ?? (profile.synapseCalendarId ? 'Calendar selected' : 'Choose a calendar')}
@@ -372,7 +400,7 @@ export default function SettingsScreen() {
                 </View>
               </View>
               {loadingCals
-                ? <ActivityIndicator size="small" color={Colors.primary} />
+                ? <ActivityIndicator size="small" color={C.primary} />
                 : <Text style={styles.resetArrow}>›</Text>}
             </TouchableOpacity>
             {profile.synapseCalendarId && (
@@ -383,7 +411,7 @@ export default function SettingsScreen() {
                   onPress={() => updateProfile({ synapseCalendarId: undefined, selectedCalendarName: undefined })}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.calTitle, { color: Colors.error }]}>Remove calendar link</Text>
+                  <Text style={[styles.calTitle, { color: C.error }]}>Remove calendar link</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -401,7 +429,7 @@ export default function SettingsScreen() {
             presentationStyle="pageSheet"
             onRequestClose={() => setShowCalPicker(false)}
           >
-            <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: C.background }}>
               <View style={styles.calModalHeader}>
                 <Text style={styles.calModalTitle}>Choose calendar</Text>
                 <TouchableOpacity onPress={() => setShowCalPicker(false)} style={styles.calModalClose}>
@@ -443,32 +471,6 @@ export default function SettingsScreen() {
             </SafeAreaView>
           </Modal>
 
-          {/* System phase */}
-          <SectionLabel label="SYSTEM PHASE" />
-          <View style={styles.card}>
-            <View style={styles.phaseRow}>
-              {([1, 2, 3] as const).map(p => (
-                <TouchableOpacity
-                  key={p}
-                  style={[styles.phaseBtn, profile.systemPhase === p && styles.phaseBtnActive]}
-                  onPress={() => updateProfile({ systemPhase: p })}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.phaseBtnNum, profile.systemPhase === p && styles.phaseBtnNumActive]}>
-                    {p}
-                  </Text>
-                  <Text style={[styles.phaseBtnLabel, profile.systemPhase === p && styles.phaseBtnLabelActive]}>
-                    {p === 1 ? 'Routine' : p === 2 ? 'Output' : 'Full OS'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={styles.phaseHint}>
-              {profile.systemPhase === 1 && 'Phase 1: Lock your morning & evening routines. Nothing else yet.'}
-              {profile.systemPhase === 2 && 'Phase 2: Add deep work sessions and start tracking output.'}
-              {profile.systemPhase === 3 && 'Phase 3: Full system — weekly reviews, all features active.'}
-            </Text>
-          </View>
 
           {/* Onboarding */}
           <SectionLabel label="SETUP" />
@@ -501,8 +503,8 @@ export default function SettingsScreen() {
               activeOpacity={0.75}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[styles.resetText, { color: Colors.text, fontWeight: '600' }]}>Rebuild weekly skeleton</Text>
-                <Text style={[styles.settingLabel, { marginTop: 2, color: Colors.textMuted }]}>Redesign your time blocks when your week changes</Text>
+                <Text style={[styles.resetText, { color: C.text, fontWeight: '600' }]}>Rebuild weekly skeleton</Text>
+                <Text style={[styles.settingLabel, { marginTop: 2, color: C.textMuted }]}>Redesign your time blocks when your week changes</Text>
               </View>
               <Text style={styles.resetArrow}>›</Text>
             </TouchableOpacity>
@@ -513,14 +515,25 @@ export default function SettingsScreen() {
           <View style={styles.card}>
             <TouchableOpacity style={styles.resetRow} onPress={handleBugReport} activeOpacity={0.75}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.resetText, { color: Colors.primary, fontWeight: '600' }]}>Report a bug or give feedback</Text>
-                <Text style={[styles.settingLabel, { marginTop: 2, color: Colors.textMuted }]}>Opens your email — goes straight to Sam</Text>
+                <Text style={[styles.resetText, { color: C.primary, fontWeight: '600' }]}>Report a bug or give feedback</Text>
+                <Text style={[styles.settingLabel, { marginTop: 2, color: C.textMuted }]}>Opens your email — goes straight to Sam</Text>
               </View>
               <Text style={styles.resetArrow}>›</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Danger zone */}
+          {/* Legal */}
+          <SectionLabel label="LEGAL" />
+          <TouchableOpacity
+            style={styles.privacyBtn}
+            onPress={() => setShowPrivacy(true)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.privacyBtnText}>Privacy Policy</Text>
+            <Ionicons name="chevron-forward" size={16} color={C.textTertiary} />
+          </TouchableOpacity>
+
+          {/* Account */}
           <SectionLabel label="ACCOUNT" />
           <View style={styles.card}>
             <TouchableOpacity style={styles.resetRow} onPress={handleReset}>
@@ -542,7 +555,7 @@ export default function SettingsScreen() {
                 ]
               )}
             >
-              <Text style={[styles.resetText, { color: Colors.textSecondary }]}>Sign out</Text>
+              <Text style={[styles.resetText, { color: C.textSecondary }]}>Sign out</Text>
               <Text style={styles.resetArrow}>›</Text>
             </TouchableOpacity>
             <View style={styles.divider} />
@@ -567,172 +580,226 @@ export default function SettingsScreen() {
 
           <View style={{ height: 40 }} />
         </ScrollView>
+
+        <Modal visible={showPrivacy} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowPrivacy(false)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: C.background }}>
+            <View style={styles.privacyHeader}>
+              <Text style={styles.privacyTitle}>Privacy Policy</Text>
+              <TouchableOpacity onPress={() => setShowPrivacy(false)} style={styles.privacyClose}>
+                <Text style={{ fontSize: 15, color: C.textSecondary, fontWeight: '600' }}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.privacyScroll} showsVerticalScrollIndicator={false}>
+              <Text style={styles.privacySection}>Your data, simply explained</Text>
+
+              <Text style={styles.privacyHeading}>What stays on your device</Text>
+              <Text style={styles.privacyBody}>
+                Your tasks, habits, areas, goals, and daily logs are stored locally on your device using encrypted storage. You own this data entirely.
+              </Text>
+
+              <Text style={styles.privacyHeading}>What's stored in the cloud</Text>
+              <Text style={styles.privacyBody}>
+                If you're signed in, your data syncs to a secure database (Supabase) so it persists across devices. This database is private to you — no one else can access it.
+              </Text>
+
+              <Text style={styles.privacyHeading}>AI features and Anthropic</Text>
+              <Text style={styles.privacyBody}>
+                When you use AI features (morning planning, project breakdown, chat), the content of that conversation is sent to the Anthropic API to generate a response. This is a one-time processing call — Anthropic does not store your prompts or responses beyond 7 days, and your data is never used to train AI models.
+              </Text>
+              <Text style={styles.privacyBody}>
+                Anthropic's API terms explicitly exclude API usage from model training. Your personal context (tasks, goals, areas) is included in prompts to make the AI useful, but it is not retained by Anthropic after the 7-day automatic deletion window.
+              </Text>
+
+              <Text style={styles.privacyHeading}>No advertising, no selling data</Text>
+              <Text style={styles.privacyBody}>
+                Synapse has no advertisers and does not sell, share, or monetise your personal data in any way. The app is a tool for you.
+              </Text>
+
+              <Text style={styles.privacyHeading}>Your rights</Text>
+              <Text style={styles.privacyBody}>
+                You can delete all your data at any time from Settings → Danger Zone → Wipe all data. Signing out removes your session. You may request full data deletion by contacting us.
+              </Text>
+
+              <Text style={[styles.privacyBody, { color: C.textTertiary, marginTop: 24 }]}>
+                For Anthropic's full API privacy policy, visit anthropic.com/privacy
+              </Text>
+
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  content:   { padding: Spacing.base, paddingTop: Spacing.base },
+function makeStyles(C: any) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: C.background },
+    content:   { padding: Spacing.base, paddingTop: Spacing.base },
 
-  pageTitle: {
-    fontSize: 38, fontWeight: '800', color: Colors.textPrimary,
-    letterSpacing: -1.5, marginBottom: Spacing.lg, lineHeight: 40,
-  },
-  sectionLabel: {
-    fontSize: 11, fontWeight: '700', color: Colors.textTertiary,
-    letterSpacing: 1.2, marginBottom: 8, marginTop: Spacing.base,
-    marginLeft: 2, textTransform: 'uppercase',
-  },
+    pageTitle: {
+      fontSize: 38, fontWeight: '800', color: C.textPrimary,
+      letterSpacing: -1.5, marginBottom: Spacing.lg, lineHeight: 40,
+    },
+    sectionLabel: {
+      fontSize: 11, fontWeight: '700', color: C.textTertiary,
+      letterSpacing: 1.2, marginBottom: 8, marginTop: Spacing.base,
+      marginLeft: 2, textTransform: 'uppercase',
+    },
 
-  // Cards — bordered, no heavy shadow
-  card: {
-    backgroundColor: Colors.surface, borderRadius: Radius.xl,
-    overflow: 'hidden', borderWidth: 1, borderColor: Colors.border,
-  },
-  divider: { height: 1, backgroundColor: Colors.borderLight, marginHorizontal: Spacing.base },
+    // Cards — bordered, no heavy shadow
+    card: {
+      backgroundColor: C.surface, borderRadius: Radius.xl,
+      overflow: 'hidden', borderWidth: 1, borderColor: C.border,
+    },
+    divider: { height: 1, backgroundColor: C.borderLight, marginHorizontal: Spacing.base },
 
-  settingRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base, paddingVertical: 16,
-  },
-  settingLabel:   { fontSize: 16, color: Colors.textPrimary, fontWeight: '500' },
-  settingControl: { flex: 1, alignItems: 'flex-end' },
+    settingRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: Spacing.base, paddingVertical: 16,
+    },
+    settingLabel:   { fontSize: 16, color: C.textPrimary, fontWeight: '500' },
+    settingControl: { flex: 1, alignItems: 'flex-end' },
 
-  input: {
-    fontSize: 15, color: Colors.textPrimary, textAlign: 'right',
-    backgroundColor: Colors.surfaceSecondary, borderRadius: Radius.sm,
-    paddingHorizontal: 12, paddingVertical: 8, minWidth: 120,
-    borderWidth: 1, borderColor: Colors.border,
-  },
+    input: {
+      fontSize: 15, color: C.textPrimary, textAlign: 'right',
+      backgroundColor: C.surfaceSecondary, borderRadius: Radius.sm,
+      paddingHorizontal: 12, paddingVertical: 8, minWidth: 120,
+      borderWidth: 1, borderColor: C.border,
+    },
 
-  keyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  keyInput:    { maxWidth: 160, textAlign: 'left' },
-  showBtn:     { paddingHorizontal: 12, paddingVertical: 7, backgroundColor: Colors.surfaceSecondary, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border },
-  showBtnText: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
+    keyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    keyInput:    { maxWidth: 160, textAlign: 'left' },
+    showBtn:     { paddingHorizontal: 12, paddingVertical: 7, backgroundColor: C.surfaceSecondary, borderRadius: Radius.full, borderWidth: 1, borderColor: C.border },
+    showBtnText: { fontSize: 13, color: C.textSecondary, fontWeight: '500' },
 
-  keyHint: {
-    fontSize: 12, color: Colors.textTertiary, lineHeight: 18,
-    paddingHorizontal: Spacing.base, paddingBottom: 14, marginTop: -4,
-  },
+    keyHint: {
+      fontSize: 12, color: C.textTertiary, lineHeight: 18,
+      paddingHorizontal: Spacing.base, paddingBottom: 14, marginTop: -4,
+    },
 
-  testNotifBtn: {
-    marginHorizontal: Spacing.base, marginBottom: Spacing.base,
-    paddingVertical: 10, borderRadius: Radius.sm,
-    borderWidth: 1.5, borderColor: Colors.border,
-    alignItems: 'center',
-  },
-  testNotifBtnText: {
-    fontSize: 13, color: Colors.textSecondary, fontWeight: '500',
-  },
+    testNotifBtn: {
+      marginHorizontal: Spacing.base, marginBottom: Spacing.base,
+      paddingVertical: 10, borderRadius: Radius.sm,
+      borderWidth: 1.5, borderColor: C.border,
+      alignItems: 'center',
+    },
+    testNotifBtnText: {
+      fontSize: 13, color: C.textSecondary, fontWeight: '500',
+    },
 
-  // Masked key display
-  keyMaskedRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base, paddingVertical: 16,
-  },
-  keyMaskedLeft:    { gap: 4 },
-  keyMaskedLabel:   { fontSize: 16, color: Colors.textPrimary, fontWeight: '500' },
-  keyMaskedValue:   { fontSize: 13, color: Colors.textTertiary, fontFamily: 'monospace' },
-  keyMaskedActions: { flexDirection: 'row', gap: 8 },
-  keyChangeBtn:     { paddingHorizontal: 14, paddingVertical: 7, backgroundColor: Colors.primaryLight, borderRadius: Radius.full },
-  keyChangeBtnText: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
-  keyRemoveBtn:     { paddingHorizontal: 14, paddingVertical: 7, backgroundColor: Colors.surfaceSecondary, borderRadius: Radius.full },
-  keyRemoveBtnText: { fontSize: 13, color: Colors.error, fontWeight: '600' },
+    // Masked key display
+    keyMaskedRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: Spacing.base, paddingVertical: 16,
+    },
+    keyMaskedLeft:    { gap: 4 },
+    keyMaskedLabel:   { fontSize: 16, color: C.textPrimary, fontWeight: '500' },
+    keyMaskedValue:   { fontSize: 13, color: C.textTertiary, fontFamily: 'monospace' },
+    keyMaskedActions: { flexDirection: 'row', gap: 8 },
+    keyChangeBtn:     { paddingHorizontal: 14, paddingVertical: 7, backgroundColor: C.primaryLight, borderRadius: Radius.full },
+    keyChangeBtnText: { fontSize: 13, color: C.primary, fontWeight: '600' },
+    keyRemoveBtn:     { paddingHorizontal: 14, paddingVertical: 7, backgroundColor: C.surfaceSecondary, borderRadius: Radius.full },
+    keyRemoveBtnText: { fontSize: 13, color: C.error, fontWeight: '600' },
 
-  envKeyBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    padding: Spacing.base,
-  },
-  envKeyIcon:     { fontSize: 20, color: Colors.success },
-  envKeyTitle:    { fontSize: 15, fontWeight: '700', color: Colors.success },
-  envKeySubtitle: { fontSize: 12, color: Colors.textTertiary, marginTop: 2 },
+    envKeyBanner: {
+      flexDirection: 'row', alignItems: 'center', gap: 14,
+      padding: Spacing.base,
+    },
+    envKeyIcon:     { fontSize: 20, color: C.success },
+    envKeyTitle:    { fontSize: 15, fontWeight: '700', color: C.success },
+    envKeySubtitle: { fontSize: 12, color: C.textTertiary, marginTop: 2 },
 
-  // Black pill save button
-  saveBtn: {
-    backgroundColor: Colors.ink, borderRadius: Radius.full,
-    paddingVertical: 18, alignItems: 'center', marginTop: Spacing.lg,
-  },
-  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.2 },
+    // Black pill save button
+    saveBtn: {
+      backgroundColor: C.ink, borderRadius: Radius.full,
+      paddingVertical: 18, alignItems: 'center', marginTop: Spacing.lg,
+    },
+    saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.2 },
 
-  resumeRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.base, paddingVertical: 16,
-  },
-  resumeText: { fontSize: 16, color: Colors.primary, fontWeight: '600' },
-  resumeSub:  { fontSize: 12, color: Colors.textTertiary, marginTop: 3 },
+    resumeRow: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      paddingHorizontal: Spacing.base, paddingVertical: 16,
+    },
+    resumeText: { fontSize: 16, color: C.primary, fontWeight: '600' },
+    resumeSub:  { fontSize: 12, color: C.textTertiary, marginTop: 3 },
 
-  // Phase selector — editorial pill tabs
-  phaseRow: { flexDirection: 'row', gap: 8, padding: Spacing.base, paddingBottom: 0 },
-  phaseBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 14,
-    borderRadius: Radius.lg, borderWidth: 1.5, borderColor: Colors.border,
-    backgroundColor: Colors.background,
-  },
-  phaseBtnActive:      { borderColor: Colors.ink, backgroundColor: Colors.ink },
-  phaseBtnNum:         { fontSize: 22, fontWeight: '800', color: Colors.textTertiary, letterSpacing: -0.5 },
-  phaseBtnNumActive:   { color: '#FFFFFF' },
-  phaseBtnLabel:       { fontSize: 11, color: Colors.textTertiary, marginTop: 4, fontWeight: '500' },
-  phaseBtnLabelActive: { color: 'rgba(255,255,255,0.8)', fontWeight: '600' },
-  phaseHint: {
-    fontSize: 12, color: Colors.textTertiary, lineHeight: 18,
-    padding: Spacing.base, paddingTop: 12,
-  },
+    resetRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: Spacing.base, paddingVertical: 17,
+    },
+    resetText:  { fontSize: 16, color: C.error, fontWeight: '500' },
+    resetArrow: { fontSize: 20, color: C.textTertiary },
 
-  resetRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base, paddingVertical: 17,
-  },
-  resetText:  { fontSize: 16, color: Colors.error, fontWeight: '500' },
-  resetArrow: { fontSize: 20, color: Colors.textTertiary },
+    // Calendar sync section
+    calRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: Spacing.base, paddingVertical: 16,
+    },
+    calLeft:  { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+    calDot:   { width: 12, height: 12, borderRadius: 6 },
+    calTitle: { fontSize: 16, color: C.textPrimary, fontWeight: '500' },
+    calSub:   { fontSize: 12, color: C.textTertiary, marginTop: 2 },
 
-  // Calendar sync section
-  calRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base, paddingVertical: 16,
-  },
-  calLeft:  { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  calDot:   { width: 12, height: 12, borderRadius: 6 },
-  calTitle: { fontSize: 16, color: Colors.textPrimary, fontWeight: '500' },
-  calSub:   { fontSize: 12, color: Colors.textTertiary, marginTop: 2 },
+    // Calendar picker modal
+    calModalHeader: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      paddingHorizontal: Spacing.base, paddingTop: Spacing.base, paddingBottom: 8,
+    },
+    calModalTitle:     { fontSize: 28, fontWeight: '800', color: C.textPrimary, letterSpacing: -0.8 },
+    calModalClose:     { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.ink, borderRadius: Radius.full },
+    calModalCloseText: { fontSize: 14, color: '#FFF', fontWeight: '700' },
+    calModalSub: {
+      fontSize: 14, color: C.textSecondary, lineHeight: 21,
+      paddingHorizontal: Spacing.base, paddingBottom: Spacing.base,
+    },
+    calPickerRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      backgroundColor: C.surface, borderRadius: Radius.xl,
+      padding: 16, borderWidth: 1.5, borderColor: C.border,
+    },
+    calPickerRowSelected: { borderColor: C.primary, backgroundColor: C.primaryLight },
+    calPickerDot:         { width: 14, height: 14, borderRadius: 7 },
+    calPickerTitle:       { fontSize: 16, color: C.textPrimary, fontWeight: '600' },
+    calPickerType:        { fontSize: 12, color: C.textTertiary, marginTop: 2, textTransform: 'capitalize' },
+    calPickerCheck:       { fontSize: 18, color: C.primary, fontWeight: '700' },
+    calEmpty:    { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
+    calEmptyText: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 10 },
+    calEmptySub:  { fontSize: 14, color: C.textSecondary, textAlign: 'center', lineHeight: 22 },
 
-  // Calendar picker modal
-  calModalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.base, paddingTop: Spacing.base, paddingBottom: 8,
-  },
-  calModalTitle:     { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -0.8 },
-  calModalClose:     { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: Colors.ink, borderRadius: Radius.full },
-  calModalCloseText: { fontSize: 14, color: '#FFF', fontWeight: '700' },
-  calModalSub: {
-    fontSize: 14, color: Colors.textSecondary, lineHeight: 21,
-    paddingHorizontal: Spacing.base, paddingBottom: Spacing.base,
-  },
-  calPickerRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.surface, borderRadius: Radius.xl,
-    padding: 16, borderWidth: 1.5, borderColor: Colors.border,
-  },
-  calPickerRowSelected: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
-  calPickerDot:         { width: 14, height: 14, borderRadius: 7 },
-  calPickerTitle:       { fontSize: 16, color: Colors.textPrimary, fontWeight: '600' },
-  calPickerType:        { fontSize: 12, color: Colors.textTertiary, marginTop: 2, textTransform: 'capitalize' },
-  calPickerCheck:       { fontSize: 18, color: Colors.primary, fontWeight: '700' },
-  calEmpty:    { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
-  calEmptyText: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 10 },
-  calEmptySub:  { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+    // Theme picker
+    themeRow: { flexDirection: 'row', gap: 12 },
+    themeSwatch: {
+      width: 56, height: 40,
+      borderRadius: 20, overflow: 'hidden',
+      flexDirection: 'row',
+      borderWidth: 2, borderColor: C.border,
+    },
+    themeSwatchActive: { borderColor: C.primary, borderWidth: 2.5 },
+    themeSwatchHalf:   { flex: 1 },
+    themeSwatchCheck:  {
+      position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+      alignItems: 'center', justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.25)',
+    },
+    // Legacy — kept to avoid TS errors if referenced elsewhere
+    themeChip: { flex: 1 },
+    themePreviewBox: {},
+    themePreviewBg: {},
+    themePreviewPrimary: {},
+    themeChipLabel: {},
+    themeActive: {},
 
-  // Theme picker
-  themeRow: { flexDirection: 'row', gap: 10 },
-  themeChip: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 14, paddingHorizontal: 14,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg, borderWidth: 1.5, borderColor: Colors.border,
-  },
-  themeSwatch:       { width: 12, height: 12, borderRadius: 6 },
-  themeSwatchAccent: { width: 8,  height: 8,  borderRadius: 4, marginLeft: -6, marginTop: 6 },
-  themeChipLabel:    { flex: 1, fontSize: 14, fontWeight: '500', color: Colors.textSecondary },
-  themeActive:       { fontSize: 14, fontWeight: '700' },
-});
+    // Privacy policy
+    privacyBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.base, paddingVertical: 14, backgroundColor: C.surface, borderRadius: Radius.md, marginHorizontal: Spacing.base, marginBottom: 8, borderWidth: 1, borderColor: C.border },
+    privacyBtnText:{ fontSize: 15, color: C.textPrimary, fontWeight: '500' },
+    privacyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.base, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.borderLight },
+    privacyTitle:  { fontSize: 17, fontWeight: '700', color: C.textPrimary },
+    privacyClose:  { padding: 4 },
+    privacyScroll: { padding: Spacing.lg },
+    privacySection:{ fontSize: 24, fontWeight: '800', color: C.textPrimary, letterSpacing: -0.5, marginBottom: Spacing.lg },
+    privacyHeading:{ fontSize: 15, fontWeight: '700', color: C.textPrimary, marginTop: Spacing.lg, marginBottom: 6 },
+    privacyBody:   { fontSize: 14, color: C.textSecondary, lineHeight: 22 },
+  });
+}

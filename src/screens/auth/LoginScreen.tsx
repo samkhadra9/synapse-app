@@ -44,14 +44,15 @@ export default function LoginScreen() {
         });
         if (error) throw error;
         if (!data.session) {
+          // Email confirmation required — loading will be cleared by finally block
           Alert.alert(
             'Check your email',
             'We sent you a confirmation link. Click it then come back to sign in.',
             [{ text: 'OK', onPress: () => setMode('login') }]
           );
-          return;
+        } else {
+          setSession(data.session);
         }
-        setSession(data.session);
       }
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'Something went wrong.');

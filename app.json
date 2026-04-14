@@ -18,9 +18,8 @@
         "NSCalendarsFullAccessUsageDescription": "Synapse adds your project deadlines to your calendar so you never miss them.",
         "NSMicrophoneUsageDescription": "Synapse uses your microphone so you can voice-record your brain dumps and planning sessions.",
         "UISpeechRecognitionUsageDescription": "Synapse transcribes your voice notes to help you capture ideas hands-free.",
+        "NSRemindersUsageDescription": "Synapse reads your due-today reminders to include them in your morning planning context.",
         "UIBackgroundModes": [
-          "fetch",
-          "remote-notification",
           "fetch",
           "remote-notification"
         ],

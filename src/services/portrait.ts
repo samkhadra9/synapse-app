@@ -11,6 +11,7 @@
  */
 
 import { ChatMessage } from '../store/useStore';
+import { fetchAnthropic } from '../lib/anthropic';
 
 const PORTRAIT_UPDATE_PROMPT = `You maintain a concise, evolving portrait of a user to help their AI assistant know them better across sessions.
 
@@ -49,19 +50,11 @@ export async function updatePortrait(
     .replace('{{CONVERSATION}}', conversationText);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 250,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    const res = await fetchAnthropic({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 250,
+      messages: [{ role: 'user', content: prompt }],
+    }, apiKey || undefined);
 
     if (!res.ok) return null;
     const data = await res.json();

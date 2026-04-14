@@ -39,6 +39,8 @@ export interface DecomposedProject {
 
 // ── Shared fetch helper ───────────────────────────────────────────────────────
 
+import { fetchAnthropic } from '../lib/anthropic';
+
 /** Strip markdown code fences that Claude sometimes wraps JSON in. */
 function stripCodeFences(raw: string): string {
   return raw
@@ -47,28 +49,24 @@ function stripCodeFences(raw: string): string {
     .trim();
 }
 
+/**
+ * @param userKey  Personal Anthropic key from user settings (optional).
+ *                 If omitted the secure server proxy is used instead.
+ */
 async function callClaude(
-  apiKey: string,
+  userKey: string | undefined,
   model: string,
   system: string,
   userContent: string,
   maxTokens = 1000,
 ): Promise<string> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: userContent }],
-      temperature: 0.3,
-    }),
-  });
+  const res = await fetchAnthropic({
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: userContent }],
+    temperature: 0.3,
+  }, userKey || undefined);
   if (!res.ok) throw new Error(`Anthropic API error: ${res.status}`);
   const data = await res.json();
   return stripCodeFences(data.content?.[0]?.text ?? '{}');
@@ -109,15 +107,25 @@ Return a JSON object matching this schema exactly:
 
 export async function structureMorningText(
   rawText: string,
-  apiKey: string,
-  context?: { sleepScore?: number; energyLevel?: number },
+  apiKey: string | undefined,
+  context?: { sleepScore?: number; energyLevel?: number; goalContext?: string },
 ): Promise<StructuredMorningPlan> {
-  const userMessage = context
+  let userMessage = context
     ? `Sleep score: ${context.sleepScore ?? '?'}/10\nEnergy: ${context.energyLevel ?? '?'}/10\n\nMy tasks for today:\n${rawText}`
     : rawText;
 
-  const content = await callClaude(apiKey, 'claude-sonnet-4-5-20250929', MORNING_SYSTEM_PROMPT, userMessage, 1000);
-  return JSON.parse(content) as StructuredMorningPlan;
+  // Prepend 1-year goals so the AI can align priorities with longer-term direction
+  if (context?.goalContext) {
+    userMessage = `My 1-year goals (use these to help prioritise — prefer tasks that move these forward):\n${context.goalContext}\n\n${userMessage}`;
+  }
+
+  try {
+    const content = await callClaude(apiKey, 'claude-sonnet-4-5-20250929', MORNING_SYSTEM_PROMPT, userMessage, 1000);
+    return JSON.parse(content) as StructuredMorningPlan;
+  } catch (e: any) {
+    if (e?.message?.startsWith('Anthropic API error')) throw e;
+    throw new Error('AI returned an unreadable response. Please try again.');
+  }
 }
 
 // ── Project Decomposition ─────────────────────────────────────────────────────
@@ -148,7 +156,7 @@ export async function decomposeProject(
   title: string,
   description: string,
   deadline: string | undefined,
-  apiKey: string,
+  apiKey: string | undefined,
   extraContext?: string,
 ): Promise<DecomposedProject> {
   const userMessage = [
@@ -158,15 +166,20 @@ export async function decomposeProject(
     extraContext?.trim() ? `\nAdditional context from the user:\n${extraContext.trim()}` : '',
   ].filter(Boolean).join('\n');
 
-  const content = await callClaude(apiKey, 'claude-sonnet-4-5-20250929', DECOMPOSE_SYSTEM_PROMPT, userMessage, 1200);
-  return JSON.parse(content) as DecomposedProject;
+  try {
+    const content = await callClaude(apiKey, 'claude-sonnet-4-5-20250929', DECOMPOSE_SYSTEM_PROMPT, userMessage, 1200);
+    return JSON.parse(content) as DecomposedProject;
+  } catch (e: any) {
+    if (e?.message?.startsWith('Anthropic API error')) throw e;
+    throw new Error('AI returned an unreadable response. Please try again.');
+  }
 }
 
 // ── Weekly Performance Analysis ───────────────────────────────────────────────
 
 export async function analyseWeeklyPerformance(
   logs: Array<{ date: string; sleepScore?: number; focusScore?: number; exercised?: boolean; mitsCompleted: number }>,
-  apiKey: string,
+  apiKey: string | undefined,
 ): Promise<string> {
   const summary = logs.map(l =>
     `${l.date}: Sleep ${l.sleepScore ?? '?'}/10, Focus ${l.focusScore ?? '?'}/10, ` +

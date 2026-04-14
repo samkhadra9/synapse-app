@@ -17,9 +17,14 @@ const HORIZONS: { key: TimeHorizon; label: string; sub: string }[] = [
 ];
 
 const DOMAIN_LABELS: Record<string, string> = {
-  health: 'Health', career: 'Career', relationships: 'Relationships',
-  finance: 'Finance', learning: 'Learning', creativity: 'Creativity',
-  spirituality: 'Spirit', community: 'Community',
+  health:        'Health',
+  work:          'Career',
+  relationships: 'Relationships',
+  finances:      'Finance',
+  learning:      'Learning',
+  creativity:    'Creativity',
+  personal:      'Spirit & Mindset',
+  community:     'Community',
 };
 
 export default function GoalSettingScreen({ navigation }: Props) {

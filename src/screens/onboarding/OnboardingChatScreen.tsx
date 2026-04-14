@@ -24,6 +24,7 @@ import { useHeaderHeight } from '@react-navigation/elements';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../theme';
 import { useStore, ChatMessage, DomainKey } from '../../store/useStore';
 import { pushAll } from '../../services/sync';
+import { fetchAnthropic } from '../../lib/anthropic';
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -127,11 +128,9 @@ function parseOnboardingData(text: string) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const ENV_API_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
-
 export default function OnboardingChatScreen({ navigation }: any) {
   const { profile, updateProfile, addArea, addProject, addGoal, setPortrait } = useStore();
-  const apiKey = profile.anthropicKey || ENV_API_KEY;
+  const userAnthropicKey = profile.anthropicKey || undefined;
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
 
@@ -165,31 +164,18 @@ export default function OnboardingChatScreen({ navigation }: any) {
   }, []);
 
   async function sendToLLM(history: ChatMessage[], isFirst = false) {
-    if (!apiKey) {
-      appendMessage('assistant', "To get started, I'll need an Anthropic API key. You can add it in the Settings tab, then come back here.");
-      return;
-    }
-
     setLoading(true);
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-5-20250929',
-          max_tokens: 600,
-          system: SYSTEM_PROMPT,
-          messages: [
-            { role: 'user', content: 'Hello' },
-            ...history.map(m => ({ role: m.role, content: m.content })),
-          ],
-          temperature: 0.8,
-        }),
-      });
+      const res = await fetchAnthropic({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 1500,
+        system: SYSTEM_PROMPT,
+        messages: [
+          { role: 'user', content: 'Hello' },
+          ...history.map(m => ({ role: m.role, content: m.content })),
+        ],
+        temperature: 0.8,
+      }, userAnthropicKey);
 
       const data = await res.json();
 
@@ -254,10 +240,26 @@ export default function OnboardingChatScreen({ navigation }: any) {
     await sendToLLM([...messages, userMsg]);
   }
 
+  /** Validate "HH:MM" format and clamp to valid range — returns null if unusable */
+  function sanitiseTime(t: any): string | null {
+    if (typeof t !== 'string') return null;
+    const m = /^(\d{1,2}):(\d{2})$/.exec(t.trim());
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+
   function applyOnboardingData(data: any) {
-    if (data.name) updateProfile({ name: data.name });
-    if (data.morningTime) updateProfile({ morningTime: data.morningTime });
-    if (data.eveningTime) updateProfile({ eveningTime: data.eveningTime });
+    const name = typeof data.name === 'string' ? data.name.trim() : '';
+    if (name) updateProfile({ name });
+
+    const morningTime = sanitiseTime(data.morningTime);
+    if (morningTime) updateProfile({ morningTime });
+
+    const eveningTime = sanitiseTime(data.eveningTime);
+    if (eveningTime) updateProfile({ eveningTime });
     if (data.deepWorkBlockLength || data.deepWorkBlocksPerWeek) {
       updateProfile({
         deepWorkBlockLength: data.deepWorkBlockLength ?? 60,
@@ -265,14 +267,22 @@ export default function OnboardingChatScreen({ navigation }: any) {
       });
     }
     if (data.routines) updateProfile({ routines: data.routines });
-    if (data.recurringTasks?.length) {
-      data.recurringTasks.forEach((t: any) => {
-        addProject({
-          domain: t.domain as DomainKey,
-          title: t.title,
-          description: `Recurring: ${t.frequency}`,
-          status: 'active',
-        });
+    // AI generates "recurringCommitments" — create a recurring habit for each
+    const recurring = data.recurringCommitments ?? data.recurringTasks ?? [];
+    if (recurring.length) {
+      // Import addHabit lazily to avoid circular issues
+      const { addHabit } = useStore.getState();
+      recurring.forEach((t: any) => {
+        if (t.domain && t.title) {
+          addHabit({
+            name: t.title,
+            icon: '🔄',
+            domain: (t.domain as DomainKey) ?? 'work',
+            frequency: t.frequency === 'weekly' ? 'weekdays'
+                       : t.frequency === 'daily'  ? 'daily'
+                       : 'daily',
+          });
+        }
       });
     }
 
