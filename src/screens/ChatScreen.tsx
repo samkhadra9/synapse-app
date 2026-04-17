@@ -171,7 +171,7 @@ DECISION FATIGUE SIGNAL: If ${firstName} says anything that signals they are fro
 When you have enough to act, output exactly this — raw JSON, NO code fences, NO trailing commas:
 [SYNAPSE_ACTIONS]
 {"actions":[
-  {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","reason":"why this task, why now — one short sentence"},
+  {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","time":"18:00","eventLabel":"Optional label","reason":"why this task, why now — one short sentence"},
   {"type":"project","projectType":"sequential|recurring","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":60,"reason":"why this step"}],"recurringTask":{"text":"session description","estimatedMinutes":60,"frequency":"daily|weekdays|weekly","preferredSlot":"morning|afternoon|evening"}},
   {"type":"goal","horizon":"1year|5year|10year","text":"goal text"},
   {"type":"schedule","slots":[
@@ -179,6 +179,12 @@ When you have enough to act, output exactly this — raw JSON, NO code fences, N
     {"time":"14:00","eventLabel":"Arvo work","tasks":["Third task text"]}
   ]}
 ],"summary":"One sentence plan summary","sessionNote":"optional note for logs"}
+
+TASK TIME field (optional — for ad-hoc "put this at 6pm today" style requests):
+- If the user explicitly asks to schedule a task at a specific clock time today, add "time":"HH:MM" (24-hour) to the task action
+- The task will appear as a time-locked block on the today timeline and be written to their calendar automatically (Option C: tasks are source of truth, calendar is a projection)
+- "eventLabel" is optional — defaults to the task text if omitted. Use it when the user gives a clean label (e.g. "test block")
+- Only set "time" when the user specifically requests a time. Don't invent times for ordinary tasks — that's the morning planner's job via the schedule action below
 
 SCHEDULE ACTION (for morning mode only):
 - Include ONE "schedule" action that maps today's tasks to their time slots
@@ -518,6 +524,39 @@ ${sharedRules}
   };
 
   return prompts[mode];
+}
+
+// ── Time Normaliser ────────────────────────────────────────────────────────────
+// Accepts "6pm", "6 PM", "18:00", "6:30pm" etc. → returns "HH:MM" 24-hour or null.
+
+function normalizeTime(raw: string): string | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase();
+
+  // Already HH:MM 24-hour
+  const h24 = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (h24) {
+    const h = parseInt(h24[1], 10);
+    const m = parseInt(h24[2], 10);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    }
+    return null;
+  }
+
+  // 12-hour with am/pm: "6pm", "6:30 pm", "12 am"
+  const h12 = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/);
+  if (h12) {
+    let h = parseInt(h12[1], 10);
+    const m = h12[2] ? parseInt(h12[2], 10) : 0;
+    const mer = h12[3];
+    if (h < 1 || h > 12 || m < 0 || m > 59) return null;
+    if (mer === 'am') h = h === 12 ? 0 : h;
+    else              h = h === 12 ? 12 : h + 12;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  }
+
+  return null;
 }
 
 // ── Output Parser ──────────────────────────────────────────────────────────────
@@ -1128,6 +1167,43 @@ export default function ChatScreen({ navigation, route }: any) {
         const allTasks = useStore.getState().tasks;
         const newTask  = allTasks.find(t => t.text === action.text && !t.completed);
         if (newTask) textToTaskId[action.text] = newTask.id;
+
+        // Ad-hoc scheduling: if the task has a `time` and is dated today, merge
+        // it into today's day plan so it renders on the timeline (and via Option
+        // C, will sync to the calendar). Works in any mode — not just morning.
+        if (newTask && action.time && dueDate === today) {
+          const time = normalizeTime(action.time);
+          if (time) {
+            const current = useStore.getState().dayPlan;
+            const plan: import('../store/useStore').DayPlan =
+              current?.date === today
+                ? { ...current, slots: current.slots.map(s => ({ ...s, tasks: [...s.tasks] })) }
+                : { date: today, slots: [], summary: '' };
+
+            const slotTask = { id: newTask.id, text: action.text, done: false };
+            const existingIdx = plan.slots.findIndex(s => s.time === time);
+
+            if (existingIdx >= 0) {
+              const existing = plan.slots[existingIdx];
+              if (!existing.tasks.some(t => t.id === newTask.id)) {
+                plan.slots[existingIdx] = {
+                  ...existing,
+                  tasks: [...existing.tasks, slotTask],
+                };
+              }
+            } else {
+              plan.slots.push({
+                time,
+                eventLabel: action.eventLabel ?? action.text,
+                tasks: [slotTask],
+                durationMinutes: action.estimatedMinutes ?? 30,
+              });
+              plan.slots.sort((a, b) => a.time.localeCompare(b.time));
+            }
+
+            saveDayPlan(plan);
+          }
+        }
       }
 
       if (action.type === 'goal') {
@@ -1175,8 +1251,16 @@ export default function ChatScreen({ navigation, route }: any) {
     const today = format(new Date(), 'yyyy-MM-dd');
     const dayPlan = useStore.getState().dayPlan;
 
-    // Auto-sync day plan to calendar — with user feedback
-    if (mode === 'morning') {
+    // Auto-sync day plan to calendar — with user feedback.
+    // Fires whenever today's plan has at least one slot that hasn't been written
+    // to calendar yet (new morning plan OR ad-hoc task scheduled via chat).
+    const needsSync = (() => {
+      const p = useStore.getState().dayPlan;
+      if (!p || p.date !== today || !p.slots?.length) return false;
+      return p.slots.some(s => !s.calendarEventId);
+    })();
+
+    if (needsSync) {
       setTimeout(async () => {
         const freshDayPlan = useStore.getState().dayPlan;
         if (!freshDayPlan || freshDayPlan.date !== today || !freshDayPlan.slots?.length) return;

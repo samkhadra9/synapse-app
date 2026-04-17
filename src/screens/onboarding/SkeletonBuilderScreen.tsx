@@ -386,16 +386,15 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
           setBlocks(parsed);
           setWeekTemplate(parsed);
           setIsComplete(true);
-          // Show grid briefly, then auto-advance to step 3
+          // Show the grid and the Continue button — no auto-advance, user taps
+          // "Sync to my calendar →" when ready (earlier auto-nav was too fast
+          // to actually see the grid).
           setTimeout(() => {
             setShowGrid(true);
             Animated.parallel([
               Animated.timing(btnAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
               Animated.timing(gridAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-            ]).start(() => {
-              // Auto-navigate to CalendarExport after grid animates in
-              navTimerRef.current = setTimeout(() => navigation.navigate('CalendarExport'), 1800);
-            });
+            ]).start();
           }, 400);
         } else {
           appendMessage('assistant', "I had trouble building the skeleton. Let me try again — can you tell me a bit more about your ideal week?");
