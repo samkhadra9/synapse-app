@@ -1047,7 +1047,13 @@ export default function ChatScreen({ navigation, route }: any) {
 
       if (reply.includes('[SYNAPSE_ACTIONS]')) {
         const parsed = parseActions(reply);
-        const displayText = reply.split('[SYNAPSE_ACTIONS]')[0].trim() || "Here's what I've put together — review and tweak before it's applied.";
+        // Strip any leading code-fence markers Claude sometimes emits ("```json" / "```")
+        // — without this they render as a stray message bubble before the review sheet.
+        const rawDisplay = reply.split('[SYNAPSE_ACTIONS]')[0]
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```\s*$/, '')
+          .trim();
+        const displayText = rawDisplay || "Here's what I've put together — review and tweak before it's applied.";
         appendMessage('assistant', displayText);
         if (parsed?.actions?.length > 0) {
           // Show review sheet instead of immediately applying
@@ -1184,11 +1190,21 @@ export default function ChatScreen({ navigation, route }: any) {
             return;
           }
           const calendarId = await findOrCreateSolasCalendar();
-          const count = await writeDayPlanToCalendar(freshDayPlan.slots, freshDayPlan.date, calendarId);
-          if (count > 0) {
-            appendMessage('assistant', `✓ ${count} time block${count !== 1 ? 's' : ''} added to your calendar.`);
+          const { createdCount, eventIdByTime } = await writeDayPlanToCalendar(freshDayPlan.slots, freshDayPlan.date, calendarId);
+          // Persist event IDs onto each slot so reconcileCalendarToDayPlan can
+          // round-trip user edits back into the plan later.
+          const withIds = {
+            ...freshDayPlan,
+            slots: freshDayPlan.slots.map(s => ({
+              ...s,
+              calendarEventId: eventIdByTime[s.time] ?? s.calendarEventId,
+            })),
+          };
+          saveDayPlan(withIds);
+          if (createdCount > 0) {
+            appendMessage('assistant', `✓ ${createdCount} time block${createdCount !== 1 ? 's' : ''} added to your calendar.`);
           } else {
-            // Either all slots were already exported, or creation failed
+            // Either all slots were already exported (and updated in-place), or creation failed
             appendMessage('assistant', 'Calendar blocks already added — no duplicates created.');
           }
         } catch (e) {
@@ -1269,12 +1285,22 @@ export default function ChatScreen({ navigation, route }: any) {
       }
 
       const calendarId = await findOrCreateSolasCalendar();
-      const count = await writeDayPlanToCalendar(dayPlan.slots, dayPlan.date, calendarId);
+      const { createdCount, eventIdByTime } = await writeDayPlanToCalendar(dayPlan.slots, dayPlan.date, calendarId);
+      // Persist event IDs onto each slot so edits made externally (Mac Calendar,
+      // etc.) can be pulled back in via reconcileCalendarToDayPlan.
+      const withIds = {
+        ...dayPlan,
+        slots: dayPlan.slots.map(s => ({
+          ...s,
+          calendarEventId: eventIdByTime[s.time] ?? s.calendarEventId,
+        })),
+      };
+      saveDayPlan(withIds);
 
       setShowCalendarExport(false);
 
-      if (count > 0) {
-        appendMessage('assistant', `✓ ${count} time block${count !== 1 ? 's' : ''} added to your calendar.`);
+      if (createdCount > 0) {
+        appendMessage('assistant', `✓ ${createdCount} time block${createdCount !== 1 ? 's' : ''} added to your calendar.`);
       } else {
         appendMessage('assistant', 'Calendar blocks already added — no duplicates created.');
       }
@@ -1394,7 +1420,7 @@ export default function ChatScreen({ navigation, route }: any) {
       <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAssistant]}>
         {!isUser && (
           <View style={styles.avatar}>
-            <Text style={styles.avatarInitial}>S</Text>
+            <Text style={styles.avatarInitial}>✦</Text>
           </View>
         )}
         <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
@@ -1440,7 +1466,7 @@ export default function ChatScreen({ navigation, route }: any) {
 
         {(loading || transcribing) && (
           <View style={styles.typingRow}>
-            <View style={styles.avatar}><Text style={styles.avatarInitial}>S</Text></View>
+            <View style={styles.avatar}><Text style={styles.avatarInitial}>✦</Text></View>
             <View style={styles.typingBubble}>
               <ActivityIndicator size="small" color={C.primary} />
               {transcribing && <Text style={styles.transcribingText}>Listening…</Text>}

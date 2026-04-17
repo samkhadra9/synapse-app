@@ -168,6 +168,12 @@ export interface PlannedSlot {
   eventLabel: string;
   /** Task texts in order — stored as text so they survive task edits */
   tasks: Array<{ id: string; text: string; done: boolean }>;
+  /** iOS Calendar event this slot was written out to (Option C: tasks are source
+   *  of truth, calendar is a projection). Set by writeDayPlanToCalendar and used
+   *  by reconcileCalendarToDayPlan to pull time/deletion changes back in. */
+  calendarEventId?: string;
+  /** Duration in minutes — defaults to 90 if not specified */
+  durationMinutes?: number;
 }
 
 /** AI-generated schedule for a specific day */

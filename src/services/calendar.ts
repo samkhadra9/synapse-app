@@ -439,71 +439,174 @@ export async function completeReminder(reminderId: string): Promise<void> {
   }
 }
 
-/** Creates calendar events for a planned day's slots.
- *  Prefixes every title with "[Aiteall]" and checks for existing events
- *  with the same title+date before creating to prevent duplicates.
+/** Creates/updates calendar events for a planned day's slots.
+ *  Prefixes every title with "[Aiteall]" and embeds a "synapse-slot:<time>"
+ *  marker in the notes so we can round-trip back to the slot. Returns a map of
+ *  slot.time → calendarEventId for the caller to persist onto each slot.
+ *
+ *  Option C: tasks are the source of truth. This function writes the current
+ *  plan out to the calendar; reconcileCalendarToDayPlan pulls back any
+ *  time-shifts or deletions the user made externally.
  */
+export interface WriteDayPlanResult {
+  createdCount: number;
+  /** slot.time → calendar event id (new or existing) */
+  eventIdByTime: Record<string, string>;
+  calendarId: string;
+}
+
 export async function writeDayPlanToCalendar(
   slots: import('../store/useStore').PlannedSlot[],
   dateStr: string,   // "YYYY-MM-DD"
   calendarId?: string,
-): Promise<number> {
+): Promise<WriteDayPlanResult> {
+  const result: WriteDayPlanResult = { createdCount: 0, eventIdByTime: {}, calendarId: calendarId ?? '' };
+
   try {
     const hasPermission = await requestCalendarPermissions();
-    if (!hasPermission) return 0;
+    if (!hasPermission) return result;
 
     const cid = calendarId ?? (await findOrCreateSolasCalendar());
+    result.calendarId = cid;
 
-    // Fetch existing events for the day so we can skip duplicates
+    // Fetch existing [Aiteall] events for the day so we can update rather
+    // than duplicate when the user re-plans or resyncs.
     const dayStart = new Date(`${dateStr}T00:00:00`);
     const dayEnd   = new Date(`${dateStr}T23:59:59`);
-    let existingTitles: Set<string> = new Set();
+    let existingByMarker = new Map<string, string>(); // "synapse-slot:HH:MM" → eventId
     try {
       const existing = await Calendar.getEventsAsync([cid], dayStart, dayEnd);
-      existing.forEach(e => { if (e.title) existingTitles.add(e.title); });
+      existing.forEach(e => {
+        const marker = extractSlotMarker(e.notes ?? '');
+        if (marker && e.id) existingByMarker.set(marker, e.id);
+      });
     } catch {
-      // If we can't check, proceed anyway — better to duplicate than skip
+      // If we can't check, proceed anyway — de-duplication falls back to title match
     }
-
-    let createdCount = 0;
 
     for (const slot of slots) {
       try {
         const prefixedTitle = `[Aiteall] ${slot.eventLabel}`;
 
-        // Skip if an event with this exact title already exists today
-        if (existingTitles.has(prefixedTitle)) continue;
-
         // Parse slot.time ("HH:MM") to build start date
         const [hours, minutes] = slot.time.split(':').map(Number);
         const startDate = new Date(`${dateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`);
 
-        // End time: start + 90 minutes (default duration)
-        const endDate = new Date(startDate.getTime() + 90 * 60000);
+        const durationMinutes = slot.durationMinutes ?? 90;
+        const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
 
-        // Build task notes list
-        const taskNotes = slot.tasks
-          .map(t => `• ${t.text}`)
-          .join('\n');
+        // Build notes with an embedded slot marker for round-tripping
+        const taskList = slot.tasks.map(t => `• ${t.text}`).join('\n');
+        const marker = `synapse-slot:${slot.time}`;
+        const notes  = `${taskList}\n\n${marker}`.trim();
+
+        // If we already have an event for this slot (either via stored ID or marker), update it
+        const existingId = slot.calendarEventId ?? existingByMarker.get(marker);
+        if (existingId) {
+          try {
+            await Calendar.updateEventAsync(existingId, { title: prefixedTitle, startDate, endDate, notes });
+            result.eventIdByTime[slot.time] = existingId;
+            continue;
+          } catch {
+            // Event may have been deleted externally — fall through to create a new one
+          }
+        }
 
         const eventId = await Calendar.createEventAsync(cid, {
           title: prefixedTitle,
           startDate,
           endDate,
-          notes: taskNotes,
+          notes,
           alarms: [{ relativeOffset: -10 }], // 10-min reminder
         });
 
-        if (eventId) createdCount++;
+        if (eventId) {
+          result.eventIdByTime[slot.time] = eventId;
+          result.createdCount++;
+        }
       } catch (e) {
         console.warn(`[calendar] Failed to create event for slot "${slot.eventLabel}":`, e);
       }
     }
 
-    return createdCount;
+    return result;
   } catch (e) {
     console.warn('[calendar] writeDayPlanToCalendar failed:', e);
-    return 0;
+    return result;
+  }
+}
+
+/** Pulls the "synapse-slot:HH:MM" marker out of an event's notes, if present. */
+function extractSlotMarker(notes: string): string | null {
+  const match = notes.match(/synapse-slot:(\d{2}:\d{2})/);
+  return match ? `synapse-slot:${match[1]}` : null;
+}
+
+/** Option C: reconcile the DayPlan against the iOS Calendar.
+ *  Reads all [Aiteall] events for the plan's date and:
+ *    - If an event's start time was moved, updates the slot's `time`
+ *    - If an event was deleted externally, drops the slot entirely
+ *  Returns the reconciled DayPlan (or null if nothing to reconcile).
+ *  Never touches event titles — those flow one-way (app → calendar).
+ */
+export async function reconcileCalendarToDayPlan(
+  dayPlan: import('../store/useStore').DayPlan,
+  calendarId?: string,
+): Promise<import('../store/useStore').DayPlan | null> {
+  try {
+    const hasPermission = await requestCalendarPermissions();
+    if (!hasPermission) return null;
+
+    const cid = calendarId ?? (await findOrCreateSolasCalendar());
+
+    const dayStart = new Date(`${dayPlan.date}T00:00:00`);
+    const dayEnd   = new Date(`${dayPlan.date}T23:59:59`);
+
+    const events = await Calendar.getEventsAsync([cid], dayStart, dayEnd);
+
+    // Index events by their stored ID for quick lookup
+    const eventById = new Map<string, typeof events[number]>();
+    events.forEach(e => { if (e.id) eventById.set(e.id, e); });
+
+    let changed = false;
+    const newSlots: import('../store/useStore').PlannedSlot[] = [];
+
+    for (const slot of dayPlan.slots) {
+      if (!slot.calendarEventId) {
+        // Never written to calendar — keep as-is
+        newSlots.push(slot);
+        continue;
+      }
+
+      const event = eventById.get(slot.calendarEventId);
+      if (!event) {
+        // User deleted this event externally — drop the slot from the plan
+        changed = true;
+        continue;
+      }
+
+      // Event still exists — check if the start time has shifted
+      const start = typeof event.startDate === 'string' ? new Date(event.startDate) : event.startDate;
+      const hh = start.getHours().toString().padStart(2, '0');
+      const mm = start.getMinutes().toString().padStart(2, '0');
+      const newTime = `${hh}:${mm}`;
+
+      if (newTime !== slot.time) {
+        changed = true;
+        newSlots.push({ ...slot, time: newTime });
+      } else {
+        newSlots.push(slot);
+      }
+    }
+
+    // Sort by time so the timeline stays ordered after any shifts
+    newSlots.sort((a, b) => a.time.localeCompare(b.time));
+
+    if (!changed) return null;
+    return { ...dayPlan, slots: newSlots };
+  } catch (e) {
+    console.warn('[calendar] reconcileCalendarToDayPlan failed:', e);
+    return null;
   }
 }
 

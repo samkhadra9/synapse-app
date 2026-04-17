@@ -14,6 +14,7 @@ import {
   StyleSheet, StatusBar, Alert, Modal, TextInput,
   KeyboardAvoidingView, Platform, Switch,
   Dimensions, NativeScrollEvent, NativeSyntheticEvent, Animated,
+  AppState,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -22,7 +23,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { format, parseISO, differenceInDays, addDays } from 'date-fns';
 import { Colors, Spacing, Radius, DomainColors, useColors } from '../theme';
 import { useStore, DomainKey, Task, LifeGoal, TimeHorizon, TimeBlockType, PlannedSlot } from '../store/useStore';
-import { syncAllProjects, getTodayCalendarEvents, getTodayReminders, TodayEvent, TodayReminder } from '../services/calendar';
+import { syncAllProjects, getTodayCalendarEvents, getTodayReminders, TodayEvent, TodayReminder, reconcileCalendarToDayPlan } from '../services/calendar';
 import FloatingAddButton from '../components/FloatingAddButton';
 import WorkingModeModal from '../components/WorkingModeModal';
 import MITHeroBlock from '../components/MITHeroBlock';
@@ -794,7 +795,7 @@ function TodayTimelinePage({
     return () => clearInterval(t);
   }, []);
 
-  const { profile, tasks, toggleTask, dayPlan, togglePlannedTask, projects, goals, addTask } = useStore(s => ({
+  const { profile, tasks, toggleTask, dayPlan, togglePlannedTask, projects, goals, addTask, saveDayPlan } = useStore(s => ({
     profile: s.profile,
     tasks: s.tasks,
     toggleTask: s.toggleTask,
@@ -803,7 +804,32 @@ function TodayTimelinePage({
     projects: s.projects,
     goals: s.goals,
     addTask: s.addTask,
+    saveDayPlan: s.saveDayPlan,
   }));
+
+  // Option C: reconcile iOS Calendar → DayPlan on focus and on app foreground.
+  // Pulls back any time-shifts or deletions the user made externally (e.g.
+  // dragged an [Aiteall] block on Mac Calendar). Tasks are source of truth
+  // for everything except the scheduled time, which flows both ways.
+  const reconcileWithCalendar = useCallback(async () => {
+    const current = useStore.getState().dayPlan;
+    if (!current || !current.slots?.length) return;
+    try {
+      const reconciled = await reconcileCalendarToDayPlan(current);
+      if (reconciled) useStore.getState().saveDayPlan(reconciled);
+    } catch {
+      // Silent — reconcile is a best-effort background sync
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { reconcileWithCalendar(); }, [reconcileWithCalendar]));
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') reconcileWithCalendar();
+    });
+    return () => sub.remove();
+  }, [reconcileWithCalendar]);
 
   // Reset showPlanningPrompt when todayPlan becomes null
   useEffect(() => {
