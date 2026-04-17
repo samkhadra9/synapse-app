@@ -287,6 +287,14 @@ interface SolasState {
   saveDayPlan: (plan: DayPlan) => void;
   togglePlannedTask: (slotTime: string, taskId: string) => void;
 
+  /** Last time we reconciled/wrote the day plan to the iOS calendar (epoch ms) */
+  lastCalendarSync?: number;
+  markCalendarSynced: () => void;
+
+  /** Single-task focus mode — when set, dashboard locks onto this task only */
+  focusTaskId?: string | null;
+  setFocusTask: (taskId: string | null) => void;
+
   appTheme: import('../theme/themes').ThemeName;
   setTheme: (theme: import('../theme/themes').ThemeName) => void;
 
@@ -671,6 +679,12 @@ export const useStore = create<SolasState>()(
 
       // ── Day Plan (reactive calendar) ─────────────────────────────────────────
       dayPlan: undefined,
+      lastCalendarSync: undefined,
+
+      markCalendarSynced: () => set({ lastCalendarSync: Date.now() }),
+
+      focusTaskId: null,
+      setFocusTask: (taskId: string | null) => set({ focusTaskId: taskId }),
 
       saveDayPlan: (plan: DayPlan) => set({ dayPlan: plan }),
 

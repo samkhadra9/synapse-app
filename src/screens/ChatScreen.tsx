@@ -488,7 +488,7 @@ Do this one thing:
 Set a 10-minute timer when you start. That's your only commitment right now — 10 minutes. Everything else waits.
 ---
 
-3. Immediately output [SYNAPSE_ACTIONS] with that single task: isMIT:true, estimatedMinutes:30, dueDate:"today".
+3. Immediately output [SYNAPSE_ACTIONS] with that single task: isMIT:true, focus:true, estimatedMinutes:30, dueDate:"today". The focus:true flag tells the app to lock the dashboard to this one task so every other distraction disappears. If you are pointing at an EXISTING task already in their list (don't duplicate it), instead emit {"type":"focus","taskText":"<exact task text>"} to lock the dashboard onto that existing task.
 
 4. After they respond (whether they did it or not): stay in this mode. Ask only: "Did you start?" If yes — celebrate briefly, then ask if they want to keep going or that's enough for now. If no — no guilt, just: "What got in the way?" and help them remove that one blocker. Then try again with the same task.
 
@@ -524,6 +524,19 @@ ${sharedRules}
   };
 
   return prompts[mode];
+}
+
+// ── Time Formatter ─────────────────────────────────────────────────────────────
+// "18:00" → "6:00 PM" — used in Review sheet + summary card.
+
+function formatTime12h(hhmm: string): string {
+  const match = hhmm.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return hhmm;
+  const h = parseInt(match[1], 10);
+  const m = match[2];
+  const mer = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m} ${mer}`;
 }
 
 // ── Time Normaliser ────────────────────────────────────────────────────────────
@@ -651,6 +664,14 @@ function EditableTaskRow({ action, onChange, onRemove, mitCount }: {
             <Text style={rv.taskText} numberOfLines={2}>{action.text}</Text>
             {action.reason ? (
               <Text style={rv.taskReason} numberOfLines={1}>{action.reason}</Text>
+            ) : null}
+            {action.time ? (
+              // Ad-hoc scheduled task — show the time and that it'll hit the calendar
+              <View style={rv.schedulePill}>
+                <Text style={rv.schedulePillTime}>{formatTime12h(action.time)}</Text>
+                <Text style={rv.schedulePillArrow}>→</Text>
+                <Text style={rv.schedulePillCal}>Calendar</Text>
+              </View>
             ) : null}
           </TouchableOpacity>
         )}
@@ -816,6 +837,15 @@ function makeRv(C: any) {
 
     taskText:      { fontSize: 15, color: '#111', fontWeight: '400', lineHeight: 20 },
     taskReason:    { fontSize: 12, color: '#888', marginTop: 2, lineHeight: 16, fontStyle: 'italic' },
+    // Ad-hoc schedule indicator — "6:00 PM → Calendar"
+    schedulePill: {
+      flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6,
+      marginTop: 6, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12,
+      backgroundColor: (C.primaryLight ?? '#E6F2EC'),
+    },
+    schedulePillTime:  { fontSize: 11, color: C.primary, fontWeight: '700' },
+    schedulePillArrow: { fontSize: 11, color: C.primary, fontWeight: '700' },
+    schedulePillCal:   { fontSize: 10, color: C.primary, fontWeight: '600', letterSpacing: 0.3 },
     taskEditInput: {
       fontSize: 15, color: '#111', fontWeight: '400',
       borderBottomWidth: 1.5, borderBottomColor: '#111',
@@ -950,7 +980,7 @@ export default function ChatScreen({ navigation, route }: any) {
   const rv = useMemo(() => makeRv(C), [C]);
   const styles = useMemo(() => makeStyles(C), [C]);
 
-  const { profile, tasks, projects, goals, areas, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait, saveDayPlan } = useStore();
+  const { profile, tasks, projects, goals, areas, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait, saveDayPlan, markCalendarSynced, setFocusTask } = useStore();
   const userAnthropicKey = profile.anthropicKey || undefined; // personal key or undefined → proxy
   const userOpenAiKey    = profile.openAiKey || ENV_OPENAI_KEY || undefined; // personal key or undefined → proxy
 
@@ -992,6 +1022,17 @@ export default function ChatScreen({ navigation, route }: any) {
   const [input,           setInput]           = useState(initialMessage);
   const [loading,         setLoading]         = useState(false);
   const [actionTaken,     setActionTaken]     = useState(false);
+  const [applyResult,     setApplyResult]     = useState<{
+    tasks: number;
+    projects: number;
+    goals: number;
+    scheduledSlots: number;
+    calendarCreated?: number;
+    calendarUpdated?: number;
+    calendarFailed?: number;
+    calendarPermissionDenied?: boolean;
+    syncing?: boolean;
+  } | null>(null);
   const [pendingActions,  setPendingActions]  = useState<any | null>(null);
   const [recording,       setRecording]       = useState<Audio.Recording | null>(null);
   const [isRecording,     setIsRecording]     = useState(false);
@@ -1168,6 +1209,12 @@ export default function ChatScreen({ navigation, route }: any) {
         const newTask  = allTasks.find(t => t.text === action.text && !t.completed);
         if (newTask) textToTaskId[action.text] = newTask.id;
 
+        // Focus mode — if the AI (typically from fatigue mode) flagged this task
+        // as the one thing to focus on, lock the dashboard to it.
+        if (newTask && action.focus === true) {
+          setFocusTask(newTask.id);
+        }
+
         // Ad-hoc scheduling: if the task has a `time` and is dated today, merge
         // it into today's day plan so it renders on the timeline (and via Option
         // C, will sync to the calendar). Works in any mode — not just morning.
@@ -1204,6 +1251,17 @@ export default function ChatScreen({ navigation, route }: any) {
             saveDayPlan(plan);
           }
         }
+      }
+
+      // Standalone focus action — picks an existing task by id or text
+      if (action.type === 'focus') {
+        const allTasks = useStore.getState().tasks;
+        let target: typeof allTasks[number] | undefined;
+        if (action.taskId) target = allTasks.find(t => t.id === action.taskId);
+        if (!target && action.taskText) {
+          target = allTasks.find(t => t.text.toLowerCase() === String(action.taskText).toLowerCase() && !t.completed);
+        }
+        if (target) setFocusTask(target.id);
       }
 
       if (action.type === 'goal') {
@@ -1248,6 +1306,23 @@ export default function ChatScreen({ navigation, route }: any) {
     setPendingActions(null);
     setActionTaken(true);
 
+    // Count what was applied for the summary card.
+    const taskCount    = (edited.actions ?? []).filter(a => a.type === 'task').length;
+    const projectCount = (edited.actions ?? []).filter(a => a.type === 'project').length;
+    const goalCount    = (edited.actions ?? []).filter(a => a.type === 'goal').length;
+    const scheduleAct  = (edited.actions ?? []).find(a => a.type === 'schedule');
+    const slotCount    =
+      (scheduleAct?.slots?.length ?? 0) +
+      (edited.actions ?? []).filter(a => a.type === 'task' && a.time).length;
+
+    setApplyResult({
+      tasks: taskCount,
+      projects: projectCount,
+      goals: goalCount,
+      scheduledSlots: slotCount,
+      syncing: false,
+    });
+
     const today = format(new Date(), 'yyyy-MM-dd');
     const dayPlan = useStore.getState().dayPlan;
 
@@ -1261,38 +1336,44 @@ export default function ChatScreen({ navigation, route }: any) {
     })();
 
     if (needsSync) {
+      setApplyResult(r => r ? { ...r, syncing: true } : r);
       setTimeout(async () => {
         const freshDayPlan = useStore.getState().dayPlan;
-        if (!freshDayPlan || freshDayPlan.date !== today || !freshDayPlan.slots?.length) return;
+        if (!freshDayPlan || freshDayPlan.date !== today || !freshDayPlan.slots?.length) {
+          setApplyResult(r => r ? { ...r, syncing: false } : r);
+          return;
+        }
         try {
           const hasPermission = await requestCalendarPermissions();
           if (!hasPermission) {
-            Alert.alert(
-              'Calendar access needed',
-              'Go to Settings → Privacy → Calendars and allow Aiteall to write your day plan.',
-            );
+            setApplyResult(r => r ? { ...r, syncing: false, calendarPermissionDenied: true } : r);
             return;
           }
           const calendarId = await findOrCreateSolasCalendar();
-          const { createdCount, eventIdByTime } = await writeDayPlanToCalendar(freshDayPlan.slots, freshDayPlan.date, calendarId);
+          const result = await writeDayPlanToCalendar(freshDayPlan.slots, freshDayPlan.date, calendarId);
           // Persist event IDs onto each slot so reconcileCalendarToDayPlan can
           // round-trip user edits back into the plan later.
           const withIds = {
             ...freshDayPlan,
             slots: freshDayPlan.slots.map(s => ({
               ...s,
-              calendarEventId: eventIdByTime[s.time] ?? s.calendarEventId,
+              calendarEventId: result.eventIdByTime[s.time] ?? s.calendarEventId,
             })),
           };
           saveDayPlan(withIds);
-          if (createdCount > 0) {
-            appendMessage('assistant', `✓ ${createdCount} time block${createdCount !== 1 ? 's' : ''} added to your calendar.`);
-          } else {
-            // Either all slots were already exported (and updated in-place), or creation failed
-            appendMessage('assistant', 'Calendar blocks already added — no duplicates created.');
+          if (!result.permissionDenied && ((result.createdCount ?? 0) + (result.updatedCount ?? 0)) > 0) {
+            markCalendarSynced();
           }
+          setApplyResult(r => r ? {
+            ...r,
+            syncing: false,
+            calendarCreated: result.createdCount,
+            calendarUpdated: result.updatedCount,
+            calendarFailed: result.failedCount,
+            calendarPermissionDenied: result.permissionDenied,
+          } : r);
         } catch (e) {
-          appendMessage('assistant', 'Could not write to calendar. Check your calendar permissions in Settings.');
+          setApplyResult(r => r ? { ...r, syncing: false, calendarFailed: (r.calendarFailed ?? 0) + 1 } : r);
         }
       }, 400);
     }
@@ -1380,6 +1461,7 @@ export default function ChatScreen({ navigation, route }: any) {
         })),
       };
       saveDayPlan(withIds);
+      markCalendarSynced();
 
       setShowCalendarExport(false);
 
@@ -1558,11 +1640,93 @@ export default function ChatScreen({ navigation, route }: any) {
           </View>
         )}
 
-        {actionTaken && (
-          <View style={styles.doneBar}>
-            <Text style={styles.doneText}>✓ Plan applied</Text>
-            <TouchableOpacity onPress={() => navigation.goBack()}>
-              <Text style={styles.doneAction}>Back to dashboard →</Text>
+        {actionTaken && applyResult && (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHeaderRow}>
+              <Text style={styles.summaryTitle}>✓ Plan applied</Text>
+              {applyResult.syncing && (
+                <View style={styles.summarySyncingRow}>
+                  <ActivityIndicator size="small" color={C.primary} />
+                  <Text style={styles.summarySyncingText}>Syncing to calendar…</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.summaryRows}>
+              {applyResult.tasks > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryRowIcon}>✎</Text>
+                  <Text style={styles.summaryRowText}>
+                    {applyResult.tasks} task{applyResult.tasks !== 1 ? 's' : ''} added
+                  </Text>
+                </View>
+              )}
+              {applyResult.projects > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryRowIcon}>◩</Text>
+                  <Text style={styles.summaryRowText}>
+                    {applyResult.projects} project{applyResult.projects !== 1 ? 's' : ''} added
+                  </Text>
+                </View>
+              )}
+              {applyResult.goals > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryRowIcon}>◆</Text>
+                  <Text style={styles.summaryRowText}>
+                    {applyResult.goals} goal{applyResult.goals !== 1 ? 's' : ''} added
+                  </Text>
+                </View>
+              )}
+              {applyResult.scheduledSlots > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryRowIcon}>◷</Text>
+                  <Text style={styles.summaryRowText}>
+                    {applyResult.scheduledSlots} time block{applyResult.scheduledSlots !== 1 ? 's' : ''} scheduled
+                  </Text>
+                </View>
+              )}
+
+              {/* Calendar sync outcome — only shown once sync has resolved */}
+              {!applyResult.syncing && applyResult.calendarPermissionDenied && (
+                <View style={[styles.summaryRow, styles.summaryWarnRow]}>
+                  <Text style={styles.summaryRowIcon}>⚠︎</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.summaryRowText}>Calendar access needed</Text>
+                    <Text style={styles.summarySubtleText}>
+                      Enable in Settings → Privacy → Calendars to sync blocks.
+                    </Text>
+                  </View>
+                </View>
+              )}
+              {!applyResult.syncing && !applyResult.calendarPermissionDenied &&
+                (applyResult.calendarCreated ?? 0) + (applyResult.calendarUpdated ?? 0) > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryRowIcon}>◉</Text>
+                  <Text style={styles.summaryRowText}>
+                    {(applyResult.calendarCreated ?? 0) > 0 &&
+                      `${applyResult.calendarCreated} created in calendar`}
+                    {(applyResult.calendarCreated ?? 0) > 0 && (applyResult.calendarUpdated ?? 0) > 0 && ' · '}
+                    {(applyResult.calendarUpdated ?? 0) > 0 &&
+                      `${applyResult.calendarUpdated} updated`}
+                  </Text>
+                </View>
+              )}
+              {!applyResult.syncing && (applyResult.calendarFailed ?? 0) > 0 && (
+                <View style={[styles.summaryRow, styles.summaryWarnRow]}>
+                  <Text style={styles.summaryRowIcon}>⚠︎</Text>
+                  <Text style={styles.summaryRowText}>
+                    {applyResult.calendarFailed} calendar write{(applyResult.calendarFailed ?? 0) !== 1 ? 's' : ''} failed
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={styles.summaryCta}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.82}
+            >
+              <Text style={styles.summaryCtaText}>Back to dashboard →</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1680,6 +1844,61 @@ function makeStyles(C: any) {
     },
     doneText:   { fontSize: 14, color: C.primary, fontWeight: '700' },
     doneAction: { fontSize: 14, color: C.primary, fontWeight: '600' },
+
+    // ── Post-apply summary card ──────────────────────────────────────────
+    summaryCard: {
+      marginHorizontal: Spacing.base,
+      marginBottom: Spacing.base,
+      backgroundColor: C.surface,
+      borderRadius: Radius.xl,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: C.border,
+      padding: Spacing.base,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 6,
+      elevation: 1,
+    },
+    summaryHeaderRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      marginBottom: Spacing.sm,
+    },
+    summaryTitle: {
+      fontSize: 15, fontWeight: '700', color: C.primary, letterSpacing: -0.2,
+    },
+    summarySyncingRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+    },
+    summarySyncingText: {
+      fontSize: 11, color: C.textTertiary, fontStyle: 'italic',
+    },
+    summaryRows: { gap: 6, marginBottom: Spacing.md },
+    summaryRow: {
+      flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    },
+    summaryWarnRow: {
+      backgroundColor: '#FEF3C7', borderRadius: 8, padding: 8,
+    },
+    summaryRowIcon: {
+      fontSize: 13, color: C.primary, width: 16, textAlign: 'center',
+      fontWeight: '700',
+    },
+    summaryRowText: {
+      fontSize: 13, color: C.textPrimary, flex: 1, lineHeight: 18,
+    },
+    summarySubtleText: {
+      fontSize: 11, color: C.textSecondary, marginTop: 2,
+    },
+    summaryCta: {
+      alignSelf: 'flex-end',
+      paddingVertical: 8, paddingHorizontal: 14,
+      borderRadius: Radius.full,
+      backgroundColor: C.primary,
+    },
+    summaryCtaText: {
+      fontSize: 13, fontWeight: '700', color: C.textInverse,
+    },
 
     inputSafe: { backgroundColor: C.background, borderTopWidth: 1, borderTopColor: C.border },
     inputRow:  { flexDirection: 'row', alignItems: 'flex-end', padding: 12, gap: 10 },

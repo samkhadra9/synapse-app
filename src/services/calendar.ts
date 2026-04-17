@@ -449,9 +449,16 @@ export async function completeReminder(reminderId: string): Promise<void> {
  *  time-shifts or deletions the user made externally.
  */
 export interface WriteDayPlanResult {
+  /** Slots that resulted in a brand-new calendar event */
   createdCount: number;
+  /** Slots that matched an existing event and were updated in place */
+  updatedCount: number;
+  /** Slots where the write threw an error */
+  failedCount:  number;
   /** slot.time → calendar event id (new or existing) */
   eventIdByTime: Record<string, string>;
+  /** True if the user has not granted calendar permissions */
+  permissionDenied: boolean;
   calendarId: string;
 }
 
@@ -460,11 +467,17 @@ export async function writeDayPlanToCalendar(
   dateStr: string,   // "YYYY-MM-DD"
   calendarId?: string,
 ): Promise<WriteDayPlanResult> {
-  const result: WriteDayPlanResult = { createdCount: 0, eventIdByTime: {}, calendarId: calendarId ?? '' };
+  const result: WriteDayPlanResult = {
+    createdCount: 0, updatedCount: 0, failedCount: 0,
+    eventIdByTime: {}, permissionDenied: false, calendarId: calendarId ?? '',
+  };
 
   try {
     const hasPermission = await requestCalendarPermissions();
-    if (!hasPermission) return result;
+    if (!hasPermission) {
+      result.permissionDenied = true;
+      return result;
+    }
 
     const cid = calendarId ?? (await findOrCreateSolasCalendar());
     result.calendarId = cid;
@@ -506,6 +519,7 @@ export async function writeDayPlanToCalendar(
           try {
             await Calendar.updateEventAsync(existingId, { title: prefixedTitle, startDate, endDate, notes });
             result.eventIdByTime[slot.time] = existingId;
+            result.updatedCount++;
             continue;
           } catch {
             // Event may have been deleted externally — fall through to create a new one
@@ -523,8 +537,11 @@ export async function writeDayPlanToCalendar(
         if (eventId) {
           result.eventIdByTime[slot.time] = eventId;
           result.createdCount++;
+        } else {
+          result.failedCount++;
         }
       } catch (e) {
+        result.failedCount++;
         console.warn(`[calendar] Failed to create event for slot "${slot.eventLabel}":`, e);
       }
     }

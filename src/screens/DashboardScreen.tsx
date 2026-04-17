@@ -795,7 +795,7 @@ function TodayTimelinePage({
     return () => clearInterval(t);
   }, []);
 
-  const { profile, tasks, toggleTask, dayPlan, togglePlannedTask, projects, goals, addTask, saveDayPlan } = useStore(s => ({
+  const { profile, tasks, toggleTask, dayPlan, togglePlannedTask, projects, goals, addTask, saveDayPlan, lastCalendarSync, focusTaskId, setFocusTask } = useStore(s => ({
     profile: s.profile,
     tasks: s.tasks,
     toggleTask: s.toggleTask,
@@ -805,6 +805,9 @@ function TodayTimelinePage({
     goals: s.goals,
     addTask: s.addTask,
     saveDayPlan: s.saveDayPlan,
+    lastCalendarSync: s.lastCalendarSync,
+    focusTaskId: s.focusTaskId,
+    setFocusTask: s.setFocusTask,
   }));
 
   // Option C: reconcile iOS Calendar → DayPlan on focus and on app foreground.
@@ -817,6 +820,9 @@ function TodayTimelinePage({
     try {
       const reconciled = await reconcileCalendarToDayPlan(current);
       if (reconciled) useStore.getState().saveDayPlan(reconciled);
+      // Mark sync timestamp — even when nothing changed, the read itself confirms
+      // we're in sync with the calendar as of now.
+      useStore.getState().markCalendarSynced();
     } catch {
       // Silent — reconcile is a best-effort background sync
     }
@@ -924,6 +930,20 @@ function TodayTimelinePage({
     [tasks, today],
   );
 
+  // Overwhelm triggers — too many MITs, or chronic backlog.
+  const activeMITCount = useMemo(
+    () => tasks.filter(t => t.date === today && t.isMIT && !t.completed).length,
+    [tasks, today],
+  );
+  const overdueCount = useMemo(
+    () => tasks.filter(t => t.date && t.date < today && !t.completed).length,
+    [tasks, today],
+  );
+  const overwhelmReason: 'too-many-mits' | 'backlog' | null =
+    activeMITCount >= 3 ? 'too-many-mits'
+    : overdueCount >= 5 ? 'backlog'
+    : null;
+
   const completedCount = todayTasks.filter(t => t.completed).length;
 
   const timeOfDay = now.getHours() < 12 ? 'Morning' : now.getHours() < 17 ? 'Afternoon' : 'Evening';
@@ -974,6 +994,45 @@ function TodayTimelinePage({
     setShowMITInput(false);
   };
 
+  // Resolve focus task — when set, render a locked "Just this" view.
+  const focusTask = focusTaskId ? tasks.find(t => t.id === focusTaskId) ?? null : null;
+
+  if (focusTask && !focusTask.completed) {
+    return (
+      <View style={{ width: SCREEN_W, flex: 1, backgroundColor: C.background, padding: Spacing.lg, justifyContent: 'center' }}>
+        <View style={tl.focusHeader}>
+          <Text style={tl.focusEyebrow}>JUST THIS</Text>
+          <TouchableOpacity onPress={() => setFocusTask(null)} activeOpacity={0.7}>
+            <Text style={tl.focusExit}>Exit focus mode</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={tl.focusCard}>
+          <Text style={tl.focusPrompt}>Your brain is full. Stop deciding.</Text>
+          <Text style={tl.focusLabel}>Do this one thing:</Text>
+          <Text style={tl.focusTaskText}>{focusTask.text}</Text>
+          {focusTask.reason ? (
+            <Text style={tl.focusReason}>{focusTask.reason}</Text>
+          ) : null}
+          <Text style={tl.focusTimerHint}>
+            Set a 10-minute timer when you start. That's your only commitment.
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={tl.focusDoneBtn}
+          onPress={() => {
+            handleToggleTask(focusTask.id);
+            setFocusTask(null);
+          }}
+          activeOpacity={0.85}
+        >
+          <Text style={tl.focusDoneText}>✓ Done</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={{ width: SCREEN_W, flex: 1, backgroundColor: C.background }}
@@ -993,6 +1052,32 @@ function TodayTimelinePage({
           <Ionicons name="add" size={20} color={C.textInverse} />
         </TouchableOpacity>
       </View>
+
+      {/* ── Overwhelm card — proactively surfaces when load is too high ──── */}
+      {overwhelmReason && (
+        <TouchableOpacity
+          style={tl.overwhelmCard}
+          onPress={() => navigation.navigate('Chat', { mode: 'fatigue' })}
+          activeOpacity={0.85}
+        >
+          <View style={tl.overwhelmLeft}>
+            <Text style={tl.overwhelmIcon}>⚡︎</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={tl.overwhelmTitle}>
+              {overwhelmReason === 'too-many-mits'
+                ? `${activeMITCount} "must do" tasks today`
+                : `${overdueCount} tasks sliding off the calendar`}
+            </Text>
+            <Text style={tl.overwhelmSub}>
+              {overwhelmReason === 'too-many-mits'
+                ? 'Only one can actually be the MIT. Let me help you choose.'
+                : 'Let me help you triage — pick one to rescue, defer the rest.'}
+            </Text>
+          </View>
+          <Text style={tl.overwhelmArrow}>→</Text>
+        </TouchableOpacity>
+      )}
 
       {/* ── MIT Hero Block — primary task, front and centre ─────────────── */}
       {primaryMIT && (
@@ -1085,8 +1170,53 @@ function TodayTimelinePage({
       {/* ── Next event countdown ─────────────────────────────────────────── */}
       <NextEventCountdown calEvents={calEvents} />
 
+      {/* ── Brain-full tile — surfaces when there are many competing tasks ── */}
+      {(() => {
+        const activeTodayCount = todayTasks.filter(t => !t.completed).length;
+        if (activeTodayCount < 4) return null;
+        return (
+          <TouchableOpacity
+            style={tl.fatigueCard}
+            onPress={() => navigation.navigate('Chat', { mode: 'fatigue' })}
+            activeOpacity={0.82}
+          >
+            <View style={tl.fatigueInner}>
+              <Text style={tl.fatigueIcon}>🧠</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={tl.fatigueTitle}>Brain full?</Text>
+                <Text style={tl.fatigueSub}>
+                  {activeTodayCount} tasks waiting — let me pick one for you
+                </Text>
+              </View>
+              <Text style={tl.fatigueArrow}>→</Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })()}
+
       {/* ── Timeline strip ───────────────────────────────────────────────── */}
-      <View style={[tl.strip, { height: STRIP_H, marginBottom: Spacing.base }]}>
+      <View style={tl.timelineSection}>
+        <View style={tl.timelineSectionHeader}>
+          <Text style={tl.timelineSectionLabel}>TODAY'S TIMELINE</Text>
+          <View style={tl.timelineSectionDivider} />
+          {lastCalendarSync ? (
+            <View style={tl.syncChip}>
+              <View style={tl.syncDot} />
+              <Text style={tl.syncChipText}>
+                {(() => {
+                  const diffMs = Date.now() - lastCalendarSync;
+                  const m = Math.floor(diffMs / 60000);
+                  if (m < 1) return 'synced just now';
+                  if (m < 60) return `synced ${m}m ago`;
+                  const h = Math.floor(m / 60);
+                  if (h < 24) return `synced ${h}h ago`;
+                  return 'synced today';
+                })()}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      <View style={[tl.strip, { height: STRIP_H }]}>
         {/* Hour grid lines + labels */}
         {stripHours.map(h => {
           const y = minsToStripY(h * 60);
@@ -1280,6 +1410,7 @@ function TodayTimelinePage({
             <View style={tl.nowBar} />
           </View>
         )}
+      </View>
       </View>
 
       {/* ── Today's tasks — time-sequenced when day plan exists ─────────── */}
@@ -1487,9 +1618,149 @@ function makeTl(C: any) { return StyleSheet.create({
   dateText:  { fontSize: 15, fontWeight: '600', color: C.textPrimary },
   datePlusBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
 
+  timelineSection: {
+    marginTop: Spacing.md,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.base,
+    borderRadius: Radius.xl,
+    backgroundColor: C.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
+    overflow: 'hidden',
+    // Soft lift so it feels like its own surface, not jammed against the MIT card
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  timelineSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  timelineSectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: C.textTertiary,
+  },
+  timelineSectionDivider: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.borderLight ?? C.border,
+  },
+  syncChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: (C.primaryLight ?? '#E6F2EC'),
+  },
+  syncDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: C.primary ?? '#0A8F5C',
+  },
+  syncChipText: {
+    fontSize: 10, fontWeight: '600', color: C.primary ?? '#0A8F5C',
+    letterSpacing: 0.2,
+  },
+
+  // Brain-full / decision fatigue tile
+  fatigueCard: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    borderRadius: Radius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: C.accent ?? C.primary,
+    backgroundColor: C.surface,
+  },
+  fatigueInner: {
+    flexDirection: 'row', alignItems: 'center',
+    padding: 14, gap: 12,
+  },
+  fatigueIcon:  { fontSize: 22 },
+  fatigueTitle: { fontSize: 14, fontWeight: '700', color: (C.accent ?? C.primary), marginBottom: 2 },
+  fatigueSub:   { fontSize: 12, color: C.textSecondary },
+  fatigueArrow: { fontSize: 18, color: (C.accent ?? C.primary), fontWeight: '700' },
+
+  // Overwhelm card — more urgent visual than fatigue tile
+  overwhelmCard: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: Radius.xl,
+    backgroundColor: '#FEF3C7',   // amber — attention without alarm
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  overwhelmLeft: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: 'rgba(245,158,11,0.18)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  overwhelmIcon:  { fontSize: 16, color: '#B45309', fontWeight: '800' },
+  overwhelmTitle: { fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 2 },
+  overwhelmSub:   { fontSize: 12, color: '#78350F', lineHeight: 16 },
+  overwhelmArrow: { fontSize: 18, color: '#92400E', fontWeight: '700' },
+
+  // ── "Just this" single-task focus mode ────────────────────────────────
+  focusHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: Spacing.lg,
+  },
+  focusEyebrow: {
+    fontSize: 11, fontWeight: '700', letterSpacing: 1.4, color: C.textTertiary,
+  },
+  focusExit: {
+    fontSize: 13, color: C.textSecondary, fontWeight: '500',
+  },
+  focusCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  focusPrompt: {
+    fontSize: 13, color: 'rgba(255,255,255,0.55)',
+    marginBottom: Spacing.md, letterSpacing: 0.2,
+  },
+  focusLabel: {
+    fontSize: 11, fontWeight: '700', letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.45)', marginBottom: Spacing.sm,
+  },
+  focusTaskText: {
+    fontSize: 26, fontWeight: '700', color: '#fff',
+    letterSpacing: -0.4, lineHeight: 32, marginBottom: Spacing.md,
+  },
+  focusReason: {
+    fontSize: 14, color: 'rgba(255,255,255,0.72)',
+    fontStyle: 'italic', lineHeight: 20, marginBottom: Spacing.md,
+  },
+  focusTimerHint: {
+    fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 17,
+  },
+  focusDoneBtn: {
+    alignSelf: 'center',
+    paddingVertical: 14, paddingHorizontal: 32,
+    borderRadius: Radius.full,
+    backgroundColor: C.primary,
+    minWidth: 180, alignItems: 'center',
+  },
+  focusDoneText: {
+    fontSize: 15, fontWeight: '700', color: C.textInverse, letterSpacing: 0.3,
+  },
   strip: {
     position: 'relative',
-    backgroundColor: C.surface,
+    backgroundColor: 'transparent',
     overflow: 'hidden',
   },
 
