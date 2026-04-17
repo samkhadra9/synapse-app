@@ -935,10 +935,14 @@ function TodayTimelinePage({
     () => tasks.filter(t => t.date === today && t.isMIT && !t.completed).length,
     [tasks, today],
   );
-  const overdueCount = useMemo(
-    () => tasks.filter(t => t.date && t.date < today && !t.completed).length,
-    [tasks, today],
-  );
+  // Overdue = Aiteall tasks with a due date before today that aren't done.
+  // Cap at 30-day-old so ancient brain-dumps don't keep this card alive forever.
+  const overdueCount = useMemo(() => {
+    const thirtyDaysAgo = format(addDays(new Date(), -30), 'yyyy-MM-dd');
+    return tasks.filter(t =>
+      t.date && t.date < today && t.date >= thirtyDaysAgo && !t.completed
+    ).length;
+  }, [tasks, today]);
   const overwhelmReason: 'too-many-mits' | 'backlog' | null =
     activeMITCount >= 3 ? 'too-many-mits'
     : overdueCount >= 5 ? 'backlog'
@@ -1067,12 +1071,12 @@ function TodayTimelinePage({
             <Text style={tl.overwhelmTitle}>
               {overwhelmReason === 'too-many-mits'
                 ? `${activeMITCount} "must do" tasks today`
-                : `${overdueCount} tasks sliding off the calendar`}
+                : `${overdueCount} tasks past their due date`}
             </Text>
             <Text style={tl.overwhelmSub}>
               {overwhelmReason === 'too-many-mits'
                 ? 'Only one can actually be the MIT. Let me help you choose.'
-                : 'Let me help you triage — pick one to rescue, defer the rest.'}
+                : 'Your Aiteall task list is piling up. Let me help triage — pick one, defer the rest.'}
             </Text>
           </View>
           <Text style={tl.overwhelmArrow}>→</Text>

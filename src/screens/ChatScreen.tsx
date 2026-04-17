@@ -1064,6 +1064,15 @@ export default function ChatScreen({ navigation, route }: any) {
 
   useEffect(() => { startConversation(); }, []);
 
+  // Reset done-state when the chat mode changes mid-session. Prevents the
+  // previous session's summary card from leaking into a new conversation
+  // (e.g. navigate from 'morning' → 'evening' without unmounting).
+  useEffect(() => {
+    setActionTaken(false);
+    setApplyResult(null);
+    setPendingActions(null);
+  }, [mode]);
+
   useEffect(() => {
     if (isRecording) {
       Animated.loop(
@@ -1147,6 +1156,11 @@ export default function ChatScreen({ navigation, route }: any) {
             updateTodayLog({ morningCompleted: true });
           }
           setActionTaken(true);
+          // Seed a minimal applyResult so the summary card still renders — otherwise
+          // the done state is invisible for sessionNote-only paths (evening reflection, etc).
+          setApplyResult({
+            tasks: 0, projects: 0, goals: 0, scheduledSlots: 0, syncing: false,
+          });
         }
       } else {
         appendMessage('assistant', reply);
@@ -1307,8 +1321,16 @@ export default function ChatScreen({ navigation, route }: any) {
     setActionTaken(true);
 
     // Count what was applied for the summary card.
-    const taskCount    = (edited.actions ?? []).filter(a => a.type === 'task').length;
-    const projectCount = (edited.actions ?? []).filter(a => a.type === 'project').length;
+    // Projects can carry nested subtasks via `addProjectWithTasks` — they don't
+    // land in the global tasks store, so fold them into the task count so the
+    // user's summary reflects the true "things added to my life" number.
+    const projectActions = (edited.actions ?? []).filter(a => a.type === 'project');
+    const projectSubtaskCount = projectActions.reduce(
+      (n, a: any) => n + (Array.isArray(a.tasks) ? a.tasks.length : 0),
+      0,
+    );
+    const taskCount    = (edited.actions ?? []).filter(a => a.type === 'task').length + projectSubtaskCount;
+    const projectCount = projectActions.length;
     const goalCount    = (edited.actions ?? []).filter(a => a.type === 'goal').length;
     const scheduleAct  = (edited.actions ?? []).find(a => a.type === 'schedule');
     const slotCount    =

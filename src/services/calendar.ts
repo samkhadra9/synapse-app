@@ -270,7 +270,21 @@ export async function getTodayReminders(): Promise<TodayReminder[]> {
       const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
       return `${hour.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`;
     };
-    return reminders.map(r => ({
+    // Dedupe — the same reminder can appear in multiple lists (iCloud + local,
+    // shared family list + personal, etc). Key by id when available, fall back
+    // to title + dueDate string so near-duplicates across lists still collapse.
+    const seen = new Set<string>();
+    const deduped: typeof reminders = [];
+    for (const r of reminders) {
+      const key = r.id
+        ? `id:${r.id}`
+        : `t:${(r.title ?? '').toLowerCase().trim()}|d:${r.dueDate ? new Date(r.dueDate).getTime() : ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(r);
+    }
+
+    return deduped.map(r => ({
       title:    r.title ?? '(no title)',
       dueDate:  r.dueDate ? formatTime(r.dueDate) : undefined,
       calendar: reminderCals.find(c => c.id === r.calendarId)?.title ?? 'Reminders',
