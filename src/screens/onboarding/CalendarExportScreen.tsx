@@ -1,5 +1,5 @@
 /**
- * CalendarExportScreen — Synapse V2 Onboarding Step 3
+ * CalendarExportScreen — Solas V2 Onboarding Step 3
  *
  * Lighter warm background. Plain-English explanation of what calendar
  * write access means. One big "Sync" button and a skip option.
@@ -89,7 +89,7 @@ async function createRecurringEvent(
     const end = new Date(start.getTime() + block.durationMinutes * 60 * 1000);
 
     const id = await Calendar.createEventAsync(calendarId, {
-      title:    `[Synapse] ${block.label}`,
+      title:    `[Aiteall] ${block.label}`,
       startDate: start,
       endDate:   end,
       recurrenceRule: {
@@ -97,7 +97,7 @@ async function createRecurringEvent(
         daysOfWeek: [jsDayToExpoDow(dayOfWeek)],
         interval: 1,
       },
-      notes: `Synapse time block — ${BLOCK_LABELS[block.type]}`,
+      notes: `Aiteall time block — ${BLOCK_LABELS[block.type]}`,
     } as any);
 
     return id;
@@ -149,7 +149,7 @@ export default function CalendarExportScreen({ navigation }: any) {
       // Request calendar permission
       const { status } = await Calendar.requestCalendarPermissionsAsync();
       if (status !== 'granted') {
-        setError("Calendar access was denied. You can enable it in iPhone Settings → Privacy → Calendars → Synapse.");
+        setError("Calendar access was denied. You can enable it in iPhone Settings → Privacy → Calendars → Aiteall.");
         setSyncing(false);
         return;
       }
@@ -184,7 +184,7 @@ export default function CalendarExportScreen({ navigation }: any) {
       let created = 0;
       const updatedBlocks: typeof blocks = blocks.map(b => ({ ...b, calendarEventId: undefined }));
 
-      // Delete any pre-existing Synapse calendar events before re-creating them
+      // Delete any pre-existing Solas calendar events before re-creating them
       for (const original of blocks) {
         if (original.calendarEventId) {
           await Calendar.deleteEventAsync(original.calendarEventId, { futureEvents: true }).catch(() => {});
@@ -207,7 +207,7 @@ export default function CalendarExportScreen({ navigation }: any) {
       if (created > 0) {
         setSynced(true);
       } else {
-        setError("Events couldn't be created. Make sure Synapse has calendar access in your iPhone Settings.");
+        setError("Events couldn't be created. Make sure Aiteall has calendar access in your iPhone Settings.");
       }
     } catch (e: any) {
       setError(`Something went wrong: ${e.message ?? 'Unknown error'}. Try again or skip for now.`);
@@ -243,13 +243,13 @@ export default function CalendarExportScreen({ navigation }: any) {
           <View style={s.explainCard}>
             <Text style={s.explainHeading}>What "calendar access" means</Text>
             <Text style={s.explainBody}>
-              Synapse will create recurring events in your Apple Calendar — one for each block in your skeleton. They'll show up every week automatically, labelled "[Synapse]" so you can tell them apart.
+              Aiteall will create recurring events in your Apple Calendar — one for each block in your skeleton. They'll show up every week automatically, labelled "[Aiteall]" so you can tell them apart.
             </Text>
             <Text style={[s.explainBody, { marginTop: 12 }]}>
-              Synapse will NOT read your personal events or share anything with anyone. It only writes the blocks you just built.
+              Aiteall will NOT read your personal events or share anything with anyone. It only writes the blocks you just built.
             </Text>
             <Text style={[s.explainBody, { marginTop: 12 }]}>
-              You can delete individual events from Apple Calendar any time, and Synapse won't recreate them.
+              You can delete individual events from Apple Calendar any time, and Aiteall won't recreate them.
             </Text>
           </View>
 
@@ -308,14 +308,14 @@ export default function CalendarExportScreen({ navigation }: any) {
             </TouchableOpacity>
           )}
 
-          {/* Enter Synapse button */}
+          {/* CTA button */}
           <TouchableOpacity
             style={[s.enterBtn, synced && s.enterBtnHighlight]}
             onPress={finishOnboarding}
             activeOpacity={0.85}
           >
             <Text style={[s.enterBtnText, synced && s.enterBtnTextHighlight]}>
-              {synced ? 'Enter Synapse →' : 'Skip — enter Synapse now'}
+              {synced ? 'Get started →' : 'Skip for now'}
             </Text>
           </TouchableOpacity>
 

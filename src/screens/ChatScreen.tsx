@@ -1,5 +1,5 @@
 /**
- * ChatScreen — Synapse V2
+ * ChatScreen — Solas V2
  *
  * Context-aware AI assistant. Knows the user's full life structure
  * (projects, tasks, goals) and routes brain dumps into the right place.
@@ -25,7 +25,7 @@ import { Audio } from 'expo-av';
 import { format, addDays } from 'date-fns';
 import { Colors, Spacing, Radius, useColors } from '../theme';
 import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile, Area, DayPlan, PlannedSlot } from '../store/useStore';
-import { buildTodayCalendarContext, buildSkeletonContext, writeDayPlanToCalendar, requestCalendarPermissions, findOrCreateSynapseCalendar } from '../services/calendar';
+import { buildTodayCalendarContext, buildSkeletonContext, writeDayPlanToCalendar, requestCalendarPermissions, findOrCreateSolasCalendar } from '../services/calendar';
 import { updatePortrait } from '../services/portrait';
 import { fetchAnthropic } from '../lib/anthropic';
 import { supabase } from '../lib/supabase';
@@ -57,7 +57,7 @@ const uid = (): string =>
 
 // ── Context Builder ────────────────────────────────────────────────────────────
 // Injects the user's full life structure into every system prompt.
-// This is what makes Synapse feel like it knows you.
+// This is what makes Solas feel like it knows you.
 
 function buildContextBlock(store: {
   profile: UserProfile;
@@ -232,7 +232,7 @@ Only output [SYNAPSE_ACTIONS] when you have enough context. Don't rush it.`;
 
   const prompts: Record<ChatMode, string> = {
 
-    dump: `You are Synapse, an intelligent ADHD productivity assistant. ${firstName} is doing a brain dump — anything on their mind, at any time.
+    dump: `You are the Aiteall AI, an intelligent ADHD productivity assistant. ${firstName} is doing a brain dump — anything on their mind, at any time.
 ${portraitSection}
 ${contextBlock}
 
@@ -246,7 +246,7 @@ Your job:
 ${outputFormat}
 ${sharedRules}`,
 
-    morning: `You are Synapse. ${firstName} is doing their morning planning session.
+    morning: `You are the Aiteall AI. ${firstName} is doing their morning planning session.
 ${portraitSection}
 ${contextBlock}
 
@@ -267,7 +267,7 @@ ${sharedRules}
 - Every task in the output MUST have estimatedMinutes — never omit it.
 - Reference specific calendar events and skeleton blocks by name when building the day plan.`,
 
-    evening: `You are Synapse. It's evening. ${firstName} is doing their end-of-day review.
+    evening: `You are the Aiteall AI. It's evening. ${firstName} is doing their end-of-day review.
 ${portraitSection}
 ${contextBlock}
 
@@ -285,7 +285,7 @@ ${sharedRules}
 - Roll over tasks with dueDate: "tomorrow" only if they explicitly want to.
 - Be warm and closing. Help them feel done.`,
 
-    weekly: `You are Synapse acting as a strategic weekly reviewer. It's probably Sunday. ${firstName} is recalibrating.
+    weekly: `You are the Aiteall AI acting as a strategic weekly reviewer. It's probably Sunday. ${firstName} is recalibrating.
 ${portraitSection}
 ${contextBlock}
 
@@ -303,7 +303,7 @@ Be direct. If there's drift, name it clearly. If they're aligned, confirm it.
 ${outputFormat}
 ${sharedRules}`,
 
-    monthly: `You are Synapse running a monthly strategic review with ${firstName}.
+    monthly: `You are the Aiteall AI running a monthly strategic review with ${firstName}.
 ${portraitSection}
 ${contextBlock}
 
@@ -321,7 +321,7 @@ Be strategic and honest. This is a planning session, not a therapy session.
 ${outputFormat}
 ${sharedRules}`,
 
-    yearly: `You are Synapse running an annual life design session with ${firstName}. This is like re-onboarding — a full redesign of the superstructure.
+    yearly: `You are the Aiteall AI running an annual life design session with ${firstName}. This is like re-onboarding — a full redesign of the superstructure.
 ${portraitSection}
 ${contextBlock}
 
@@ -340,7 +340,7 @@ This is the most important session of the year. Be patient, go deep, don't rush.
 ${outputFormat}
 ${sharedRules}`,
 
-    project: `You are Synapse helping ${firstName} plan a new project.
+    project: `You are the Aiteall AI helping ${firstName} plan a new project.
 ${portraitSection}
 ${contextBlock}
 
@@ -450,7 +450,7 @@ ${sharedRules}
 - SEQUENTIAL projects: tasks must tell the full story from zero to done. No gaps.
 - Every task needs a reason field — a one-line honest explanation of why this step exists.`,
 
-    fatigue: `You are Synapse. ${firstName} is in a state of decision fatigue — executive dysfunction has made even small choices feel impossible. Their brain is in analysis paralysis. They don't need options or conversation. They need the paralysis broken immediately.
+    fatigue: `You are the Aiteall AI. ${firstName} is in a state of decision fatigue — executive dysfunction has made even small choices feel impossible. Their brain is in analysis paralysis. They don't need options or conversation. They need the paralysis broken immediately.
 ${portraitSection}
 ${contextBlock}
 
@@ -490,7 +490,7 @@ HARD RULES for this mode:
 
 ${outputFormat}`,
 
-    quick: `You are Synapse. ${firstName} hasn't been around for a few days. This is a no-guilt re-entry.
+    quick: `You are the Aiteall AI. ${firstName} hasn't been around for a few days. This is a no-guilt re-entry.
 ${portraitSection}
 ${contextBlock}
 
@@ -1143,12 +1143,21 @@ export default function ChatScreen({ navigation, route }: any) {
     setPendingActions(null);
     setActionTaken(true);
 
-    // Check if a day plan was just saved and offer to add to calendar
     const today = format(new Date(), 'yyyy-MM-dd');
     const dayPlan = useStore.getState().dayPlan;
-    if (mode === 'morning' && dayPlan?.date === today && dayPlan?.slots?.length > 0) {
-      // Delay slightly to ensure applyActions completed
-      setTimeout(() => setShowCalendarExport(true), 100);
+
+    // Auto-sync day plan to calendar — fire-and-forget after plan is saved
+    if (mode === 'morning') {
+      setTimeout(() => {
+        const freshDayPlan = useStore.getState().dayPlan;  // read fresh inside callback
+        if (!freshDayPlan || freshDayPlan.date !== today || !freshDayPlan.slots?.length) return;
+        requestCalendarPermissions().then(hasPermission => {
+          if (!hasPermission) return;
+          return findOrCreateSolasCalendar().then(calendarId =>
+            writeDayPlanToCalendar(freshDayPlan.slots, freshDayPlan.date, calendarId)
+          );
+        }).catch(() => {});
+      }, 300);
     }
 
     // After first morning/quick plan: ask for notification permissions and schedule reminders
@@ -1222,7 +1231,7 @@ export default function ChatScreen({ navigation, route }: any) {
         return;
       }
 
-      const calendarId = await findOrCreateSynapseCalendar();
+      const calendarId = await findOrCreateSolasCalendar();
       const count = await writeDayPlanToCalendar(dayPlan.slots, dayPlan.date, calendarId);
 
       setShowCalendarExport(false);

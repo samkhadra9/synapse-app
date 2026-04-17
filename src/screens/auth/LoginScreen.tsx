@@ -1,5 +1,5 @@
 /**
- * LoginScreen — Synapse v3
+ * LoginScreen — Solas v3
  * Aesthetic: editorial, clean, Abby Health-inspired.
  * Pure white · near-black headings · deep teal accent · pill buttons
  */
@@ -78,7 +78,7 @@ export default function LoginScreen() {
 
           {/* ── Hero heading ─────────────────────────────────────────────── */}
           <View style={s.hero}>
-            <Text style={s.wordmark}>Synapse</Text>
+            <Text style={s.wordmark}>Aiteall</Text>
             <Text style={s.heroHeading}>
               {mode === 'login' ? 'Welcome\nback.' : 'Get\nstarted.'}
             </Text>

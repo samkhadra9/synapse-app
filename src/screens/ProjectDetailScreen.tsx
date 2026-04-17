@@ -1,5 +1,5 @@
 /**
- * ProjectDetailScreen — Synapse V2
+ * ProjectDetailScreen — Solas V2
  *
  * - Optional free-text context box before AI decomposition
  * - Weekly hours input → schedules tasks across the timeline after decompose
@@ -294,7 +294,7 @@ export default function ProjectDetailScreen() {
               <>
                 <Text style={styles.decomposeTitle}>Break this down with AI</Text>
                 <Text style={styles.decomposeSub}>
-                  Synapse will create a step-by-step plan with time estimates, then help you schedule it across your week.
+                  Aiteall will create a step-by-step plan with time estimates, then help you schedule it across your week.
                 </Text>
 
                 {/* Optional context input */}
@@ -302,7 +302,7 @@ export default function ProjectDetailScreen() {
                   <View style={styles.contextInputWrap}>
                     <TextInput
                       style={styles.contextInput}
-                      placeholder="Tell Synapse anything about this project — what's involved, what you've already done, any constraints…"
+                      placeholder="Tell us anything about this project — what's involved, what you've already done, any constraints…"
                       placeholderTextColor={C.textTertiary}
                       value={contextText}
                       onChangeText={setContextText}
@@ -321,7 +321,7 @@ export default function ProjectDetailScreen() {
                 )}
 
                 <TouchableOpacity style={styles.decomposeBtn} onPress={runDecomposition} activeOpacity={0.85}>
-                  <Text style={styles.decomposeBtnText}>Plan with Synapse →</Text>
+                  <Text style={styles.decomposeBtnText}>Plan with AI →</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -516,7 +516,7 @@ export default function ProjectDetailScreen() {
 
             <Text style={styles.schedulerTitle}>Plan the timeline</Text>
             <Text style={styles.schedulerSub}>
-              Synapse broke "{project.title}" into {pendingTasks.length} tasks
+              AI broke your project into {pendingTasks.length} tasks
               {estimatedHours ? ` (~${estimatedHours}h total)` : ''}.
               Tell it how much time you can give each week and it'll spread them out.
             </Text>

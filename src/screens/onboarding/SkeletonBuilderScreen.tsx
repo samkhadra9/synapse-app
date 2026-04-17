@@ -1,5 +1,5 @@
 /**
- * SkeletonBuilderScreen — Synapse V2 Onboarding Step 2
+ * SkeletonBuilderScreen — Solas V2 Onboarding Step 2
  *
  * Dark teal aesthetic. Conversational AI builds a weekly time template
  * by asking about the user's natural rhythms and sacred commitments.
@@ -85,7 +85,7 @@ function buildSkeletonPrompt(
     ? `\nAlready known from onboarding (do NOT ask about these again): ${knownInfo.join(', ')}.`
     : '';
 
-  return `You are Synapse, helping ${name || 'the user'} design their weekly time skeleton.
+  return `You are the Aiteall AI, helping ${name || 'the user'} design their weekly time skeleton.
 
 A time skeleton is NOT a rigid schedule. It's the recurring structure of a week — when the person naturally thinks best, what time is already claimed, and where deep work slots should live. It becomes the template that syncs to their calendar.
 
@@ -472,7 +472,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
                 </View>
               ) : null}
             </View>
-            <Text style={s.knownBannerSub}>Synapse won't ask about these again — just filling in the gaps.</Text>
+            <Text style={s.knownBannerSub}>Aiteall won't ask about these again — just filling in the gaps.</Text>
           </View>
         )}
 
@@ -553,7 +553,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
                     updateProfile({ onboardingCompleted: true, onboardingStep: 'done', skeletonBuilt: true });
                     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
                   }}>
-                    <Text style={s.skipBtnText}>Skip — enter Synapse now</Text>
+                    <Text style={s.skipBtnText}>Skip for now</Text>
                   </TouchableOpacity>
                 </Animated.View>
               )}

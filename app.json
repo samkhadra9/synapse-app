@@ -1,24 +1,30 @@
 {
   "expo": {
-    "name": "Synapse",
+    "name": "Aiteall",
     "slug": "synapse-adhd",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#12121B"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.synapseadhd.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
-        "NSUserNotificationsUsageDescription": "Synapse sends you daily planning reminders and check-ins to help you stay on track.",
-        "NSCalendarsUsageDescription": "Synapse adds your project deadlines to your calendar so you never miss them.",
-        "NSCalendarsFullAccessUsageDescription": "Synapse adds your project deadlines to your calendar so you never miss them.",
-        "NSMicrophoneUsageDescription": "Synapse uses your microphone so you can voice-record your brain dumps and planning sessions.",
-        "UISpeechRecognitionUsageDescription": "Synapse transcribes your voice notes to help you capture ideas hands-free.",
-        "NSRemindersUsageDescription": "Synapse reads your due-today reminders to include them in your morning planning context.",
+        "NSUserNotificationsUsageDescription": "Aiteall sends you daily planning reminders and check-ins to help you stay on track.",
+        "NSCalendarsUsageDescription": "Aiteall adds your time blocks to your calendar so your day is always visible.",
+        "NSCalendarsFullAccessUsageDescription": "Aiteall adds your time blocks to your calendar so your day is always visible.",
+        "NSMicrophoneUsageDescription": "Aiteall uses your microphone so you can voice-record your brain dumps and planning sessions.",
+        "UISpeechRecognitionUsageDescription": "Aiteall transcribes your voice notes to help you capture ideas hands-free.",
+        "NSRemindersUsageDescription": "Aiteall reads your due-today reminders to include them in your morning planning context.",
         "UIBackgroundModes": [
           "fetch",
           "remote-notification"
@@ -28,7 +34,11 @@
     },
     "android": {
       "package": "com.synapseadhd.app",
-      "versionCode": 1,
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#12121B"
+      },
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",

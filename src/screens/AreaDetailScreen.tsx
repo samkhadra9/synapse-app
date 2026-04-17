@@ -1,5 +1,5 @@
 /**
- * AreaDetailScreen — Synapse V2
+ * AreaDetailScreen — Solas V2
  *
  * Shows detailed view of a single area with:
  * - Weekly tasks for this area

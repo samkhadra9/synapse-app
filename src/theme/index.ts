@@ -1,4 +1,4 @@
-// Synapse Design System — v3
+// Solas Design System — v3
 // Aesthetic: Editorial · Deep forest teal · Warm amber orb · Pure white · Near-black type
 // Blend: Abby Health clarity × C.Lab warmth and organic softness
 

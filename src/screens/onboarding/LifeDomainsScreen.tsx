@@ -42,7 +42,7 @@ export default function LifeDomainsScreen({ navigation }: Props) {
           <Text style={styles.step}>Step 1 of 3</Text>
           <Text style={styles.title}>Which areas of life{'\n'}matter most to you?</Text>
           <Text style={styles.sub}>
-            Select at least 3 domains. Synapse will use these to structure your goals and categorise your work.
+            Select at least 3 domains. Aiteall will use these to structure your goals and categorise your work.
           </Text>
         </View>
 

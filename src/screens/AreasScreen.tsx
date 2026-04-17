@@ -1,5 +1,5 @@
 /**
- * AreasScreen — Synapse V2
+ * AreasScreen — Solas V2
  *
  * Shows the user's life Areas (ongoing domains — Health, Work, Relationships…).
  * Areas are never "done" — they're the recurring commitments and contexts
@@ -538,7 +538,6 @@ export default function AreasScreen({ navigation }: any) {
         >
           {activeAreas.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>🌿</Text>
               <Text style={styles.emptyTitle}>No areas yet</Text>
               <Text style={styles.emptyBody}>
                 Areas are the ongoing parts of your life — health, work, relationships.

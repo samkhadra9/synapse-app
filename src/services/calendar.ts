@@ -1,15 +1,15 @@
 /**
- * calendar.ts — Synapse calendar integration
+ * calendar.ts — Solas calendar integration
  *
  * Pushes project deadlines and routines to the user's iOS Calendar
- * using a dedicated "Synapse" calendar so they don't clutter other calendars.
+ * using a dedicated "Solas" calendar so they don't clutter other calendars.
  */
 
 import * as Calendar from 'expo-calendar';
 import { Platform } from 'react-native';
 import { Project, TimeBlock, TimeBlockType } from '../store/useStore';
 
-const CALENDAR_NAME = 'Synapse';
+const CALENDAR_NAME = 'Aiteall';
 const CALENDAR_COLOR = '#1A5C4A'; // matches Colors.primary
 
 // ── Permissions ───────────────────────────────────────────────────────────────
@@ -19,9 +19,9 @@ export async function requestCalendarPermissions(): Promise<boolean> {
   return status === 'granted';
 }
 
-// ── Find or create the Synapse calendar ───────────────────────────────────────
+// ── Find or create the Solas calendar ───────────────────────────────────────
 
-export async function findOrCreateSynapseCalendar(): Promise<string> {
+export async function findOrCreateSolasCalendar(): Promise<string> {
   const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
   const existing  = calendars.find(c => c.title === CALENDAR_NAME && c.allowsModifications);
   if (existing) return existing.id;
@@ -97,7 +97,7 @@ export async function syncAllProjects(
   const hasPermission = await requestCalendarPermissions();
   if (!hasPermission) throw new Error('Calendar permission denied');
 
-  const calendarId = existingCalendarId || await findOrCreateSynapseCalendar();
+  const calendarId = existingCalendarId || await findOrCreateSolasCalendar();
   const withDeadlines = projects.filter(p => p.deadline && p.status === 'active');
 
   let synced = 0;
@@ -185,15 +185,19 @@ export async function getTodayCalendarEvents(): Promise<TodayEvent[]> {
 
   const events = await Calendar.getEventsAsync(calIds, startOfDay, endOfDay);
 
-  // Filter out Synapse's own time-block events — they're already surfaced via
+  // Filter out Solas's own time-block events — they're already surfaced via
   // buildSkeletonContext, so including them here would double-count committed time.
-  return events.filter(e => !e.title?.startsWith('[Synapse]')).map(e => {
-    const start = e.allDay
-      ? 'all-day'
-      : new Date(e.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-    const end = e.allDay
-      ? undefined
-      : new Date(e.endDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+  return events.filter(e => !e.title?.startsWith('[Aiteall]')).map(e => {
+    const formatTime = (d: Date | string): string => {
+      const date = typeof d === 'string' ? new Date(d) : d;
+      const h = date.getHours();
+      const m = date.getMinutes();
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      return `${hour.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`;
+    };
+    const start = e.allDay ? 'all-day' : formatTime(e.startDate);
+    const end = e.allDay ? undefined : formatTime(e.endDate);
 
     return {
       title:    e.title ?? '(no title)',
@@ -233,9 +237,17 @@ export async function getTodayReminders(): Promise<TodayReminder[]> {
       endOfDay,
     );
 
+    const formatTime = (d: Date | string): string => {
+      const date = typeof d === 'string' ? new Date(d) : d;
+      const h = date.getHours();
+      const m = date.getMinutes();
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      return `${hour.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`;
+    };
     return reminders.map(r => ({
       title:    r.title ?? '(no title)',
-      dueDate:  r.dueDate ? new Date(r.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : undefined,
+      dueDate:  r.dueDate ? formatTime(r.dueDate) : undefined,
       calendar: reminderCals.find(c => c.id === r.calendarId)?.title ?? 'Reminders',
     }));
   } catch {
@@ -364,7 +376,7 @@ export async function getUnimportedReminders(
   }
 }
 
-/** Creates an iOS Reminder linked to a Synapse task */
+/** Creates an iOS Reminder linked to a Solas task */
 export async function createReminderForTask(
   taskId: string,
   text:   string,
@@ -412,7 +424,7 @@ export async function writeDayPlanToCalendar(
     const hasPermission = await requestCalendarPermissions();
     if (!hasPermission) return 0;
 
-    const cid = calendarId ?? (await findOrCreateSynapseCalendar());
+    const cid = calendarId ?? (await findOrCreateSolasCalendar());
     let createdCount = 0;
 
     for (const slot of slots) {
@@ -496,7 +508,7 @@ export async function createCalendarEventForTask(
     const hasPermission = await requestCalendarPermissions();
     if (!hasPermission) return null;
 
-    const cid = calendarId ?? (await findOrCreateSynapseCalendar());
+    const cid = calendarId ?? (await findOrCreateSolasCalendar());
 
     const startDate = new Date(date + 'T09:00:00');
     const endDate   = new Date(date + 'T09:30:00');

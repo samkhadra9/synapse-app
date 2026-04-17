@@ -1,34 +1,35 @@
 /**
- * AmbientChatStrip — Always-present inline chat strip
+ * AmbientChatStrip — Proactive externalised PFC
  *
- * Lives at the bottom of the home screen. You can talk to Synapse
- * without navigating away. Thought appears → strip expands → you reply
- * → AI responds in 1-2 sentences → collapses back.
+ * The app reaches out to YOU — it doesn't wait. On mount it reads your
+ * context (MIT, calendar, time of day) and generates a personalised
+ * opening: "You're clear until 10am. That's 1h 15min — enough for the
+ * draft intro. Ready when you are."
+ *
+ * Action chips give immediate options:
+ *   "Yes, let's go" → opens focus session
+ *   "Just 5 min"    → opens 5-min starter
+ *   "I'm stuck"     → sends to AI inline
+ *
+ * Tapping the strip or the ✏ icon expands to full text input.
+ * After a reply, "Keep going →" opens full chat with context.
  *
  * Design intent:
- * - Brain offload without context switch. No new screen.
- * - Fatigue: one input, one reply. Not a full conversation thread.
- * - "Open in Chat" escape hatch if they want to go deeper.
- *
- * Usage:
- *   <AmbientChatStrip
- *     navigation={navigation}
- *     profile={profile}
- *     tasks={tasks}
- *     goals={goals}
- *   />
+ * - ADHD brains need external initiation cues. The app provides them.
+ * - Chips remove the blank-input paralysis — pre-formulated is easier.
+ * - One-pane reply only. Not a thread. Deep work stays in ChatScreen.
  */
 
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ActivityIndicator,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, Spacing, Radius } from '../theme';
 import { fetchAnthropic } from '../lib/anthropic';
 import { UserProfile, Task, LifeGoal, useStore } from '../store/useStore';
+import { TodayEvent } from '../services/calendar';
 import { format } from 'date-fns';
 
 interface AmbientChatStripProps {
@@ -36,72 +37,132 @@ interface AmbientChatStripProps {
   profile: UserProfile;
   tasks: Task[];
   goals: LifeGoal[];
+  calEvents?: TodayEvent[];
+  primaryMIT?: Task | null;
+  onStartMIT?: (quickStart?: boolean) => void;
 }
 
-type StripState = 'collapsed' | 'expanded' | 'replied';
+type StripState = 'proactive' | 'expanded' | 'replied';
 
-// Static fallbacks — only used if context-aware prompts can't be determined
-const FALLBACK_PROMPTS = [
-  "What should I start with?",
-  "I feel stuck.",
-  "Clear my head.",
-  "Too much on my plate.",
-  "What's the one thing?",
-];
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
-/**
- * Context-aware prompts — the strip reads the user's actual situation
- * and surfaces the most useful thing to say, rather than generic options.
- * This is the "externalised PFC" in action: it knows what you need before you do.
- */
-function getContextualPrompts(profile: UserProfile, tasks: Task[]): string[] {
+function parseTime(timeStr: string): number {
+  const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return -1;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+  if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+function getNextEventInfo(calEvents: TodayEvent[]): { minsUntil: number; label: string; title: string } | null {
+  const now = new Date();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  let nearest: { minsUntil: number; title: string } | null = null;
+
+  for (const ev of calEvents) {
+    if (ev.allDay) continue;
+    const startM = parseTime(ev.start);
+    if (startM < 0) continue;
+    const minsAway = startM - nowMins;
+    if (minsAway > 0 && (!nearest || minsAway < nearest.minsUntil)) {
+      nearest = { minsUntil: minsAway, title: ev.title };
+    }
+  }
+
+  if (!nearest) return null;
+  const { minsUntil, title } = nearest;
+  let label: string;
+  if (minsUntil < 60) {
+    label = `${minsUntil} min`;
+  } else {
+    const h = Math.floor(minsUntil / 60);
+    const m = minsUntil % 60;
+    label = m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return { minsUntil, label, title };
+}
+
+function getStaticContextualMessage(
+  profile: UserProfile,
+  tasks: Task[],
+  goals: LifeGoal[],
+  calEvents: TodayEvent[],
+  primaryMIT: Task | null,
+): string {
   const now = new Date();
   const today = format(now, 'yyyy-MM-dd');
+  const timeStr = format(now, 'h:mm a');
   const hour = now.getHours();
-  const todayMITs = tasks.filter(t => t.date === today && t.isMIT && !t.completed);
-  const doneCount = tasks.filter(t => t.date === today && t.completed).length;
+  const dayPhase = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+
+  const firstName = profile.name ? profile.name.split(' ')[0] : null;
+  const nextEvent = getNextEventInfo(calEvents);
+  const topGoal = goals.find(g => g.horizon === '1year');
+
+  const doneTasks = tasks.filter(t => t.date === today && t.completed).length;
   const totalToday = tasks.filter(t => t.date === today && !t.completed).length;
 
-  const prompts: string[] = [];
-
-  // Morning with no plan
-  if (hour < 10 && totalToday === 0) {
-    prompts.push("What does a good day look like today?");
-    prompts.push("Help me plan the next 3 hours.");
+  // Generate a contextual fallback message (no AI needed)
+  if (primaryMIT) {
+    if (nextEvent) {
+      return `You've got ${nextEvent.label} until "${nextEvent.title}". Enough time to move "${primaryMIT.text.slice(0, 40)}" forward. Ready when you are.`;
+    } else {
+      return `Your MIT is "${primaryMIT.text.slice(0, 40)}${primaryMIT.text.length > 40 ? '…' : ''}". Let's make a dent.`;
+    }
   }
 
-  // Has MITs, hasn't started
-  if (todayMITs.length > 0 && doneCount === 0) {
-    prompts.push(`How do I start "${todayMITs[0].text.slice(0, 35)}${todayMITs[0].text.length > 35 ? '…' : ''}"?`);
-    prompts.push("I keep avoiding my MIT. Help.");
+  if (doneTasks > 0) {
+    return `You've done ${doneTasks} task${doneTasks !== 1 ? 's' : ''} already. Momentum's good. What's next?`;
   }
 
-  // Overwhelmed (many tasks)
-  if (totalToday >= 5) {
-    prompts.push("Too many tasks — what actually matters?");
-    prompts.push("I'm overwhelmed. One thing.");
-  }
+  const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  const ampm = hour < 12 ? 'AM' : 'PM';
+  return `It's ${hour12}:00 ${ampm}. You're clear. Where do you want to start?`;
+}
 
-  // Mid-day check-in
-  if (hour >= 13 && hour < 15 && doneCount > 0) {
-    prompts.push(`Done ${doneCount} so far — what's the best use of the next hour?`);
-  }
+function buildProactivePrompt(
+  profile: UserProfile,
+  tasks: Task[],
+  goals: LifeGoal[],
+  calEvents: TodayEvent[],
+  primaryMIT: Task | null,
+): string {
+  const now = new Date();
+  const today = format(now, 'yyyy-MM-dd');
+  const timeStr = format(now, 'h:mm a');
+  const hour = now.getHours();
+  const dayPhase = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
 
-  // Afternoon slump
-  if (hour >= 14 && hour <= 16) {
-    prompts.push("Afternoon slump. Help me refocus.");
-    prompts.push("Brain fog. Simplest next step?");
-  }
+  const firstName = profile.name ? profile.name.split(' ')[0] : null;
+  const nextEvent = getNextEventInfo(calEvents);
+  const topGoal = goals.find(g => g.horizon === '1year');
 
-  // Nothing left / all done
-  if (totalToday === 0 && doneCount > 0) {
-    prompts.push("Finished my list. What's worth doing next?");
-  }
+  const doneTasks = tasks.filter(t => t.date === today && t.completed).length;
+  const totalToday = tasks.filter(t => t.date === today && !t.completed).length;
 
-  // Fill to 4 with fallbacks
-  const combined = [...prompts, ...FALLBACK_PROMPTS].slice(0, 4);
-  // Shuffle slightly (deterministic based on hour so it doesn't flicker)
-  return combined;
+  return `You are the Aiteall AI, a warm executive coach for someone with ADHD. Generate ONE proactive message — 1-2 sentences — that opens the session.
+
+Context:
+- Time: ${timeStr} (${dayPhase})
+- User: ${firstName ?? 'them'}
+- MIT (most important task): ${primaryMIT ? `"${primaryMIT.text}"${primaryMIT.estimatedMinutes ? ` (~${primaryMIT.estimatedMinutes}m)` : ''}` : 'none set'}
+- Next event: ${nextEvent ? `"${nextEvent.title}" in ${nextEvent.label}` : 'none'}
+- Tasks today: ${totalToday} remaining, ${doneTasks} done
+- 1-year goal: ${topGoal ? `"${topGoal.text}"` : 'not set'}
+
+Rules:
+1. Be specific about time if you have it: "You're clear until X" or "You've got Yh before Z"
+2. Reference the actual MIT name if available
+3. End with a warm, forward-leaning prompt: "Ready when you are." / "Where do you want to start?" / "Let's make a dent."
+4. 1-2 sentences MAX. Tight and warm. No lists. No questions except the final invite.
+5. Do NOT start with "Hi" or "Hello" — just say the thing.
+
+Examples of good messages:
+- "You're clear until 10am — 1h 20min. Enough to get the draft intro done. Ready when you are."
+- "8:15am and your MIT hasn't started yet. Open the doc and just read your last sentence."
+- "You've done 2 tasks already. Momentum's good. What's next?"`.trim();
 }
 
 function buildAmbientSystemPrompt(profile: UserProfile, tasks: Task[], goals: LifeGoal[]): string {
@@ -120,12 +181,12 @@ function buildAmbientSystemPrompt(profile: UserProfile, tasks: Task[], goals: Li
   const firstName = profile.name ? profile.name.split(' ')[0] : null;
   const topGoal = goals.find(g => g.horizon === '1year');
 
-  return `You are Synapse, a brilliant and concise executive coach for someone with ADHD. You're embedded as a quick ambient helper — NOT a full chat session.
+  return `You are the Aiteall AI, a brilliant and concise executive coach for someone with ADHD. You're embedded as a quick ambient helper — NOT a full chat session.
 
 Current context:
 - Time: ${timeStr} (${dayPhase})
 - User: ${firstName ?? 'them'}
-- MITs today (Most Important Tasks): ${mits.length > 0 ? mits.map(t => `"${t.text}"${t.estimatedMinutes ? ` (~${t.estimatedMinutes}m)` : ''}`).join(', ') : 'none set'}
+- MITs today: ${mits.length > 0 ? mits.map(t => `"${t.text}"${t.estimatedMinutes ? ` (~${t.estimatedMinutes}m)` : ''}`).join(', ') : 'none set'}
 - Other tasks today: ${otherTasks.length > 0 ? otherTasks.map(t => `"${t.text}"`).slice(0, 3).join(', ') : 'none'}
 - Done today: ${doneTasks.length} task${doneTasks.length !== 1 ? 's' : ''}
 - Inbox (unscheduled): ${inboxTasks.length} item${inboxTasks.length !== 1 ? 's' : ''}
@@ -136,9 +197,9 @@ Your rules:
 2. Give ONE specific, actionable next step. Not options. Not lists.
 3. Use the user's actual task names when referencing them.
 4. Be warm, direct, slightly energising. No corporate tone.
-5. If they're stuck or overwhelmed: name the feeling, then give the one door to walk through.
-6. Never ask clarifying questions back. Just respond.
-7. End with the physical first action if possible. "Open the doc." "Write the first line." "Set a 10-min timer."`.trim();
+5. If stuck or overwhelmed: name the feeling, then give the one door to walk through.
+6. Never ask clarifying questions. Just respond.
+7. End with the physical first action if possible.`.trim();
 }
 
 export default function AmbientChatStrip({
@@ -146,59 +207,81 @@ export default function AmbientChatStrip({
   profile,
   tasks,
   goals,
+  calEvents = [],
+  primaryMIT = null,
+  onStartMIT,
 }: AmbientChatStripProps) {
   const C = useColors();
   const s = useMemo(() => makeStyles(C), [C]);
-  const anthropicKey = useStore(s => s.profile?.anthropicKey);
+  const anthropicKey = useStore(st => st.profile?.anthropicKey);
 
-  const [state, setState] = useState<StripState>('collapsed');
+  const [state, setState] = useState<StripState>('proactive');
+  const [proactiveMsg, setProactiveMsg] = useState<string | null>(null);
+  const [proactiveLoading, setProactiveLoading] = useState(true);
+
   const [input, setInput] = useState('');
   const [response, setResponse] = useState('');
-  const [sentText, setSentText] = useState(''); // preserve sent text for display in replied state
+  const [sentText, setSentText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [quickPromptIndex, setQuickPromptIndex] = useState(0);
+
   const inputRef = useRef<TextInput>(null);
+  const sendAbortRef = useRef<boolean>(false);
 
-  // Build context-aware prompt list, recalculate when tasks change
-  const contextPrompts = useMemo(
-    () => getContextualPrompts(profile, tasks),
-    [profile, tasks],
-  );
-
-  // Reset index when context shifts
+  // ── Generate proactive opening on mount ───────────────────────────────────
   useEffect(() => {
-    setQuickPromptIndex(0);
-  }, [contextPrompts]);
+    let cancelled = false;
+    setProactiveLoading(true);
 
-  // Cycle prompts every 6 seconds
+    async function generate() {
+      try {
+        // Always try the AI — fetchAnthropic routes through the Supabase proxy
+        // when no personal key is set, so this works for all users.
+        const systemPrompt = buildProactivePrompt(profile, tasks, goals, calEvents, primaryMIT);
+        const res = await fetchAnthropic(
+          {
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 100,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: 'Generate the opening message.' }],
+          },
+          anthropicKey || undefined,
+        );
+        if (cancelled) return;
+        if (!res.ok) throw new Error('API error');
+        const data = await res.json();
+        const text = (data?.content?.[0]?.text ?? '').trim();
+        if (!cancelled && text) setProactiveMsg(text);
+      } catch {
+        // Silently fall back to static contextual message
+        if (!cancelled) {
+          const staticMsg = getStaticContextualMessage(profile, tasks, goals, calEvents, primaryMIT);
+          setProactiveMsg(staticMsg);
+        }
+      } finally {
+        if (!cancelled) setProactiveLoading(false);
+      }
+    }
+
+    generate();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anthropicKey, primaryMIT?.id, calEvents.length, new Date().getHours()]);  // Regenerate when MIT, events, key, or hour-of-day changes
+
+  // Cleanup abort flag on unmount
   useEffect(() => {
-    const timer = setInterval(() => {
-      setQuickPromptIndex(i => (i + 1) % contextPrompts.length);
-    }, 6000);
-    return () => clearInterval(timer);
-  }, [contextPrompts]);
+    return () => { sendAbortRef.current = true; };
+  }, []);
 
-  function expand() {
-    setState('expanded');
-    setTimeout(() => inputRef.current?.focus(), 150);
-  }
-
-  function collapse() {
-    setInput('');
-    setResponse('');
-    setSentText('');
-    setState('collapsed');
-  }
-
-  /** Fire a message — accepts text directly so quick-send can bypass state timing */
-  async function sendText(text: string) {
+  // ── Send message ──────────────────────────────────────────────────────────
+  const sendText = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
     setSentText(trimmed);
     setInput('');
     setLoading(true);
-    setState('replied'); // show loading state immediately in replied pane
+    setState('replied');
+    sendAbortRef.current = false;
 
     try {
       const systemPrompt = buildAmbientSystemPrompt(profile, tasks, goals);
@@ -211,20 +294,28 @@ export default function AmbientChatStrip({
         },
         anthropicKey,
       );
-
+      if (sendAbortRef.current) return;
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-      const reply = data?.content?.[0]?.text ?? "Let's figure it out — start with the very next physical action.";
-      setResponse(reply);
+      const reply = data?.content?.[0]?.text ?? "Start with the very next physical action.";
+      if (!sendAbortRef.current) setResponse(reply);
     } catch {
-      setResponse("Couldn't reach Synapse — check your connection, then try again.");
+      if (!sendAbortRef.current) setResponse("Couldn't connect — check your connection.");
     } finally {
-      setLoading(false);
+      if (!sendAbortRef.current) setLoading(false);
     }
+  }, [loading, profile, tasks, goals, anthropicKey]);
+
+  function collapse() {
+    setInput('');
+    setResponse('');
+    setSentText('');
+    setState('proactive');
   }
 
-  function sendFromInput() {
-    sendText(input);
+  function expand() {
+    setState('expanded');
+    setTimeout(() => inputRef.current?.focus(), 150);
   }
 
   function openFullChat() {
@@ -233,315 +324,362 @@ export default function AmbientChatStrip({
     navigation.navigate('Chat', { mode: 'dump', initialMessage: textToCarry });
   }
 
-  // ── Collapsed state ────────────────────────────────────────────────────────
-  if (state === 'collapsed') {
+  // ── PROACTIVE STATE ───────────────────────────────────────────────────────
+  if (state === 'proactive') {
+    const hasMIT = primaryMIT !== null;
     return (
-      <TouchableOpacity style={s.collapsedStrip} onPress={expand} activeOpacity={0.82}>
-        <View style={s.stripLeft}>
+      <View style={s.proactiveContainer}>
+        {/* Sparkle + message */}
+        <View style={s.proactiveHeader}>
           <View style={s.sparkleWrap}>
             <Ionicons name="sparkles" size={14} color={C.primary} />
           </View>
-          <Text style={s.promptText} numberOfLines={1}>
-            {contextPrompts[quickPromptIndex]}
-          </Text>
-        </View>
-        <View style={s.stripRight}>
-          {/* Quick-fire: sends the current prompt directly, no intermediate step */}
+          <View style={{ flex: 1 }}>
+            {proactiveLoading ? (
+              <View style={s.loadingRow}>
+                <ActivityIndicator size="small" color={C.textTertiary} />
+                <Text style={s.loadingText}>…</Text>
+              </View>
+            ) : (
+              <Text style={s.proactiveText}>
+                {proactiveMsg ?? (hasMIT
+                  ? `Your MIT is "${primaryMIT!.text.slice(0, 40)}${primaryMIT!.text.length > 40 ? '…' : ''}". Ready to start?`
+                  : "What would make today a win?"
+                )}
+              </Text>
+            )}
+          </View>
+          {/* Edit button */}
           <TouchableOpacity
-            style={s.quickSendBtn}
-            onPress={() => sendText(contextPrompts[quickPromptIndex])}
-            activeOpacity={0.75}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="send" size={13} color={C.primary} />
-          </TouchableOpacity>
-          {/* Edit: expands for custom input */}
-          <TouchableOpacity
-            style={s.expandBtn}
+            style={s.editBtn}
             onPress={expand}
-            activeOpacity={0.75}
+            activeOpacity={0.7}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Ionicons name="create-outline" size={15} color={C.textTertiary} />
           </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+
+        {/* Action chips */}
+        <View style={s.chipsRow}>
+          {hasMIT && onStartMIT && (
+            <>
+              <TouchableOpacity
+                style={[s.chip, s.chipPrimary]}
+                onPress={() => onStartMIT(false)}
+                activeOpacity={0.82}
+              >
+                <Ionicons name="play" size={11} color="#fff" />
+                <Text style={s.chipPrimaryText}>Yes, let's go</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.chip}
+                onPress={() => onStartMIT(true)}
+                activeOpacity={0.82}
+              >
+                <Text style={s.chipText}>Just 5 min</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <TouchableOpacity
+            style={s.chip}
+            onPress={() => sendText("I'm stuck and can't start. Help me take the first step.")}
+            activeOpacity={0.82}
+          >
+            <Text style={s.chipText}>I'm stuck</Text>
+          </TouchableOpacity>
+
+          {!hasMIT && (
+            <TouchableOpacity
+              style={s.chip}
+              onPress={() => sendText("What should I prioritise today?")}
+              activeOpacity={0.82}
+            >
+              <Text style={s.chipText}>Prioritise today</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
     );
   }
 
-  // ── Expanded (typing) state ────────────────────────────────────────────────
+  // ── EXPANDED (typing) STATE ───────────────────────────────────────────────
   if (state === 'expanded') {
     return (
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <View style={s.expandedContainer}>
-          {/* Input row */}
           <View style={s.inputRow}>
             <View style={s.sparkleWrap}>
               <Ionicons name="sparkles" size={14} color={C.primary} />
             </View>
             <TextInput
               ref={inputRef}
-              style={s.input}
+              style={s.textInput}
               value={input}
               onChangeText={setInput}
-              placeholder="Tell me what's on your mind..."
+              placeholder="Ask anything…"
               placeholderTextColor={C.textTertiary}
               multiline
-              maxLength={500}
-              // Note: multiline eats the Return key on iOS — rely on the send button
             />
             <TouchableOpacity
-              style={[s.sendBtn, !input.trim() && s.sendBtnOff]}
-              onPress={sendFromInput}
-              disabled={!input.trim() || loading}
-              activeOpacity={0.82}
+              style={[s.sendBtn, !input.trim() && s.sendBtnDisabled]}
+              onPress={() => sendText(input)}
+              activeOpacity={0.78}
+              disabled={!input.trim()}
             >
-              {loading
-                ? <ActivityIndicator size="small" color={C.textInverse} />
-                : <Ionicons name="send" size={15} color={C.textInverse} />
-              }
+              <Ionicons name="send" size={14} color={input.trim() ? '#fff' : C.textTertiary} />
             </TouchableOpacity>
           </View>
-
-          {/* Context-aware suggestion chips */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.chipsScroll} contentContainerStyle={s.chips}>
-            {contextPrompts.filter(p => p !== input).slice(0, 4).map((p, i) => (
-              <TouchableOpacity key={i} style={s.chip} onPress={() => setInput(p)} activeOpacity={0.7}>
-                <Text style={s.chipText}>{p}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* Dismiss */}
-          <TouchableOpacity style={s.dismissRow} onPress={collapse} activeOpacity={0.6}>
-            <Text style={s.dismissText}>Dismiss</Text>
+          <TouchableOpacity style={s.collapseRow} onPress={collapse} activeOpacity={0.7}>
+            <Ionicons name="chevron-down" size={14} color={C.textTertiary} />
+            <Text style={s.collapseText}>Collapse</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     );
   }
 
-  // ── Replied state ─────────────────────────────────────────────────────────
+  // ── REPLIED STATE ─────────────────────────────────────────────────────────
   return (
     <View style={s.repliedContainer}>
-      {/* User message */}
+      {/* User's message */}
       <View style={s.userBubble}>
         <Text style={s.userBubbleText}>{sentText}</Text>
       </View>
 
-      {/* AI response — shows spinner while loading */}
+      {/* AI response */}
       <View style={s.aiBubble}>
         <View style={s.sparkleWrap}>
-          {loading
-            ? <ActivityIndicator size="small" color={C.primary} />
-            : <Ionicons name="sparkles" size={12} color={C.primary} />
-          }
+          <Ionicons name="sparkles" size={12} color={C.primary} />
         </View>
-        {loading
-          ? <Text style={[s.aiBubbleText, { color: C.textTertiary, fontStyle: 'italic' }]}>Thinking…</Text>
-          : <Text style={s.aiBubbleText}>{response}</Text>
-        }
+        {loading ? (
+          <View style={s.loadingRow}>
+            <ActivityIndicator size="small" color={C.textTertiary} />
+            <Text style={s.loadingText}>Thinking…</Text>
+          </View>
+        ) : (
+          <Text style={s.aiText}>{response}</Text>
+        )}
       </View>
 
       {/* Footer actions */}
-      <View style={s.replyFooter}>
-        <TouchableOpacity style={s.dismissSmall} onPress={collapse} activeOpacity={0.7}>
-          <Text style={s.dismissSmallText}>Done</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.openChatBtn} onPress={openFullChat} activeOpacity={0.8}>
-          <Text style={s.openChatText}>Keep going →</Text>
-        </TouchableOpacity>
-      </View>
+      {!loading && (
+        <View style={s.repliedFooter}>
+          <TouchableOpacity style={s.keepGoingBtn} onPress={openFullChat} activeOpacity={0.8}>
+            <Text style={s.keepGoingText}>Keep going →</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={collapse} activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={s.dismissText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
 
 function makeStyles(C: any) {
   return StyleSheet.create({
-    // ── Collapsed ──────────────────────────────────────────────────────────────
-    collapsedStrip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: Spacing.lg,
-      paddingVertical: 14,
+    // ── Proactive ────────────────────────────────────────────────────────────
+    proactiveContainer: {
+      marginHorizontal: Spacing.lg,
+      marginTop: Spacing.sm,
+      marginBottom: 4,
       backgroundColor: C.surface,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: C.borderLight,
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: C.border,
+      overflow: 'hidden',
     },
-    stripLeft: {
+    proactiveHeader: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: 10,
-      flex: 1,
-    },
-    stripRight: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
+      padding: 14,
+      paddingBottom: 10,
     },
     sparkleWrap: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      backgroundColor: C.primaryLight,
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      backgroundColor: C.primary + '18',
       alignItems: 'center',
       justifyContent: 'center',
       flexShrink: 0,
+      marginTop: 1,
     },
-    promptText: {
-      flex: 1,
-      fontSize: 14,
-      color: C.textSecondary,
-      fontWeight: '400',
+    proactiveText: {
+      fontSize: 13,
+      color: C.textPrimary,
+      lineHeight: 19,
     },
-    quickSendBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: C.primaryLight,
+    editBtn: {
+      padding: 2,
+      flexShrink: 0,
+    },
+    loadingRow: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
+      gap: 7,
     },
-    expandBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
+    loadingText: {
+      fontSize: 12,
+      color: C.textTertiary,
+      fontStyle: 'italic',
     },
 
-    // ── Expanded ───────────────────────────────────────────────────────────────
+    // Chips
+    chipsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 7,
+      paddingHorizontal: 14,
+      paddingBottom: 8,
+    },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: C.border,
+      backgroundColor: C.background,
+    },
+    chipPrimary: {
+      backgroundColor: C.primary,
+      borderColor: C.primary,
+    },
+    chipText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: C.textSecondary,
+    },
+    chipPrimaryText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#fff',
+    },
+    noKeyHint: {
+      paddingHorizontal: 14,
+      paddingBottom: 12,
+    },
+    noKeyHintText: {
+      fontSize: 11,
+      color: C.textTertiary,
+    },
+
+    // ── Expanded ─────────────────────────────────────────────────────────────
     expandedContainer: {
+      marginHorizontal: Spacing.lg,
+      marginTop: Spacing.sm,
+      marginBottom: 4,
       backgroundColor: C.surface,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: C.borderLight,
-      paddingTop: 12,
-      paddingBottom: Platform.OS === 'ios' ? 8 : 12,
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: C.primary + '66',
     },
     inputRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
       gap: 10,
-      paddingHorizontal: Spacing.lg,
-      marginBottom: 10,
+      padding: 12,
     },
-    input: {
+    textInput: {
       flex: 1,
-      minHeight: 40,
-      maxHeight: 100,
-      fontSize: 15,
+      fontSize: 14,
       color: C.textPrimary,
-      backgroundColor: C.surfaceSecondary,
-      borderRadius: Radius.lg,
-      paddingHorizontal: 14,
-      paddingTop: 10,
-      paddingBottom: 10,
-      lineHeight: 21,
+      lineHeight: 20,
+      maxHeight: 80,
     },
     sendBtn: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
       backgroundColor: C.primary,
       alignItems: 'center',
       justifyContent: 'center',
       flexShrink: 0,
     },
-    sendBtnOff: {
-      backgroundColor: C.borderLight,
+    sendBtnDisabled: {
+      backgroundColor: C.borderLight ?? C.border,
     },
-    chipsScroll: { marginBottom: 4 },
-    chips: {
-      paddingHorizontal: Spacing.lg,
-      gap: 8,
-    },
-    chip: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      backgroundColor: C.surfaceSecondary,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-      borderColor: C.borderLight,
-    },
-    chipText: {
-      fontSize: 12,
-      color: C.textSecondary,
-      fontWeight: '500',
-    },
-    dismissRow: {
+    collapseRow: {
+      flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: 8,
+      justifyContent: 'center',
+      gap: 4,
+      paddingBottom: 10,
     },
-    dismissText: {
-      fontSize: 13,
+    collapseText: {
+      fontSize: 11,
       color: C.textTertiary,
     },
 
-    // ── Replied ────────────────────────────────────────────────────────────────
+    // ── Replied ──────────────────────────────────────────────────────────────
     repliedContainer: {
+      marginHorizontal: Spacing.lg,
+      marginTop: Spacing.sm,
+      marginBottom: 4,
       backgroundColor: C.surface,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: C.borderLight,
-      padding: Spacing.lg,
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: C.border,
+      padding: 12,
       gap: 10,
-      paddingBottom: Platform.OS === 'ios' ? 24 : 16,
     },
     userBubble: {
       alignSelf: 'flex-end',
-      backgroundColor: C.ink,
-      borderRadius: Radius.lg,
-      borderBottomRightRadius: 4,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+      backgroundColor: C.primary + '18',
+      borderRadius: Radius.md,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
       maxWidth: '80%',
     },
     userBubbleText: {
-      fontSize: 14,
-      color: '#fff',
-      lineHeight: 20,
+      fontSize: 13,
+      color: C.textPrimary,
+      lineHeight: 18,
     },
     aiBubble: {
       flexDirection: 'row',
       alignItems: 'flex-start',
-      gap: 10,
-      alignSelf: 'flex-start',
-      maxWidth: '90%',
+      gap: 8,
     },
-    aiBubbleText: {
+    aiText: {
       flex: 1,
-      fontSize: 14,
+      fontSize: 13,
       color: C.textPrimary,
-      lineHeight: 21,
-      fontWeight: '400',
+      lineHeight: 19,
     },
-    replyFooter: {
+    repliedFooter: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginTop: 4,
+      paddingTop: 4,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: C.borderLight ?? C.border,
     },
-    dismissSmall: {
-      paddingVertical: 8,
-      paddingRight: 16,
-    },
-    dismissSmallText: {
-      fontSize: 14,
-      color: C.textTertiary,
-    },
-    openChatBtn: {
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      backgroundColor: C.primaryLight,
+    keepGoingBtn: {
+      paddingVertical: 5,
+      paddingHorizontal: 12,
       borderRadius: Radius.full,
+      backgroundColor: C.primary + '18',
     },
-    openChatText: {
-      fontSize: 14,
-      color: C.primary,
+    keepGoingText: {
+      fontSize: 12,
       fontWeight: '600',
+      color: C.primary,
+    },
+    dismissText: {
+      fontSize: 12,
+      color: C.textTertiary,
+      paddingHorizontal: 4,
     },
   });
 }

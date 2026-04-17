@@ -1,5 +1,5 @@
 /**
- * Synapse App — Colour Themes
+ * Solas App — Colour Themes
  *
  * Each theme swaps out the brand/accent palette while keeping the
  * neutral foundation (grays, borders, backgrounds) mostly intact.

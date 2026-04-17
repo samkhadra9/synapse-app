@@ -58,7 +58,7 @@ export default function SMSSetupScreen({ navigation }: Props) {
     } else {
       Alert.alert(
         'Notifications blocked',
-        'To get SMS-style reminders, go to Settings > Synapse > Notifications and enable them.'
+        'To get SMS-style reminders, go to Settings > Aiteall > Notifications and enable them.'
       );
     }
   };
@@ -100,7 +100,7 @@ export default function SMSSetupScreen({ navigation }: Props) {
             <Text style={styles.step}>Step 3 of 3</Text>
             <Text style={styles.title}>Set up your reminders</Text>
             <Text style={styles.sub}>
-              Synapse works best when you start and end each day intentionally. Set your planning windows and we'll nudge you at the right time.
+              Aiteall works best when you start and end each day intentionally. Set your planning windows and we'll nudge you at the right time.
             </Text>
           </View>
 
@@ -157,7 +157,7 @@ export default function SMSSetupScreen({ navigation }: Props) {
           <View style={[styles.section, Shadow.sm]}>
             <Text style={styles.sectionTitle}>📱  SMS text reminders (optional)</Text>
             <Text style={styles.sectionSub}>
-              Get a morning text you can reply to — Synapse will structure your reply and add it to your plan. Requires the Synapse backend to be set up (see README).
+              Get a morning text you can reply to — Aiteall will structure your reply and add it to your plan. Requires the Aiteall backend to be set up (see README).
             </Text>
             <TextInput
               style={styles.input}

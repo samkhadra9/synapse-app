@@ -1,5 +1,5 @@
 /**
- * Synapse V2 — Global State (Zustand + AsyncStorage)
+ * Solas V2 — Global State (Zustand + AsyncStorage)
  *
  * Every mutation that writes local state also fires a Supabase push
  * (fire-and-forget, only when a session is active).
@@ -212,7 +212,7 @@ export interface UserProfile {
 
 // ── State Interface ───────────────────────────────────────────────────────────
 
-interface SynapseState {
+interface SolasState {
   session:    Session | null;
   setSession: (s: Session | null) => void;
   signOut:    () => Promise<void>;
@@ -335,7 +335,7 @@ const uid = (): string =>
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 
-export const useStore = create<SynapseState>()(
+export const useStore = create<SolasState>()(
   persist(
     (set, get) => ({
 
@@ -708,8 +708,8 @@ export const useStore = create<SynapseState>()(
       storage: createJSONStorage(() => AsyncStorage),
       // Deep-merge profile so new fields (e.g. anthropicKey) always have their
       // default values for existing users whose stored state predates the field.
-      merge: (persistedState: unknown, currentState: SynapseState): SynapseState => {
-        const persisted = persistedState as Partial<SynapseState>;
+      merge: (persistedState: unknown, currentState: SolasState): SolasState => {
+        const persisted = persistedState as Partial<SolasState>;
         return {
           ...currentState,
           ...persisted,

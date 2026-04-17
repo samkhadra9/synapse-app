@@ -1,5 +1,5 @@
 /**
- * Synapse — Supabase sync service
+ * Solas — Supabase sync service
  *
  * Strategy: "last write wins" on user-owned data.
  * All tables have RLS so users only ever read their own rows.

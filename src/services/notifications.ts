@@ -1,5 +1,5 @@
 /**
- * Synapse Notification Service
+ * Solas Notification Service
  *
  * Schedules local push notifications for:
  *   - Morning planning reminder
@@ -47,7 +47,7 @@ export async function requestPermissions(): Promise<boolean> {
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
-      name: 'Synapse',
+      name: 'Aiteall',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#0D7377',
@@ -93,7 +93,7 @@ export async function scheduleDailyNotifications(
   await Notifications.scheduleNotificationAsync({
     content: {
       title: '🌅 Morning planning — 10 min',
-      body: "What are your 3 most important things today? Open Synapse to structure your day.",
+      body: "What are your 3 most important things today? Open Aiteall to structure your day.",
       data: { screen: 'MorningPlanning' },
       sound: true,
     },
@@ -142,8 +142,12 @@ export async function scheduleDailyNotifications(
 const LAPSE_NOTIFICATION_ID = 'synapse-lapse-recovery';
 
 export async function scheduleLapseNotification(daysSilent: number): Promise<void> {
-  // Don't double-schedule
-  await Notifications.cancelScheduledNotificationAsync(LAPSE_NOTIFICATION_ID).catch(() => {});
+  // Don't double-schedule — ignore if notification doesn't exist
+  try {
+    await Notifications.cancelScheduledNotificationAsync(LAPSE_NOTIFICATION_ID);
+  } catch (e) {
+    // Expected if notification was never scheduled — ignore
+  }
 
   const isWeekPlus = daysSilent >= 7;
   await Notifications.scheduleNotificationAsync({
@@ -161,7 +165,11 @@ export async function scheduleLapseNotification(daysSilent: number): Promise<voi
 }
 
 export async function cancelLapseNotification(): Promise<void> {
-  await Notifications.cancelScheduledNotificationAsync(LAPSE_NOTIFICATION_ID).catch(() => {});
+  try {
+    await Notifications.cancelScheduledNotificationAsync(LAPSE_NOTIFICATION_ID);
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
 }
 
 // ── Smart Morning Brief ────────────────────────────────────────────────────────
@@ -174,7 +182,11 @@ export async function scheduleMorningBrief(
   calendarEventCount?: number, // number of calendar events today
 ): Promise<void> {
   // Cancel any existing brief
-  await Notifications.cancelScheduledNotificationAsync('synapse-morning-brief').catch(() => {});
+  try {
+    await Notifications.cancelScheduledNotificationAsync('synapse-morning-brief');
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
 
   const morning = parseTime(morningTime);
   const now = new Date();
@@ -208,7 +220,11 @@ export async function scheduleMorningBrief(
 }
 
 export async function cancelMorningBrief(): Promise<void> {
-  await Notifications.cancelScheduledNotificationAsync('synapse-morning-brief').catch(() => {});
+  try {
+    await Notifications.cancelScheduledNotificationAsync('synapse-morning-brief');
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
 }
 
 // ── Drift Detection Nudge ───────────────────────────────────────────────────────
@@ -220,7 +236,11 @@ export async function scheduleDriftNudge(
   mitId?: string,
 ): Promise<void> {
   // Cancel any existing drift nudge first
-  await Notifications.cancelScheduledNotificationAsync('synapse-drift-nudge').catch(() => {});
+  try {
+    await Notifications.cancelScheduledNotificationAsync('synapse-drift-nudge');
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
 
   // Calculate fire time
   let fireDate: Date;
@@ -259,7 +279,88 @@ export async function scheduleDriftNudge(
 }
 
 export async function cancelDriftNudge(): Promise<void> {
-  await Notifications.cancelScheduledNotificationAsync('synapse-drift-nudge').catch(() => {});
+  try {
+    await Notifications.cancelScheduledNotificationAsync('synapse-drift-nudge');
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
+}
+
+// ── Onboarding Notifications ──────────────────────────────────────────────────
+
+const ONBOARDING_WELCOME_ID = 'synapse-onboarding-welcome';
+const ONBOARDING_REMINDER_ID = 'synapse-onboarding-reminder';
+
+/**
+ * Fire 30 minutes after first install — gentle nudge to start onboarding.
+ * Call once from navigation when `!profile.onboardingCompleted && isFirstLaunch`.
+ * iOS will present the permissions dialog before scheduling.
+ */
+export async function scheduleOnboardingWelcome(): Promise<void> {
+  // Don't schedule if one already exists
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  if (scheduled.some(n => n.identifier === ONBOARDING_WELCOME_ID)) return;
+
+  const fireDate = new Date(Date.now() + 30 * 60 * 1000); // 30 min from now
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: ONBOARDING_WELCOME_ID,
+    content: {
+      title: '👋 Ready when you are.',
+      body: "Aiteall takes about 5 minutes to set up. Tap to build your personal operating system.",
+      data: { screen: 'Onboarding' },
+      sound: true,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+    } as Notifications.DateTriggerInput,
+  });
+}
+
+export async function cancelOnboardingWelcome(): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(ONBOARDING_WELCOME_ID);
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
+}
+
+/**
+ * Let the user pick their own time to do onboarding.
+ * The onboarding chat calls this if the user says "I'll do it at 8pm".
+ */
+export async function scheduleOnboardingReminder(fireDate: Date): Promise<void> {
+  // Cancel any existing reminder first
+  try {
+    await Notifications.cancelScheduledNotificationAsync(ONBOARDING_REMINDER_ID);
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
+
+  if (fireDate <= new Date()) return; // Don't schedule in the past
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: ONBOARDING_REMINDER_ID,
+    content: {
+      title: '⏰ You asked me to remind you.',
+      body: "Now's your time to set up Aiteall — 5 minutes, then your system is ready.",
+      data: { screen: 'Onboarding' },
+      sound: true,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+    } as Notifications.DateTriggerInput,
+  });
+}
+
+export async function cancelOnboardingReminder(): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(ONBOARDING_REMINDER_ID);
+  } catch (e) {
+    // Expected if notification doesn't exist — ignore
+  }
 }
 
 // ── One-Off Notification (for testing) ────────────────────────────────────────
@@ -267,7 +368,7 @@ export async function cancelDriftNudge(): Promise<void> {
 export async function sendTestNotification(): Promise<void> {
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: '✅ Synapse notifications are working!',
+      title: '✅ Aiteall notifications are working!',
       body: 'You will receive your morning planning prompt every day at your set time.',
       sound: true,
     },

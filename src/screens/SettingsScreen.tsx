@@ -1,5 +1,5 @@
 /**
- * SettingsScreen — Synapse V2
+ * SettingsScreen — Solas V2
  * API key, notification times, profile, reset.
  */
 
@@ -137,7 +137,7 @@ export default function SettingsScreen() {
     if (!granted) {
       Alert.alert(
         'Notifications blocked',
-        'Go to iPhone Settings → Synapse → Notifications and enable them.',
+        'Go to iPhone Settings → Aiteall → Notifications and enable them.',
       );
       return;
     }
@@ -146,7 +146,7 @@ export default function SettingsScreen() {
   }
 
   function handleRemoveAnthropicKey() {
-    Alert.alert('Remove Anthropic key', "You won't be able to use Synapse AI without it.", [
+    Alert.alert('Remove Anthropic key', "You won't be able to use the AI without it.", [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => {
         updateProfile({ anthropicKey: '' });
@@ -168,13 +168,13 @@ export default function SettingsScreen() {
   }
 
   function handleBugReport() {
-    const subject = encodeURIComponent('Synapse Bug Report');
+    const subject = encodeURIComponent('Aiteall Bug Report');
     const body = encodeURIComponent(
-      `Hi — something went wrong in Synapse.\n\n` +
+      `Hi — something went wrong in Aiteall.\n\n` +
       `What happened:\n[describe the bug here]\n\n` +
       `Steps to reproduce:\n1.\n2.\n3.\n\n` +
       `Expected:\n\nActual:\n\n` +
-      `— Sent from Synapse beta`
+      `— Sent from Aiteall beta`
     );
     Linking.openURL(`mailto:samkhadra9@gmail.com?subject=${subject}&body=${body}`).catch(() =>
       Alert.alert('Could not open email', 'Please email samkhadra9@gmail.com directly.')
@@ -224,7 +224,7 @@ export default function SettingsScreen() {
               <View style={styles.envKeyBanner}>
                 <Text style={styles.envKeyIcon}>✓</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.envKeyTitle}>AI powered by Synapse</Text>
+                  <Text style={styles.envKeyTitle}>AI powered by Anthropic</Text>
                   <Text style={styles.envKeySubtitle}>No key needed — tap below to use your own instead</Text>
                 </View>
               </View>
@@ -437,7 +437,7 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               </View>
               <Text style={styles.calModalSub}>
-                Synapse will add your project deadlines to this calendar. Pick any calendar on your device — Apple, Google, iCloud, all work.
+                Aiteall will add your project deadlines to this calendar. Pick any calendar on your device — Apple, Google, iCloud, all work.
               </Text>
               <FlatList
                 data={calendarList}
@@ -447,7 +447,7 @@ export default function SettingsScreen() {
                 ListEmptyComponent={
                   <View style={styles.calEmpty}>
                     <Text style={styles.calEmptyText}>No writable calendars found.</Text>
-                    <Text style={styles.calEmptySub}>Make sure you have at least one calendar app installed and have granted Synapse calendar access in iPhone Settings → Privacy → Calendars.</Text>
+                    <Text style={styles.calEmptySub}>Make sure you have at least one calendar app installed and have granted Aiteall calendar access in iPhone Settings → Privacy → Calendars.</Text>
                   </View>
                 }
                 renderItem={({ item }) => {
@@ -612,7 +612,7 @@ export default function SettingsScreen() {
 
               <Text style={styles.privacyHeading}>No advertising, no selling data</Text>
               <Text style={styles.privacyBody}>
-                Synapse has no advertisers and does not sell, share, or monetise your personal data in any way. The app is a tool for you.
+                Aiteall has no advertisers and does not sell, share, or monetise your personal data in any way. The app is a tool for you.
               </Text>
 
               <Text style={styles.privacyHeading}>Your rights</Text>

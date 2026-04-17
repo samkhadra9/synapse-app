@@ -1,5 +1,5 @@
 /**
- * Synapse V2 Navigation
+ * Solas V2 Navigation
  *
  * Auth flow:
  *   No session  → LoginScreen
@@ -18,6 +18,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Text, View, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, useColors } from '../theme';
 import { useStore } from '../store/useStore';
@@ -54,6 +55,8 @@ export type RootStackParams = {
   CalendarExport:   undefined;
   Settings:         undefined;
   Main:             undefined;
+  Projects:         undefined;
+  Areas:            undefined;
   Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'quick' | 'fatigue' };
   DeepWork:         undefined;
   ProjectDetail:    { projectId: string };
@@ -62,9 +65,7 @@ export type RootStackParams = {
 
 export type TabParams = {
   Dashboard: undefined;
-  Projects:  undefined;
-  Areas:     undefined;
-  Settings:  undefined;
+  More:      undefined;
 };
 
 // ── Navigators ────────────────────────────────────────────────────────────────
@@ -79,28 +80,22 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 const TAB_ICON_DEFAULT: Record<string, IoniconName> = {
   Dashboard: 'home-outline',
-  Projects:  'folder-outline',
-  Areas:     'layers-outline',
-  Settings:  'ellipsis-horizontal-circle-outline',
+  More:      'ellipsis-horizontal-outline',
 };
 const TAB_ICON_ACTIVE: Record<string, IoniconName> = {
   Dashboard: 'home',
-  Projects:  'folder',
-  Areas:     'layers',
-  Settings:  'ellipsis-horizontal-circle',
+  More:      'ellipsis-horizontal',
 };
 const TAB_LABELS: Record<string, string> = {
   Dashboard: 'Home',
-  Projects:  'Projects',
-  Areas:     'Areas',
-  Settings:  'Settings',
+  More:      'More',
 };
 
-// Custom tab bar — Ionicons + floating Synapse button
+// Custom tab bar — Ionicons + floating Solas button
 function CustomTabBar({ state, navigation }: any) {
   const C = useColors();
   const tabStyles = useMemo(() => makeTabStyles(C), [C]);
-  const tabs = ['Dashboard', 'Projects', 'Areas', 'Settings'];
+  const tabs = ['Dashboard', 'More'];
 
   return (
     <View style={tabStyles.container}>
@@ -110,20 +105,29 @@ function CustomTabBar({ state, navigation }: any) {
 
         return (
           <React.Fragment key={name}>
-            {/* Synapse centre button sits between Projects and Areas */}
-            {i === 2 && (
+            {/* Solas centre button sits between Dashboard and More */}
+            {i === 1 && (
               <TouchableOpacity
                 style={tabStyles.centerWrap}
-                onPress={() => navigation.navigate('Chat', { mode: 'dump' })}
+                onPress={() => {
+                  const h = new Date().getHours();
+                  const dow = new Date().getDay();
+                  // Time-aware routing: morning plan / evening wind-down / weekly / brain dump
+                  let mode: 'morning' | 'evening' | 'weekly' | 'dump';
+                  if (dow === 0) mode = 'weekly';
+                  else if (h >= 20) mode = 'dump';      // late night → brain dump / capture
+                  else if (h >= 17) mode = 'evening';   // 5–8pm → wind down
+                  else mode = 'morning';                 // daytime → plan
+                  navigation.navigate('Chat', { mode });
+                }}
                 activeOpacity={0.82}
               >
                 {/* Outer amber ring */}
                 <View style={tabStyles.centerRing}>
                   <View style={tabStyles.centerBtn}>
-                    <Text style={tabStyles.centerLetter}>S</Text>
+                    <Ionicons name="sparkles" size={18} color="#fff" />
                   </View>
                 </View>
-                <Text style={tabStyles.centerLabel}>Synapse</Text>
               </TouchableOpacity>
             )}
 
@@ -168,7 +172,7 @@ function makeTabStyles(C: any) {
     labelActive: { color: C.primary, fontWeight: '600' },
     activeDot:   { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.primary, marginTop: 1 },
 
-    // Synapse centre button — solid amber ring, dark core, white separator
+    // Solas centre button — solid amber ring, dark core, white separator
     centerWrap: { alignItems: 'center', gap: 3, marginBottom: 2, paddingHorizontal: 2 },
 
     // Outer amber ring with glow
@@ -203,6 +207,50 @@ function makeTabStyles(C: any) {
   });
 }
 
+function MoreScreen({ navigation }: any) {
+  const C = useColors();
+  const insets = useSafeAreaInsets();
+
+  const items = [
+    { icon: 'briefcase-outline' as const, label: 'Projects', screen: 'Projects' },
+    { icon: 'layers-outline' as const, label: 'Areas', screen: 'Areas' },
+    { icon: 'settings-outline' as const, label: 'Settings', screen: 'Settings' },
+  ];
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.background, paddingTop: insets.top + 16, paddingHorizontal: 20 }}>
+      <Text style={{ fontSize: 28, fontWeight: '800', color: C.textPrimary, letterSpacing: -1, marginBottom: 24 }}>
+        More
+      </Text>
+      {items.map(item => (
+        <TouchableOpacity
+          key={item.screen}
+          onPress={() => navigation.navigate(item.screen)}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 14,
+            backgroundColor: C.surface,
+            borderRadius: 14,
+            paddingHorizontal: 18,
+            paddingVertical: 16,
+            marginBottom: 10,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: C.border,
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={item.icon} size={22} color={C.primary} />
+          <Text style={{ flex: 1, fontSize: 16, fontWeight: '500', color: C.textPrimary }}>
+            {item.label}
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={C.textTertiary} />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -211,9 +259,7 @@ function MainTabs() {
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Projects"  component={ProjectsScreen} />
-      <Tab.Screen name="Areas"     component={AreasScreen} />
-      <Tab.Screen name="Settings"  component={SettingsScreen} />
+      <Tab.Screen name="More" component={MoreScreen} />
     </Tab.Navigator>
   );
 }
@@ -261,15 +307,28 @@ async function syncRemindersToTasks() {
   try {
     const { getUnimportedReminders } = await import('../services/calendar');
     const { tasks, addTask }         = useStore.getState();
-    const existingIds = tasks
-      .map(t => t.reminderId)
-      .filter((id): id is string => Boolean(id));
 
-    const newReminders = await getUnimportedReminders(existingIds);
+    // Guard 1: match by reminderId (fast path)
+    const existingReminderIds = new Set(
+      tasks.map(t => t.reminderId).filter((id): id is string => Boolean(id))
+    );
+    // Guard 2: match by normalised text — prevents re-import when reminderId was
+    // lost after a server sync overwrote local tasks (the common duplicate cause)
+    const existingTexts = new Set(
+      tasks.map(t => t.text.trim().toLowerCase())
+    );
+
+    const newReminders = await getUnimportedReminders([...existingReminderIds]);
     if (!newReminders.length) return;
 
+    // Filter out anything whose text already exists in the store
+    const truly_new = newReminders.filter(
+      r => !existingTexts.has(r.text.trim().toLowerCase())
+    );
+    if (!truly_new.length) return;
+
     const today = format(new Date(), 'yyyy-MM-dd');
-    for (const r of newReminders) {
+    for (const r of truly_new) {
       addTask({
         text:        r.text,
         completed:   false,
@@ -278,9 +337,10 @@ async function syncRemindersToTasks() {
         isMIT:       false,
         priority:    'medium',
         reminderId:  r.reminderId,
+        isInbox:     true,   // surface in Inbox, not silently on Today
       });
     }
-    console.log(`[nav] imported ${newReminders.length} reminder(s) as tasks`);
+    console.log(`[nav] imported ${truly_new.length} reminder(s) as tasks`);
   } catch (e) {
     console.warn('[nav] reminder sync failed:', e);
   }
@@ -357,9 +417,29 @@ function AppNavigator() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Schedule onboarding welcome notification for new users who haven't completed onboarding
+  useEffect(() => {
+    if (session && !profile.onboardingCompleted) {
+      // New user — fire a gentle nudge 30 min after install in case they close the app
+      requestPermissions().then(granted => {
+        if (granted) {
+          import('../services/notifications')
+            .then(n => n.scheduleOnboardingWelcome())
+            .catch(() => {});
+        }
+      });
+    }
+  }, [session, profile.onboardingCompleted]);
+
   // Request all permissions and schedule notifications once user is onboarded
   useEffect(() => {
     if (session && profile.onboardingCompleted) {
+      // Cancel the onboarding welcome/reminder — they're done
+      import('../services/notifications').then(n => {
+        n.cancelOnboardingWelcome().catch(() => {});
+        n.cancelOnboardingReminder().catch(() => {});
+      });
+
       // Notifications
       requestPermissions().then(granted => {
         if (granted) {
@@ -396,7 +476,7 @@ function AppNavigator() {
     <NotificationHandler />
     <Stack.Navigator
       id="RootStack"
-      initialRouteName={isOnboarded ? 'Main' : 'Welcome'}
+      initialRouteName={isOnboarded ? 'Main' : 'OnboardingChat'}
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
@@ -451,6 +531,30 @@ function AppNavigator() {
 
       {/* Main app */}
       <Stack.Screen name="Main" component={MainTabs} />
+      <Stack.Screen
+        name="Projects"
+        component={ProjectsScreen}
+        options={{
+          headerShown: true,
+          headerTitle: 'Projects',
+          headerBackTitle: 'Back',
+          headerTintColor: C.primary,
+          headerStyle: { backgroundColor: C.surface },
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="Areas"
+        component={AreasScreen}
+        options={{
+          headerShown: true,
+          headerTitle: 'Areas',
+          headerBackTitle: 'Back',
+          headerTintColor: C.primary,
+          headerStyle: { backgroundColor: C.surface },
+          headerShadowVisible: false,
+        }}
+      />
       <Stack.Screen
         name="Chat"
         component={ChatScreen}

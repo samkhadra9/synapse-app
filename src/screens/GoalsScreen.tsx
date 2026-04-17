@@ -1,5 +1,5 @@
 /**
- * GoalsScreen — Synapse V2
+ * GoalsScreen — Solas V2
  *
  * Three time horizons: 1 year / 5 years / 10 years
  * One goal per life domain per horizon.
@@ -178,7 +178,7 @@ export default function GoalsScreen({ navigation }: any) {
             <GoalCard key={domain} domain={domain} horizon={selectedHorizon} />
           ))}
 
-          {/* Bottom CTA — open yearly/monthly session to set goals via Synapse */}
+          {/* Bottom CTA — open yearly/monthly session to set goals via Aiteall */}
           <TouchableOpacity
             style={styles.synapseCTA}
             onPress={() => navigation?.navigate('Chat', {
@@ -187,7 +187,7 @@ export default function GoalsScreen({ navigation }: any) {
             activeOpacity={0.82}
           >
             <Text style={styles.synapseCTAText}>
-              Set goals with Synapse →
+              Set goals →
             </Text>
           </TouchableOpacity>
 

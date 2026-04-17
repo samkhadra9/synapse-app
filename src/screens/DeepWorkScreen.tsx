@@ -1,5 +1,5 @@
 /**
- * DeepWorkScreen — Synapse
+ * DeepWorkScreen — Solas
  *
  * Full-screen focus session. Three phases:
  *   1. SET — user states their session goal (what they'll produce)

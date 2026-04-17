@@ -1,5 +1,5 @@
 /**
- * DashboardScreen — Synapse V2
+ * DashboardScreen — Solas V2
  *
  * Layout:
  *   Horizontal pager (pagingEnabled):
@@ -8,7 +8,7 @@
  *   Dot page indicator between header and content
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, StatusBar, Alert, Modal, TextInput,
@@ -16,6 +16,7 @@ import {
   Dimensions, NativeScrollEvent, NativeSyntheticEvent, Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { format, parseISO, differenceInDays, addDays } from 'date-fns';
@@ -84,22 +85,6 @@ function roundUpToHalfHour(date: Date): number {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function Greeting({ name }: { name: string }) {
-  const C = useColors();
-  const styles = useMemo(() => makeStyles(C), [C]);
-  const hour     = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const first    = name ? name.split(' ')[0] : null;
-  return (
-    <View style={[styles.greetingWrap, { flex: 1 }]}>
-      <Text style={styles.dateText}>{format(new Date(), 'EEEE, MMMM d')}</Text>
-      <Text style={styles.greetingText}>
-        {first ? `${greeting},\n${first}.` : `${greeting}.`}
-      </Text>
-    </View>
-  );
-}
 
 // Top action buttons — Deep Work + time-aware Plan/Wind-down
 const CHARCOAL = '#18181B';
@@ -462,52 +447,61 @@ function parseEventColor(type: TimeBlockType): string {
 
 function NextEventCountdown({ calEvents }: { calEvents: TodayEvent[] }) {
   const C = useColors();
+
   const [countdown, setCountdown] = useState<{
     minutesUntil: number;
     eventTitle: string;
   } | null>(null);
 
+  // ── ALL hooks must live before any early return ───────────────────────────
+  const opacityAnim = useRef(new Animated.Value(1)).current;
+
+  // Countdown interval — updates every 30 s
   useEffect(() => {
     const updateCountdown = () => {
       const now = new Date();
       const nowMins = now.getHours() * 60 + now.getMinutes();
-
-      // Find next upcoming event within 4 hours
       let nextEvent: TodayEvent | null = null;
-      let minMinutesAway = 240; // 4 hours
-
+      let minMinutesAway = 240; // look ahead max 4 hours
       for (const ev of calEvents) {
         const startM = parseEventTime(ev.start);
         if (startM < 0) continue;
-
         const minutesAway = startM - nowMins;
         if (minutesAway > 0 && minutesAway < minMinutesAway) {
           minMinutesAway = minutesAway;
           nextEvent = ev;
         }
       }
-
-      if (nextEvent) {
-        setCountdown({
-          minutesUntil: minMinutesAway,
-          eventTitle: nextEvent.title,
-        });
-      } else {
-        setCountdown(null);
-      }
+      setCountdown(nextEvent ? { minutesUntil: minMinutesAway, eventTitle: nextEvent.title } : null);
     };
-
     updateCountdown();
-    const timer = setInterval(updateCountdown, 30000); // Every 30 seconds
+    const timer = setInterval(updateCountdown, 30000);
     return () => clearInterval(timer);
   }, [calEvents]);
 
+  // Pulse animation when event is < 30 min away — derived from countdown state
+  const isUrgent = countdown !== null && countdown.minutesUntil < 30;
+  useEffect(() => {
+    if (isUrgent) {
+      const anim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(opacityAnim, { toValue: 0.7, duration: 750, useNativeDriver: true }),
+          Animated.timing(opacityAnim, { toValue: 1.0, duration: 750, useNativeDriver: true }),
+        ]),
+      );
+      anim.start();
+      return () => anim.stop();
+    } else {
+      opacityAnim.setValue(1);
+    }
+  }, [isUrgent, opacityAnim]);
+
+  // ── Early return AFTER all hooks ──────────────────────────────────────────
   if (!countdown) return null;
 
   const { minutesUntil, eventTitle } = countdown;
   let displayText: string;
   let statusColor: string;
-  let isUrgent = false;
 
   if (minutesUntil > 60) {
     const h = Math.floor(minutesUntil / 60);
@@ -516,52 +510,22 @@ function NextEventCountdown({ calEvents }: { calEvents: TodayEvent[] }) {
     statusColor = C.success;
   } else if (minutesUntil >= 30) {
     displayText = `${minutesUntil} min until ${eventTitle}`;
-    statusColor = '#F59E0B'; // amber
+    statusColor = '#F59E0B';
   } else {
     displayText = `⚠ ${minutesUntil} min until ${eventTitle}`;
-    statusColor = '#EF4444'; // red
-    isUrgent = true;
+    statusColor = '#EF4444';
   }
 
-  const opacityAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (isUrgent) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(opacityAnim, {
-            toValue: 0.7,
-            duration: 750,
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacityAnim, {
-            toValue: 1.0,
-            duration: 750,
-            useNativeDriver: true,
-          }),
-        ]),
-      ).start();
-    }
-  }, [isUrgent, opacityAnim]);
-
-  const backgroundColor = statusColor + '22'; // 22 = ~13% opacity
-  const animatedStyle = isUrgent ? { opacity: opacityAnim } : {};
-
   return (
-    <Animated.View
-      style={[
-        {
-          borderRadius: Radius.full,
-          paddingVertical: 7,
-          paddingHorizontal: 14,
-          backgroundColor,
-          alignSelf: 'flex-start',
-          marginHorizontal: Spacing.lg,
-          marginBottom: 8,
-        },
-        animatedStyle,
-      ]}
-    >
+    <Animated.View style={[{
+      borderRadius: Radius.full,
+      paddingVertical: 7,
+      paddingHorizontal: 14,
+      backgroundColor: statusColor + '22',
+      alignSelf: 'flex-start',
+      marginHorizontal: Spacing.lg,
+      marginBottom: 8,
+    }, isUrgent ? { opacity: opacityAnim } : {}]}>
       <Text style={{ fontSize: 13, fontWeight: '600', color: statusColor }}>
         {displayText}
       </Text>
@@ -682,14 +646,155 @@ function MomentumCelebration({
   );
 }
 
-function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: () => void }) {
+function PlanningPromptCard({
+  onPlanPress,
+  onDismiss,
+  visible,
+}: {
+  onPlanPress: () => void;
+  onDismiss: () => void;
+  visible: boolean;
+}) {
+  if (!visible) return null;
+  const C = useColors();
+  return (
+    <View style={{ paddingHorizontal: Spacing.lg, marginBottom: Spacing.base }}>
+      <View
+        style={{
+          backgroundColor: C.surface,
+          borderRadius: Radius.xl,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: C.border,
+          padding: 18,
+        }}
+      >
+        {/* Top row: amber dot + "No plan yet" */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          <View
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: C.primary, // amber/primary
+            }}
+          />
+          <Text
+            style={{
+              fontSize: 11,
+              color: C.textTertiary,
+              fontWeight: '600',
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+            }}
+          >
+            No plan yet
+          </Text>
+        </View>
+
+        {/* Large text: "Let's build your day" */}
+        <Text
+          style={{
+            fontSize: 20,
+            fontWeight: '700',
+            color: C.textPrimary,
+            marginTop: 6,
+            marginBottom: 4,
+          }}
+        >
+          Let's build your day
+        </Text>
+
+        {/* Sub text */}
+        <Text
+          style={{
+            fontSize: 13,
+            color: C.textSecondary,
+            lineHeight: 18,
+            marginBottom: 14,
+          }}
+        >
+          Takes 3 minutes. Your tasks, sequenced.
+        </Text>
+
+        {/* Full-width button */}
+        <TouchableOpacity
+          style={{
+            backgroundColor: C.ink,
+            borderRadius: Radius.lg,
+            paddingVertical: 14,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onPress={onPlanPress}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={{
+              color: '#fff',
+              fontSize: 15,
+              fontWeight: '700',
+            }}
+          >
+            Plan my day →
+          </Text>
+        </TouchableOpacity>
+
+        {/* Small dismiss link */}
+        <TouchableOpacity
+          style={{
+            marginTop: 10,
+            alignItems: 'center',
+          }}
+          onPress={onDismiss}
+          activeOpacity={0.7}
+        >
+          <Text
+            style={{
+              fontSize: 12,
+              color: C.textTertiary,
+              textAlign: 'center',
+            }}
+          >
+            I'll wing it today
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function TodayTimelinePage({
+  navigation,
+  onQuickAdd,
+  workingTask,
+  setWorkingTask,
+  calEvents,
+  quickStart = false,
+}: {
+  navigation: any;
+  onQuickAdd: () => void;
+  workingTask: Task | null;
+  setWorkingTask: (t: Task | null, isQuick?: boolean) => void;
+  calEvents: TodayEvent[];
+  quickStart?: boolean;
+}) {
   const C = useColors();
   const tl = useMemo(() => makeTl(C), [C]);
 
-  const [workingTask, setWorkingTask] = useState<Task | null>(null);
   const [momentumTask, setMomentumTask] = useState<Task | null>(null);
+  const [showMITInput, setShowMITInput] = useState(false);
+  const [mitInputText, setMitInputText] = useState('');
+  const [showPlanningPrompt, setShowPlanningPrompt] = useState(true);
 
-  const { profile, tasks, toggleTask, dayPlan, togglePlannedTask, projects, goals } = useStore(s => ({
+  // Live clock — keeps greeting/timeline/planMode current
+  const [now, setNow] = useState(() => new Date());
+  useFocusEffect(useCallback(() => { setNow(new Date()); }, []));
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const { profile, tasks, toggleTask, dayPlan, togglePlannedTask, projects, goals, addTask } = useStore(s => ({
     profile: s.profile,
     tasks: s.tasks,
     toggleTask: s.toggleTask,
@@ -697,15 +802,16 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
     togglePlannedTask: s.togglePlannedTask,
     projects: s.projects,
     goals: s.goals,
+    addTask: s.addTask,
   }));
 
-  const [calEvents, setCalEvents] = useState<TodayEvent[]>([]);
-
+  // Reset showPlanningPrompt when todayPlan becomes null
   useEffect(() => {
-    getTodayCalendarEvents().then(setCalEvents).catch(() => {});
-  }, []);
+    if (!dayPlan || dayPlan.date !== format(now, 'yyyy-MM-dd')) {
+      setShowPlanningPrompt(true);
+    }
+  }, [dayPlan, now]);
 
-  const now = new Date();
   const today = format(now, 'yyyy-MM-dd');
   const nowMins = now.getHours() * 60 + now.getMinutes();
 
@@ -736,6 +842,26 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
       s.eventLabel.toLowerCase() === eventLabel.toLowerCase()
     );
   }
+
+  // Helper: format "HH:MM" 24hr plan time → "2:00 PM"
+  function formatPlanTime(time24: string): string {
+    const [h, m] = time24.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
+  }
+
+  // Build taskId → {time, label} map from today's day plan (for sorted task list)
+  const taskSlotMap = useMemo<Record<string, { time: string; label: string }>>(() => {
+    if (!todayPlan) return {};
+    const map: Record<string, { time: string; label: string }> = {};
+    todayPlan.slots.forEach(slot => {
+      slot.tasks.forEach(t => {
+        map[t.id] = { time: slot.time, label: slot.eventLabel };
+      });
+    });
+    return map;
+  }, [todayPlan]);
 
   // Handle task toggle with momentum celebration for MIT completion
   function handleToggleTask(taskId: string) {
@@ -777,9 +903,54 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
   const timeOfDay = now.getHours() < 12 ? 'Morning' : now.getHours() < 17 ? 'Afternoon' : 'Evening';
   const firstName = profile.name ? profile.name.split(' ')[0] : null;
 
+  // Focus window — next event timing for header subtitle
+  const focusWindowSubtitle = useMemo(() => {
+    if (!calEvents.length) return null;
+    const nowM = now.getHours() * 60 + now.getMinutes();
+    let nearest: { minsUntil: number; title: string } | null = null;
+    for (const ev of calEvents) {
+      if (ev.allDay) continue;
+      const m = ev.start.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (!m) continue;
+      let h = parseInt(m[1], 10);
+      const min = parseInt(m[2], 10);
+      if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+      if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+      const startM = h * 60 + min;
+      const minsAway = startM - nowM;
+      if (minsAway > 0 && (!nearest || minsAway < nearest.minsUntil)) {
+        nearest = { minsUntil: minsAway, title: ev.title };
+      }
+    }
+    if (!nearest) return null;
+    const { minsUntil, title } = nearest;
+    const h = Math.floor(minsUntil / 60);
+    const m = minsUntil % 60;
+    const label = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${minsUntil}m`;
+    return `${label} before ${title}`;
+  }, [calEvents, now]);
+
+  // Handle MIT input submission
+  const handleMITSubmit = () => {
+    const text = mitInputText.trim();
+    if (!text) return;
+    addTask({
+      text,
+      isMIT: true,
+      date: today,
+      isToday: true,
+      isInbox: false,
+      priority: 'high',
+      domain: profile.selectedDomains?.[0] ?? 'work',
+      completed: false,
+    });
+    setMitInputText('');
+    setShowMITInput(false);
+  };
+
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: C.background }}
+      style={{ width: SCREEN_W, flex: 1, backgroundColor: C.background }}
       contentContainerStyle={{ paddingBottom: 120 }}
       showsVerticalScrollIndicator={false}
     >
@@ -789,7 +960,7 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
           <Text style={tl.pageTitle}>{timeOfDay}</Text>
           <Text style={tl.pageSubtitle}>
             {format(now, 'EEEE, d MMMM')}
-            {completedCount > 0 ? `  ·  ${completedCount} done` : ''}
+            {focusWindowSubtitle ? `  ·  ${focusWindowSubtitle}` : completedCount > 0 ? `  ·  ${completedCount} done` : ''}
           </Text>
         </View>
         <TouchableOpacity style={tl.datePlusBtn} onPress={onQuickAdd} activeOpacity={0.8}>
@@ -804,8 +975,75 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
           calEvents={calEvents}
           goals={goals}
           profile={profile}
-          onStart={(_quickStart) => setWorkingTask(primaryMIT)}
+          onStart={(isQuick) => setWorkingTask(primaryMIT, isQuick)}
           onComplete={() => handleToggleTask(primaryMIT.id)}
+        />
+      )}
+
+      {/* ── MIT Empty State — when no MIT is set yet ──────────────────────── */}
+      {!primaryMIT && (
+        <View style={[tl.mitEmptyCard, { borderColor: C.border, backgroundColor: C.surface }]}>
+          {!showMITInput ? (
+            <>
+              <View style={tl.mitEmptyTop}>
+                <Text style={[tl.mitEmptyTitle, { color: C.textPrimary }]}>No MIT set yet</Text>
+                <Text style={[tl.mitEmptySubtext, { color: C.textSecondary }]}>
+                  What's the one thing that would make today count?
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={tl.mitEmptyRow}
+                onPress={() => setShowMITInput(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={[tl.mitEmptyRowText, { color: C.primary }]}>Set my MIT →</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={[tl.mitEmptyTitle, { color: C.textPrimary, marginBottom: Spacing.md }]}>
+                What's your MIT?
+              </Text>
+              <TextInput
+                style={[tl.mitEmptyInput, { borderColor: C.border, color: C.textPrimary }]}
+                placeholder="Enter your one main thing..."
+                placeholderTextColor={C.textTertiary}
+                value={mitInputText}
+                onChangeText={setMitInputText}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleMITSubmit}
+              />
+              <View style={tl.mitEmptyButtonRow}>
+                <TouchableOpacity
+                  style={[tl.mitEmptyButton, { backgroundColor: C.surfaceVariant }]}
+                  onPress={() => {
+                    setShowMITInput(false);
+                    setMitInputText('');
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[tl.mitEmptyButtonText, { color: C.textSecondary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[tl.mitEmptyButton, { backgroundColor: C.primary }]}
+                  onPress={handleMITSubmit}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[tl.mitEmptyButtonText, { color: C.textInverse }]}>Add MIT</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* ── Planning Prompt Card — suggest planning when no day plan exists ──── */}
+      {!todayPlan && showPlanningPrompt && (
+        <PlanningPromptCard
+          visible={!todayPlan && showPlanningPrompt}
+          onPlanPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+          onDismiss={() => setShowPlanningPrompt(false)}
         />
       )}
 
@@ -814,7 +1052,7 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
         mitTask={primaryMIT}
         calEvents={calEvents}
         isWorking={workingTask !== null}
-        onStart={() => primaryMIT && setWorkingTask(primaryMIT)}
+        onStart={() => primaryMIT && setWorkingTask(primaryMIT, false)}
         onReschedule={() => navigation.navigate('Chat', { mode: 'morning' })}
       />
 
@@ -939,6 +1177,76 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
           );
         })}
 
+        {/* Standalone planned blocks — from day plan, not tied to a real event or skeleton block */}
+        {todayPlan?.slots.map((slot, i) => {
+          // Skip if already rendered inside a matching skeleton block or calendar event
+          const alreadyMatched =
+            calEvents.some(ev => ev.title.toLowerCase() === slot.eventLabel.toLowerCase()) ||
+            timeBlocks.some(b =>
+              b.label.toLowerCase() === slot.eventLabel.toLowerCase() &&
+              b.dayOfWeek.includes(todayDow)
+            );
+          if (alreadyMatched) return null;
+
+          const [sh, sm] = slot.time.split(':').map(Number);
+          const startM = sh * 60 + sm;
+          // Estimate block height from task count — 45 min per task, min 30 min
+          const durationM = Math.max(30, slot.tasks.length * 45);
+          const endM = startM + durationM;
+          if (endM < windowStartMins || startM > windowEndMins) return null;
+
+          const top    = Math.max(0, minsToStripY(startM));
+          const bottom = Math.min(STRIP_H, minsToStripY(endM));
+          const blockH = Math.max(24, bottom - top - 2);
+          const planColor = '#10B981'; // emerald — distinct from skeleton (varied) and cal events (blue)
+          const doneCount  = slot.tasks.filter(t => t.done).length;
+          const totalCount = slot.tasks.length;
+
+          return (
+            <View key={`plan-standalone-${i}`} style={[tl.block, {
+              top, left: TIME_W + 4, right: 4, height: blockH,
+              backgroundColor: planColor + '1A',
+              borderLeftColor: planColor,
+            }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
+                  <Text style={[tl.blockLabel, { color: planColor }]} numberOfLines={1}>{slot.eventLabel}</Text>
+                  <View style={{ backgroundColor: planColor + '25', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1 }}>
+                    <Text style={{ fontSize: 8, color: planColor, fontWeight: '800', letterSpacing: 0.3 }}>PLAN</Text>
+                  </View>
+                </View>
+                {totalCount > 0 && (
+                  <Text style={{ fontSize: 9, color: planColor, fontWeight: '700' }}>
+                    {doneCount}/{totalCount}
+                  </Text>
+                )}
+              </View>
+              {blockH > 36 && slot.tasks.slice(0, 3).map(t => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}
+                  onPress={() => togglePlannedTask(slot.time, t.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={{
+                    width: 11, height: 11, borderRadius: 5.5,
+                    borderWidth: 1.5, borderColor: planColor,
+                    backgroundColor: t.done ? planColor : 'transparent',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {t.done && <Text style={{ fontSize: 7, color: '#fff', fontWeight: '900' }}>✓</Text>}
+                  </View>
+                  <Text style={{
+                    fontSize: 10, color: planColor, flex: 1,
+                    textDecorationLine: t.done ? 'line-through' : 'none',
+                    opacity: t.done ? 0.55 : 1,
+                  }} numberOfLines={1}>{t.text}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          );
+        })}
+
         {/* Current time indicator */}
         {nowMins >= windowStartMins && nowMins <= windowEndMins && (
           <View style={[tl.nowRow, { top: minsToStripY(nowMins) }]}>
@@ -948,57 +1256,161 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
         )}
       </View>
 
-      {/* ── Today's tasks ────────────────────────────────────────────────── */}
+      {/* ── Today's tasks — time-sequenced when day plan exists ─────────── */}
       <View style={{ marginBottom: Spacing.base }}>
         <Text style={[tl.sectionLabel, { paddingHorizontal: Spacing.lg }]}>
-          Today's tasks{todayTasks.length > 0 ? ` — ${todayTasks.length - completedCount} left` : ''}
+          Today{todayTasks.length > 0 ? ` — ${todayTasks.length - completedCount} left` : ''}
         </Text>
+
         {todayTasks.length === 0 ? (
           <View style={[tl.tasksCard, { padding: Spacing.lg, alignItems: 'center' }]}>
             <Text style={{ color: C.textTertiary, fontSize: 14 }}>Nothing planned yet — use + to add tasks</Text>
           </View>
-        ) : (
-          <View style={tl.tasksCard}>
-            {todayTasks.map((t, i) => {
-              const accent = t.isMIT ? C.primary : C.border;
-              return (
-                <View key={t.id}>
-                  {i > 0 && <View style={tl.taskDivider} />}
-                  <TouchableOpacity
-                    style={tl.taskRow}
-                    onPress={() => handleToggleTask(t.id)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[tl.taskCheck, t.completed && tl.taskCheckDone, { borderColor: accent }]}>
-                      {t.completed && <Ionicons name="checkmark" size={13} color={C.textInverse} />}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[tl.taskLabel, t.completed && tl.labelDone]} numberOfLines={2}>
-                        {t.text}
-                      </Text>
-                      {t.reason ? <Text style={tl.reason}>{t.reason}</Text> : null}
-                    </View>
-                    {!t.completed && (
-                      <TouchableOpacity
-                        style={tl.focusButton}
-                        onPress={() => setWorkingTask(t)}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="play" size={12} color={C.primary} />
-                      </TouchableOpacity>
-                    )}
-                    {t.isMIT && (
-                      <View style={tl.mitBadge}>
-                        <Text style={tl.mitBadgeText}>MIT</Text>
+        ) : (() => {
+          // ── When a day plan exists: group tasks by slot, sorted by time ──────
+          if (todayPlan && Object.keys(taskSlotMap).length > 0) {
+            // Sort today's tasks by slot time (unscheduled tasks go to the end)
+            const sorted = [...todayTasks].sort((a, b) => {
+              const aSlot = taskSlotMap[a.id];
+              const bSlot = taskSlotMap[b.id];
+              if (aSlot && bSlot) return aSlot.time.localeCompare(bSlot.time);
+              if (aSlot && !bSlot) return -1;
+              if (!aSlot && bSlot) return 1;
+              // Both unscheduled: MITs first, then completed last
+              if (a.isMIT && !b.isMIT) return -1;
+              if (!a.isMIT && b.isMIT) return 1;
+              if (!a.completed && b.completed) return -1;
+              if (a.completed && !b.completed) return 1;
+              return 0;
+            });
+
+            // Group consecutive tasks that share the same slot
+            type TaskGroup = { time: string | null; label: string | null; tasks: Task[] };
+            const groups: TaskGroup[] = [];
+            sorted.forEach(task => {
+              const slot = taskSlotMap[task.id];
+              const slotKey = slot?.time ?? null;
+              const last = groups[groups.length - 1];
+              if (last && last.time === slotKey) {
+                last.tasks.push(task);
+              } else {
+                groups.push({ time: slotKey, label: slot?.label ?? null, tasks: [task] });
+              }
+            });
+
+            return (
+              <>
+                {groups.map((group, gi) => (
+                  <View key={group.time ?? `unscheduled-${gi}`}>
+                    {/* Slot header row */}
+                    {group.time ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingTop: gi === 0 ? 4 : Spacing.base, paddingBottom: 6, gap: 8 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#10B981', minWidth: 52 }}>
+                          {formatPlanTime(group.time)}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: C.textSecondary, fontWeight: '500', flex: 1 }} numberOfLines={1}>
+                          {group.label}
+                        </Text>
+                        <View style={{ height: StyleSheet.hairlineWidth, width: 24, backgroundColor: C.border }} />
                       </View>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
-          </View>
-        )}
+                    ) : gi > 0 ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingTop: Spacing.base, paddingBottom: 6, gap: 8 }}>
+                        <Text style={{ fontSize: 11, color: C.textTertiary, fontWeight: '500' }}>Unscheduled</Text>
+                        <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: C.border }} />
+                      </View>
+                    ) : null}
+
+                    {/* Tasks in this slot */}
+                    <View style={tl.tasksCard}>
+                      {group.tasks.map((t, i) => {
+                        const accent = t.isMIT ? C.primary : C.border;
+                        return (
+                          <View key={t.id}>
+                            {i > 0 && <View style={tl.taskDivider} />}
+                            <TouchableOpacity
+                              style={tl.taskRow}
+                              onPress={() => handleToggleTask(t.id)}
+                              activeOpacity={0.7}
+                            >
+                              <View style={[tl.taskCheck, t.completed && tl.taskCheckDone, { borderColor: accent }]}>
+                                {t.completed && <Ionicons name="checkmark" size={13} color={C.textInverse} />}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={[tl.taskLabel, t.completed && tl.labelDone]} numberOfLines={2}>
+                                  {t.text}
+                                </Text>
+                                {t.reason ? <Text style={tl.reason}>{t.reason}</Text> : null}
+                              </View>
+                              {!t.completed && (
+                                <TouchableOpacity
+                                  style={tl.focusButton}
+                                  onPress={() => setWorkingTask(t, false)}
+                                  activeOpacity={0.7}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                  <Ionicons name="play" size={12} color={C.primary} />
+                                </TouchableOpacity>
+                              )}
+                              {t.isMIT && (
+                                <View style={tl.mitBadge}>
+                                  <Text style={tl.mitBadgeText}>MIT</Text>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+              </>
+            );
+          }
+
+          // ── No day plan: flat list sorted by MIT / completion ──────────────
+          return (
+            <View style={tl.tasksCard}>
+              {todayTasks.map((t, i) => {
+                const accent = t.isMIT ? C.primary : C.border;
+                return (
+                  <View key={t.id}>
+                    {i > 0 && <View style={tl.taskDivider} />}
+                    <TouchableOpacity
+                      style={tl.taskRow}
+                      onPress={() => handleToggleTask(t.id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[tl.taskCheck, t.completed && tl.taskCheckDone, { borderColor: accent }]}>
+                        {t.completed && <Ionicons name="checkmark" size={13} color={C.textInverse} />}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[tl.taskLabel, t.completed && tl.labelDone]} numberOfLines={2}>
+                          {t.text}
+                        </Text>
+                        {t.reason ? <Text style={tl.reason}>{t.reason}</Text> : null}
+                      </View>
+                      {!t.completed && (
+                        <TouchableOpacity
+                          style={tl.focusButton}
+                          onPress={() => setWorkingTask(t, false)}
+                          activeOpacity={0.7}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="play" size={12} color={C.primary} />
+                        </TouchableOpacity>
+                      )}
+                      {t.isMIT && (
+                        <View style={tl.mitBadge}>
+                          <Text style={tl.mitBadgeText}>MIT</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
       </View>
 
       {/* ── HomeActions (plan / focus CTAs) ──────────────────────────────── */}
@@ -1010,6 +1422,7 @@ function TodayTimelinePage({ navigation, onQuickAdd }: { navigation: any; onQuic
       <WorkingModeModal
         task={workingTask}
         visible={workingTask !== null}
+        quickStart={quickStart}
         projectTitle={workingTask ? projects.find(p => p.id === workingTask.projectId)?.title : undefined}
         onClose={() => setWorkingTask(null)}
         onComplete={() => {
@@ -1095,6 +1508,17 @@ function makeTl(C: any) { return StyleSheet.create({
   mitBadgeText:      { fontSize: 10, color: C.primary, fontWeight: '700', letterSpacing: 0.4 },
   planCTA:           { margin: Spacing.lg, padding: 16, backgroundColor: C.accentLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.accentMid },
   planCTAText:       { fontSize: 15, color: C.accent, fontWeight: '600' },
+  mitEmptyCard:      { marginHorizontal: Spacing.lg, marginVertical: Spacing.base, borderWidth: 1, borderRadius: Radius.xl, padding: Spacing.lg, gap: Spacing.base },
+  mitEmptyTop:       { alignItems: 'center', gap: Spacing.sm },
+  mitEmptyIcon:      { fontSize: 40, marginBottom: Spacing.sm },
+  mitEmptyTitle:     { fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  mitEmptySubtext:   { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  mitEmptyRow:       { borderTopWidth: 1, borderTopColor: C.border, paddingTop: Spacing.base, alignItems: 'center' },
+  mitEmptyRowText:   { fontSize: 16, fontWeight: '600' },
+  mitEmptyInput:     { borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, fontSize: 15, minHeight: 44, marginVertical: Spacing.sm },
+  mitEmptyButtonRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
+  mitEmptyButton:    { flex: 1, borderRadius: Radius.full, paddingVertical: Spacing.md, alignItems: 'center' },
+  mitEmptyButtonText:{ fontSize: 15, fontWeight: '600' },
 }); }
 
 // Singleton styles — theme-reactive via useMemo in TodayTimelinePage
@@ -1586,7 +2010,7 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
           style={{ marginHorizontal: Spacing.lg, marginTop: Spacing.base, marginBottom: Spacing.sm, padding: 13, backgroundColor: C.accentLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.accentMid }}
           activeOpacity={0.82}
         >
-          <Text style={{ fontSize: 14, color: C.accent, fontWeight: '600' }}>Let Synapse help you prioritise these →</Text>
+          <Text style={{ fontSize: 14, color: C.accent, fontWeight: '600' }}>Tap to prioritise these →</Text>
         </TouchableOpacity>
       )}
 
@@ -1795,7 +2219,7 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
           activeOpacity={0.82}
         >
           <Text style={ds.emptyBlocksTitle}>No structure yet</Text>
-          <Text style={ds.emptyBlocksSub}>Build your weekly skeleton and Synapse will show your day structure here →</Text>
+          <Text style={ds.emptyBlocksSub}>Build your weekly skeleton and your day structure will appear here →</Text>
         </TouchableOpacity>
       )}
 
@@ -1808,7 +2232,7 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
           onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
           activeOpacity={0.82}
         >
-          <Text style={ds.emptyTasksText}>No tasks planned — plan with Synapse →</Text>
+          <Text style={ds.emptyTasksText}>No tasks planned yet →</Text>
         </TouchableOpacity>
       ) : (
         <View style={ds.tasksCard}>
@@ -2003,10 +2427,10 @@ function makeDs(C: any) { return StyleSheet.create({
 
 // ── Goals Panel ───────────────────────────────────────────────────────────────
 
-const HORIZONS: { key: TimeHorizon; label: string; emoji: string }[] = [
-  { key: '1year',  label: '1 year',   emoji: '🌱' },
-  { key: '5year',  label: '5 years',  emoji: '🌳' },
-  { key: '10year', label: '10 years', emoji: '🏔' },
+const HORIZONS: { key: TimeHorizon; label: string }[] = [
+  { key: '1year',  label: '1 year'   },
+  { key: '5year',  label: '5 years'  },
+  { key: '10year', label: '10 years' },
 ];
 
 function GoalsPanelPage({ navigation }: { navigation: any }) {
@@ -2033,7 +2457,6 @@ function GoalsPanelPage({ navigation }: { navigation: any }) {
         return (
           <View key={h.key} style={gp.horizonBlock}>
             <View style={gp.horizonHeader}>
-              <Text style={gp.horizonEmoji}>{h.emoji}</Text>
               <Text style={gp.horizonLabel}>{h.label}</Text>
             </View>
 
@@ -2060,7 +2483,7 @@ function GoalsPanelPage({ navigation }: { navigation: any }) {
         onPress={() => navigation?.navigate('Chat', { mode: 'yearly' })}
         activeOpacity={0.82}
       >
-        <Text style={gp.ctaText}>Set goals with Synapse →</Text>
+        <Text style={gp.ctaText}>Set goals →</Text>
       </TouchableOpacity>
 
       <View style={{ height: 80 }} />
@@ -2119,19 +2542,43 @@ export default function DashboardScreen({ navigation }: any) {
   const [activePage,    setActivePage]    = useState(0);
   const [showAllToday,  setShowAllToday]  = useState(false);
 
+  // Lifted: focus session state (shared with AmbientChatStrip for "Yes, let's go")
+  const [workingTask, setWorkingTask] = useState<Task | null>(null);
+  const [quickStart, setQuickStart] = useState(false);
+  // Lifted: calendar events (needed by both TodayTimelinePage and AmbientChatStrip)
+  const [calEvents, setCalEvents] = useState<TodayEvent[]>([]);
+
+  // ── Live clock — refreshes on screen focus + every minute ───────────────
+  const [now, setNow] = useState(() => new Date());
+
+  useFocusEffect(useCallback(() => {
+    // Refresh time and calendar events every time the screen comes into focus
+    setNow(new Date());
+    getTodayCalendarEvents().then(setCalEvents).catch(() => {});
+  }, []));
+
+  useEffect(() => {
+    // Tick every 60 s so greeting/mode update without needing a tab switch
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Mark today as active & cancel any pending lapse notification on open
   useEffect(() => {
     touchLastActive();
     import('../services/notifications').then(n => n.cancelLapseNotification()).catch(() => {});
+    // Initial calendar fetch
+    getTodayCalendarEvents().then(setCalEvents).catch(() => {});
+    import('../services/notifications').then(n => n.requestPermissions()).catch(() => {});
   }, []);
 
-
-  const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  // Derived from live clock — always fresh
+  const today = format(now, 'yyyy-MM-dd');
 
   // Time-aware plan mode
   const planMode: 'morning' | 'evening' | 'weekly' = (() => {
-    const h   = new Date().getHours();
-    const dow = new Date().getDay();
+    const h   = now.getHours();
+    const dow = now.getDay();
     if (dow === 0) return 'weekly';
     if (h >= 17)  return 'evening';
     return 'morning';
@@ -2159,8 +2606,8 @@ export default function DashboardScreen({ navigation }: any) {
   );
 
   // Today's time blocks from the week skeleton
-  const nowMinutes  = new Date().getHours() * 60 + new Date().getMinutes();
-  const todayDow    = new Date().getDay();
+  const nowMinutes  = now.getHours() * 60 + now.getMinutes();
+  const todayDow    = now.getDay();
   const todayBlocks = useMemo(() =>
     (profile.weekTemplate ?? [])
       .filter(b => b.dayOfWeek.includes(todayDow))
@@ -2246,7 +2693,7 @@ export default function DashboardScreen({ navigation }: any) {
         Alert.alert('Calendar synced ✓', `${result.synced} project deadline${result.synced !== 1 ? 's' : ''} added to "${profile.selectedCalendarName ?? 'your calendar'}".${result.failed > 0 ? `\n\n${result.failed} failed — check the project has a valid date.` : ''}`);
       }
     } catch (e: any) {
-      Alert.alert('Sync failed', `${e.message ?? 'Unknown error'}\n\nCheck that Synapse has calendar access in iPhone Settings → Privacy → Calendars.`);
+      Alert.alert('Sync failed', `${e.message ?? 'Unknown error'}\n\nCheck that Aiteall has calendar access in iPhone Settings → Privacy → Calendars.`);
     } finally {
       setSyncing(false);
     }
@@ -2276,20 +2723,39 @@ export default function DashboardScreen({ navigation }: any) {
         >
 
           {/* ── Page 0: Today timeline ────────────────────────────────────── */}
+          {/* CRITICAL: explicit width: SCREEN_W on every page — without this,
+              horizontal pager doesn't constrain children and content bleeds right */}
           <TlStyles C={C} />
-          <TodayTimelinePage
-            navigation={navigation}
-            onQuickAdd={() => setShowQuickAdd(true)}
-          />
+          <View style={{ width: SCREEN_W, overflow: 'hidden' }}>
+            <TodayTimelinePage
+              navigation={navigation}
+              onQuickAdd={() => setShowQuickAdd(true)}
+              workingTask={workingTask}
+              setWorkingTask={(t, isQuick?) => {
+                if (t === null) {
+                  setQuickStart(false);
+                } else {
+                  setQuickStart(!!isQuick);
+                }
+                setWorkingTask(t);
+              }}
+              calEvents={calEvents}
+              quickStart={quickStart}
+            />
+          </View>
 
           {/* ── Page 1: Inbox ─────────────────────────────────────────────── */}
-          <InboxPage
-            navigation={navigation}
-            onQuickAdd={() => setShowQuickAdd(true)}
-          />
+          <View style={{ width: SCREEN_W, overflow: 'hidden' }}>
+            <InboxPage
+              navigation={navigation}
+              onQuickAdd={() => setShowQuickAdd(true)}
+            />
+          </View>
 
           {/* ── Page 2: Goals panel ───────────────────────────────────────── */}
-          <GoalsPanelPage navigation={navigation} />
+          <View style={{ width: SCREEN_W, overflow: 'hidden' }}>
+            <GoalsPanelPage navigation={navigation} />
+          </View>
 
 
         </ScrollView>
@@ -2301,6 +2767,12 @@ export default function DashboardScreen({ navigation }: any) {
             profile={profile}
             tasks={tasks}
             goals={goals}
+            calEvents={calEvents}
+            primaryMIT={mits[0] ?? null}
+            onStartMIT={(isQuick) => {
+              const mit = mits[0];
+              if (mit) { setQuickStart(!!isQuick); setWorkingTask(mit); }
+            }}
           />
         )}
 

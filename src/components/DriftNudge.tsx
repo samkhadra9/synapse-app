@@ -102,12 +102,25 @@ export default function DriftNudge({
     setDismissed(false); // re-arm if MIT or events change
   }, [mitTask?.id]);
 
+  // Re-run getNudgeInfo whenever dependencies change AND every 60 seconds for clock ticks
   useEffect(() => {
-    const update = () => {
-      setNudgeInfo(getNudgeInfo(mitTask, calEvents, isWorking));
-    };
-    update();
-    const interval = setInterval(update, 60_000); // re-check every minute
+    // Call immediately with current deps
+    setNudgeInfo(getNudgeInfo(mitTask, calEvents, isWorking));
+
+    // Set up interval to re-check every minute (in case time passes)
+    const interval = setInterval(() => {
+      setNudgeInfo(prev => {
+        // Re-calculate with current state to avoid stale closure
+        const updated = getNudgeInfo(mitTask, calEvents, isWorking);
+        // Only return new object if nudge actually changed (prevents unnecessary re-renders)
+        if (!updated && !prev) return null;
+        if (!updated || !prev) return updated;
+        if (updated.minsUntil !== prev.minsUntil || updated.eventTitle !== prev.eventTitle) return updated;
+        // Time string will always change (new minute) but that's expected
+        return updated;
+      });
+    }, 60_000); // re-check every minute
+
     return () => clearInterval(interval);
   }, [mitTask, calEvents, isWorking]);
 
@@ -118,40 +131,38 @@ export default function DriftNudge({
 
   return (
     <View style={[s.container, urgency === 'urgent' && s.containerUrgent]}>
-      {/* Icon */}
-      <View style={[s.iconWrap, urgency === 'urgent' && s.iconWrapUrgent]}>
-        <Ionicons
-          name={urgency === 'urgent' ? 'warning' : 'time-outline'}
-          size={16}
-          color={urgency === 'urgent' ? C.error : C.warning}
-        />
-      </View>
-
-      {/* Message */}
-      <View style={s.textWrap}>
-        <Text style={[s.nudgeText, urgency === 'urgent' && s.nudgeTextUrgent]}>
+      {/* Row 1: icon + message + dismiss */}
+      <View style={s.topRow}>
+        <View style={[s.iconWrap, urgency === 'urgent' && s.iconWrapUrgent]}>
+          <Ionicons
+            name={urgency === 'urgent' ? 'warning' : 'time-outline'}
+            size={15}
+            color={urgency === 'urgent' ? C.error : C.warning}
+          />
+        </View>
+        <Text style={[s.nudgeText, urgency === 'urgent' && s.nudgeTextUrgent]} numberOfLines={2}>
           {timeStr} — {mitTask?.text
-            ? `"${mitTask.text.length > 30 ? mitTask.text.slice(0, 30) + '…' : mitTask.text}"`
+            ? `"${mitTask.text.length > 28 ? mitTask.text.slice(0, 28) + '…' : mitTask.text}"`
             : 'MIT'} not started.{' '}
           <Text style={s.eventText}>{minsUntil}m before {eventTitle}.</Text>
         </Text>
-      </View>
-
-      {/* Actions */}
-      <View style={s.actions}>
-        <TouchableOpacity style={s.startBtn} onPress={onStart} activeOpacity={0.8}>
-          <Text style={s.startBtnText}>Start now</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.rescheduleBtn} onPress={onReschedule} activeOpacity={0.75}>
-          <Text style={s.rescheduleBtnText}>Reschedule</Text>
-        </TouchableOpacity>
         <TouchableOpacity
           style={s.dismissBtn}
           onPress={() => setDismissed(true)}
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="close" size={16} color={C.textTertiary} />
+          <Ionicons name="close" size={15} color={C.textTertiary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Row 2: action buttons */}
+      <View style={s.actions}>
+        <TouchableOpacity style={s.startBtn} onPress={onStart} activeOpacity={0.8}>
+          <Text style={s.startBtnText}>Start now</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.rescheduleBtn} onPress={onReschedule} activeOpacity={0.75}>
+          <Text style={s.rescheduleBtnText}>Reschedule</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -161,14 +172,12 @@ export default function DriftNudge({
 function makeStyles(C: any) {
   return StyleSheet.create({
     container: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
       marginHorizontal: Spacing.lg,
       marginTop: Spacing.sm,
       marginBottom: 4,
       paddingHorizontal: 14,
-      paddingVertical: 11,
+      paddingTop: 10,
+      paddingBottom: 10,
       backgroundColor: C.warningLight,
       borderRadius: Radius.lg,
       borderWidth: 1,
@@ -179,23 +188,28 @@ function makeStyles(C: any) {
       borderColor: C.error + '66',
     },
 
+    // Row 1: icon + text + dismiss
+    topRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      marginBottom: 8,
+    },
     iconWrap: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
       backgroundColor: C.warning + '22',
       alignItems: 'center',
       justifyContent: 'center',
       flexShrink: 0,
+      marginTop: 1,
     },
     iconWrapUrgent: {
       backgroundColor: C.error + '22',
     },
-
-    textWrap: {
-      flex: 1,
-    },
     nudgeText: {
+      flex: 1,
       fontSize: 13,
       color: C.textPrimary,
       lineHeight: 18,
@@ -204,18 +218,28 @@ function makeStyles(C: any) {
       fontWeight: '600',
     },
     eventText: {
-      fontWeight: '600',
+      fontWeight: '700',
       color: C.textPrimary,
     },
+    dismissBtn: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+      marginTop: 1,
+    },
 
+    // Row 2: action buttons
     actions: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-      flexShrink: 0,
+      gap: 8,
+      paddingLeft: 30, // indent to align with text (icon width + gap)
     },
     startBtn: {
-      paddingHorizontal: 12,
+      paddingHorizontal: 14,
       paddingVertical: 6,
       backgroundColor: C.primary,
       borderRadius: Radius.full,
@@ -226,7 +250,7 @@ function makeStyles(C: any) {
       color: C.textInverse,
     },
     rescheduleBtn: {
-      paddingHorizontal: 10,
+      paddingHorizontal: 12,
       paddingVertical: 6,
       borderRadius: Radius.full,
       borderWidth: 1,
@@ -236,13 +260,6 @@ function makeStyles(C: any) {
       fontSize: 12,
       fontWeight: '600',
       color: C.textSecondary,
-    },
-    dismissBtn: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      alignItems: 'center',
-      justifyContent: 'center',
     },
   });
 }

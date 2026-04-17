@@ -63,7 +63,7 @@ export default function GoalSettingScreen({ navigation }: Props) {
             <Text style={styles.step}>Step 2 of 3</Text>
             <Text style={styles.title}>Set your goals</Text>
             <Text style={styles.sub}>
-              Where do you want to be? Even rough answers help Synapse prioritise what matters. You can always update these.
+              Where do you want to be? Even rough answers help Aiteall prioritise what matters. You can always update these.
             </Text>
           </View>
 

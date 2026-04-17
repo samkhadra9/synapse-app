@@ -1,5 +1,5 @@
 /**
- * anthropic.ts — Synapse Anthropic call helper
+ * anthropic.ts — Solas Anthropic call helper
  *
  * Routes every Anthropic call through the Supabase Edge Function proxy so
  * the API key never lives in the app binary.
@@ -46,11 +46,17 @@ export async function fetchAnthropic(
     session = refreshed.session;
   }
 
+  if (!session?.access_token) {
+    // This should not happen in normal flow, but if Supabase auth fails completely
+    // we should throw rather than send an invalid request
+    throw new Error('[anthropic] No valid session token available for proxy request');
+  }
+
   return fetch(PROXY_URL, {
     method: 'POST',
     headers: {
       'Content-Type':  'application/json',
-      'Authorization': `Bearer ${session?.access_token ?? ''}`,
+      'Authorization': `Bearer ${session.access_token}`,
     },
     body: JSON.stringify(body),
   });

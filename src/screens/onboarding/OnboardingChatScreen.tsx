@@ -1,5 +1,5 @@
 /**
- * OnboardingChatScreen — Synapse V2
+ * OnboardingChatScreen — Solas V2
  *
  * A conversation that feels natural but quietly builds the user's
  * PARA structure (Areas → Projects → Goals) behind the scenes.
@@ -17,7 +17,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, Animated,
-  ActivityIndicator, StatusBar,
+  ActivityIndicator, StatusBar, Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
@@ -28,7 +28,7 @@ import { fetchAnthropic } from '../../lib/anthropic';
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are Synapse — a personal operating system for people who want to build a life with intention rather than just manage a schedule.
+const SYSTEM_PROMPT = `You are the Aiteall AI — a personal operating system for people who want to build a life with intention rather than just manage a schedule.
 
 Core belief: You don't react to life. You construct it. Every day can be a small act of becoming the person you're building toward.
 
@@ -43,10 +43,10 @@ Rules:
 - Move with purpose — don't linger
 
 Conversation arc (follow this order):
-1. Open with: "So what brings you to Synapse?" — warm, casual, genuinely curious. Let them tell you what's going on.
+1. The opening message has already been shown — it introduced Aiteall and asked "what brings you to Aiteall?". The user is now replying. Pick up from their reply warmly, naturally — do NOT re-introduce yourself or re-ask what brings them here.
 2. From their answer, pick up on who they are. Then ask their name naturally ("By the way, I don't think I caught your name?") if it hasn't come up.
 3. Ask: "Before we get into the practical stuff — what are you building toward? Like, where do you actually want to be in a few years?" This sets the motivational frame. Accept whatever they say without probing.
-4. Transition naturally into asking about what they're actively working on. When you do, briefly explain the two types of things Synapse tracks — keep it to 2 sentences, conversational, not a lecture: something like "I'll ask you about two kinds of things — stuff you're actively trying to finish (like a project with a deadline), and the ongoing parts of life you're always tending (like health or finances). First — what are you actively trying to get done right now?"
+4. Transition naturally into asking about what they're actively working on. When you do, briefly explain the two types of things Aiteall tracks — keep it to 2 sentences, conversational, not a lecture: something like "I'll ask you about two kinds of things — stuff you're actively trying to finish (like a project with a deadline), and the ongoing parts of life you're always tending (like health or finances). First — what are you actively trying to get done right now?"
 5. Ask about the ongoing areas of their life that never really finish — health, relationships, creative work, finances, learning.
 6. Ask about focus capacity: roughly an hour of deep focus, or can they go longer?
 7. Ask what time they wake up and wind down.
@@ -134,7 +134,15 @@ export default function OnboardingChatScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // First message is hardcoded — introduces Aiteall before the LLM takes over
+  const INTRO_MESSAGE: ChatMessage = {
+    id: 'intro-0',
+    role: 'assistant',
+    content: `Welcome to Aiteall (pronounced 'AT-all').\n\nIt's an Irish word for a break in the clouds — that moment when the overcast lifts and you can finally see clearly.\n\nWhat do you want to get done today?`,
+    timestamp: new Date().toISOString(),
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>([INTRO_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
@@ -158,10 +166,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
   }
 
-  // Kick off the conversation
-  useEffect(() => {
-    sendToLLM([], true);
-  }, []);
+  // No auto-kick — intro message is already shown, LLM takes over on first user reply
 
   async function sendToLLM(history: ChatMessage[], isFirst = false) {
     setLoading(true);
@@ -308,6 +313,63 @@ export default function OnboardingChatScreen({ navigation }: any) {
     if (data.portrait) setPortrait(data.portrait);
   }
 
+  /** Let the user schedule onboarding for a better time */
+  function handleRemindLater() {
+    const now = new Date();
+    const options: { label: string; hours: number }[] = [
+      { label: 'In 1 hour',   hours: 1  },
+      { label: 'This evening (7pm)', hours: -1 },  // special: use 7pm today
+      { label: 'Tomorrow morning (9am)', hours: -2 }, // special: 9am tomorrow
+      { label: 'Tonight before bed (9pm)', hours: -3 }, // special: 9pm today
+    ];
+
+    Alert.alert(
+      'When should I remind you?',
+      'I\'ll send you a notification at your chosen time so you can finish setting up Aiteall.',
+      [
+        ...options.map(opt => ({
+          text: opt.label,
+          onPress: async () => {
+            let fireDate: Date;
+            if (opt.hours === -1) {
+              // 7pm today
+              fireDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 0);
+              if (fireDate <= now) fireDate.setDate(fireDate.getDate() + 1);
+            } else if (opt.hours === -2) {
+              // 9am tomorrow
+              fireDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0, 0);
+            } else if (opt.hours === -3) {
+              // 9pm today
+              fireDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 21, 0, 0);
+              if (fireDate <= now) fireDate.setDate(fireDate.getDate() + 1);
+            } else {
+              // N hours from now
+              fireDate = new Date(now.getTime() + opt.hours * 60 * 60 * 1000);
+            }
+
+            try {
+              // Request permissions first (needed before scheduling)
+              const { scheduleOnboardingReminder, requestPermissions } = await import('../../services/notifications');
+              const granted = await requestPermissions();
+              if (granted) {
+                await scheduleOnboardingReminder(fireDate);
+              }
+            } catch (e) {
+              console.warn('[onboarding] schedule reminder failed:', e);
+            }
+
+            Alert.alert(
+              '✓ Reminder set',
+              `I'll nudge you at ${fireDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. See you then.`,
+              [{ text: 'OK', onPress: () => navigation.goBack() }],
+            );
+          },
+        })),
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  }
+
   async function handleComplete() {
     // Don't mark onboardingCompleted yet — skeleton step comes next
     updateProfile({ onboardingStep: 'chat' });
@@ -364,8 +426,8 @@ export default function OnboardingChatScreen({ navigation }: any) {
             <Text style={styles.avatarInitial}>S</Text>
           </View>
           <View>
-            <Text style={styles.headerTitle}>Synapse</Text>
-            <Text style={styles.headerSub}>Setting up your life</Text>
+            <Text style={styles.headerTitle}>Aiteall</Text>
+            <Text style={styles.headerSub}>Setting up your system</Text>
           </View>
         </View>
 
@@ -427,6 +489,15 @@ export default function OnboardingChatScreen({ navigation }: any) {
               <Text style={styles.sendBtnText}>↑</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Escape hatch — schedule for later */}
+          <TouchableOpacity
+            style={styles.remindLaterBtn}
+            onPress={handleRemindLater}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.remindLaterText}>⏱  Not a good time? Remind me later</Text>
+          </TouchableOpacity>
         </View>
       )}
     </KeyboardAvoidingView>
@@ -500,4 +571,15 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: Colors.borderLight },
   sendBtnText:     { fontSize: 20, color: '#FFFFFF', fontWeight: '700', lineHeight: 24 },
+
+  remindLaterBtn: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingBottom: 4,
+  },
+  remindLaterText: {
+    fontSize: 13,
+    color: Colors.textTertiary,
+    fontWeight: '500',
+  },
 });

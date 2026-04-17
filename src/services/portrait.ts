@@ -1,11 +1,11 @@
 /**
- * portrait.ts — Synapse user portrait service
+ * portrait.ts — Solas user portrait service
  *
  * Maintains a short (~150 word) evolving portrait of the user that persists
  * across all chat sessions. After any meaningful conversation (≥4 exchanges),
  * one background call to Claude Haiku updates the portrait with anything new
  * learned. The portrait is then injected at the top of every future system
- * prompt so Synapse always feels like it knows the person.
+ * prompt so Solas always feels like it knows the person.
  *
  * Cost: ~0.001 cents per update on Claude Haiku — practically free.
  */
@@ -41,7 +41,7 @@ export async function updatePortrait(
 
   const conversationText = messages
     .slice(-30) // cap at last 30 messages so we don't bloat the request
-    .map(m => `${m.role === 'user' ? 'User' : 'Synapse'}: ${m.content}`)
+    .map(m => `${m.role === 'user' ? 'User' : 'Aiteall'}: ${m.content}`)
     .join('\n\n');
 
   const prompt = PORTRAIT_UPDATE_PROMPT

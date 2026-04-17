@@ -1,7 +1,7 @@
 /**
- * WelcomeScreen — Synapse v3
+ * WelcomeScreen — Solas v3
  *
- * Explains what Synapse is before asking anything of the user.
+ * Explains what Solas is before asking anything of the user.
  * Three concrete value props + clear onboarding CTA.
  * Aesthetic: editorial, pure white, Abby Health-inspired.
  */
@@ -20,12 +20,12 @@ const PILLARS = [
   {
     label: 'CAPTURE',
     title: 'Brain dump, structured.',
-    body: "Talk or type anything on your mind. Synapse sorts it into projects, tasks, and priorities — so nothing gets lost and nothing takes up mental space unnecessarily.",
+    body: "Talk or type anything on your mind. Aiteall sorts it into projects, tasks, and priorities — so nothing gets lost and nothing takes up mental space unnecessarily.",
   },
   {
     label: 'PLAN',
     title: 'A real plan for today.',
-    body: "Every morning, Synapse pulls your overdue tasks, active projects, and goals into a time-blocked sequence. Three priorities. Realistic timing. A day you can actually execute.",
+    body: "Every morning, Aiteall pulls your overdue tasks, active projects, and goals into a time-blocked sequence. Three priorities. Realistic timing. A day you can actually execute.",
   },
   {
     label: 'BUILD',
@@ -60,7 +60,7 @@ export default function WelcomeScreen({ navigation }: any) {
         >
           {/* ── Hero ─────────────────────────────────────────────────── */}
           <Animated.View style={[s.hero, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-            <Text style={s.wordmark}>Synapse</Text>
+            <Text style={s.wordmark}>Aiteall</Text>
             <Text style={s.heading}>Build the life{'\n'}you mean to live.</Text>
             <Text style={s.headingAccent}>Intentionally.</Text>
             <Text style={s.sub}>
@@ -86,7 +86,7 @@ export default function WelcomeScreen({ navigation }: any) {
           {/* ── How it works note ─────────────────────────────────────── */}
           <Animated.View style={[s.howItWorks, { opacity: fadeAnim }]}>
             <Text style={s.howItWorksText}>
-              Setup takes about 5 minutes. Synapse will ask you about your life, build your Areas and Projects, then help you design a weekly time structure that actually fits how you work.
+              Setup takes about 5 minutes. Aiteall will ask you about your life, build your Areas and Projects, then help you design a weekly time structure that actually fits how you work.
             </Text>
           </Animated.View>
 

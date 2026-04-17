@@ -1,5 +1,5 @@
 /**
- * Synapse AI Service — now powered by Anthropic Claude
+ * Aiteall AI Service — now powered by Anthropic Claude
  *
  * Same exported function signatures as before, but switched from OpenAI to
  * the Anthropic Messages API. Nothing else in the codebase needs to change.
