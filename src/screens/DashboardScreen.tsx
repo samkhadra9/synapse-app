@@ -1143,11 +1143,11 @@ function TodayTimelinePage({
           const doneCount = planned?.tasks.filter(t => t.done).length ?? 0;
           const totalCount = planned?.tasks.length ?? 0;
           return (
-            <View key={i} style={[tl.block, { top, left: TIME_W + 4, right: 4, height: blockH, backgroundColor: '#3B82F620', borderLeftColor: '#3B82F6' }]}>
+            <View key={i} style={[tl.block, { top, left: TIME_W + 4, right: 4, height: blockH, backgroundColor: C.primaryLight, borderLeftColor: C.primary }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={[tl.blockLabel, { color: '#3B82F6' }]} numberOfLines={1}>{ev.title}</Text>
+                <Text style={[tl.blockLabel, { color: C.primary }]} numberOfLines={1}>{ev.title}</Text>
                 {totalCount > 0 && (
-                  <Text style={{ fontSize: 9, color: '#3B82F6', fontWeight: '700', marginLeft: 4 }}>
+                  <Text style={{ fontSize: 9, color: C.primary, fontWeight: '700', marginLeft: 4 }}>
                     {doneCount}/{totalCount}
                   </Text>
                 )}
@@ -1161,14 +1161,14 @@ function TodayTimelinePage({
                 >
                   <View style={{
                     width: 11, height: 11, borderRadius: 5.5,
-                    borderWidth: 1.5, borderColor: t.done ? '#3B82F6' : '#3B82F6',
-                    backgroundColor: t.done ? '#3B82F6' : 'transparent',
+                    borderWidth: 1.5, borderColor: C.primary,
+                    backgroundColor: t.done ? C.primary : 'transparent',
                     alignItems: 'center', justifyContent: 'center',
                   }}>
                     {t.done && <Text style={{ fontSize: 7, color: '#fff', fontWeight: '900' }}>✓</Text>}
                   </View>
                   <Text style={{
-                    fontSize: 10, color: '#3B82F6', flex: 1,
+                    fontSize: 10, color: C.primary, flex: 1,
                     textDecorationLine: t.done ? 'line-through' : 'none', opacity: t.done ? 0.55 : 1,
                   }} numberOfLines={1}>{t.text}</Text>
                 </TouchableOpacity>
@@ -1625,7 +1625,7 @@ function InboxTriageModal({ visible, tasks, onClose }: InboxTriageModalProps) {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.background }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.background }} edges={['top', 'bottom']}>
         {/* Header */}
         <View
           style={{
@@ -1766,16 +1766,6 @@ function InboxTriageModal({ visible, tasks, onClose }: InboxTriageModalProps) {
                 )}
               </View>
 
-              {/* Skip Link */}
-              <TouchableOpacity
-                onPress={() => handleAction('later')}
-                style={{ alignItems: 'center', marginTop: Spacing.lg }}
-                activeOpacity={0.7}
-              >
-                <Text style={{ fontSize: 13, color: C.textTertiary }}>
-                  skip for now →
-                </Text>
-              </TouchableOpacity>
 
               {/* Action Buttons */}
               <View style={{ marginTop: Spacing.xl, gap: Spacing.md, width: '100%' }}>
@@ -1835,26 +1825,42 @@ function InboxTriageModal({ visible, tasks, onClose }: InboxTriageModalProps) {
                 </View>
 
                 {/* Bottom Row: Later and Delete */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.sm }}>
+                <View style={{ flexDirection: 'row', gap: Spacing.md }}>
                   <TouchableOpacity
                     onPress={() => handleAction('later')}
-                    activeOpacity={0.7}
+                    activeOpacity={0.8}
+                    style={{
+                      flex: 1,
+                      paddingVertical: Spacing.base,
+                      backgroundColor: 'transparent',
+                      borderRadius: Radius.lg,
+                      borderWidth: 1.5,
+                      borderColor: C.border,
+                      alignItems: 'center',
+                    }}
                   >
-                    <Text style={{ fontSize: 14, color: C.textTertiary }}>Later</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.textSecondary }}>Later</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     onPress={handleDeleteWithConfirm}
-                    activeOpacity={0.7}
+                    activeOpacity={0.8}
+                    style={{
+                      flex: 1,
+                      paddingVertical: Spacing.base,
+                      backgroundColor: isDeleting ? '#FEE2E2' : 'transparent',
+                      borderRadius: Radius.lg,
+                      borderWidth: 1.5,
+                      borderColor: isDeleting ? '#DC2626' : C.border,
+                      alignItems: 'center',
+                    }}
                   >
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        color: isDeleting ? '#DC2626' : '#9CA3AF',
-                        fontWeight: isDeleting ? '600' : '400',
-                      }}
-                    >
-                      {isDeleting ? 'Confirm delete?' : 'Delete'}
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: isDeleting ? '#DC2626' : C.textSecondary,
+                    }}>
+                      {isDeleting ? 'Confirm delete' : 'Delete'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1981,37 +1987,44 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
               : `${totalCount} things waiting — no rush.`}
           </Text>
         </View>
-        <View style={{ flexDirection: 'column', gap: Spacing.sm, alignItems: 'flex-end' }}>
+        <View style={{ flexDirection: 'row', gap: Spacing.sm, alignItems: 'center' }}>
           {totalCount > 0 && (
             <TouchableOpacity
               onPress={() => setTriaging(true)}
               style={{
-                paddingHorizontal: Spacing.md,
-                paddingVertical: Spacing.sm,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
                 borderRadius: Radius.full,
                 borderWidth: 1.5,
                 borderColor: C.primary,
               }}
               activeOpacity={0.7}
             >
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.primary }}>Triage →</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.primary }}>Triage</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={onQuickAdd} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }} activeOpacity={0.8}>
-            <Text style={{ fontSize: 22, color: '#fff', fontWeight: '300', lineHeight: 26 }}>+</Text>
+            <Ionicons name="add" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Plan with AI — soft CTA */}
+      {/* Action row — Triage and Prioritise explained */}
       {totalCount > 0 && (
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
-          style={{ marginHorizontal: Spacing.lg, marginTop: Spacing.base, marginBottom: Spacing.sm, padding: 13, backgroundColor: C.accentLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.accentMid }}
-          activeOpacity={0.82}
-        >
-          <Text style={{ fontSize: 14, color: C.accent, fontWeight: '600' }}>Tap to prioritise these →</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.base, marginBottom: Spacing.sm }}>
+          <View style={{ flex: 1, padding: 12, backgroundColor: C.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.primary, letterSpacing: 0.5, marginBottom: 2 }}>TRIAGE</Text>
+            <Text style={{ fontSize: 12, color: C.textSecondary, lineHeight: 16 }}>Go through tasks one by one — when should each happen?</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+            style={{ flex: 1, padding: 12, backgroundColor: C.accentLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.accentMid }}
+            activeOpacity={0.82}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.accent, letterSpacing: 0.5, marginBottom: 2 }}>PRIORITISE</Text>
+            <Text style={{ fontSize: 12, color: C.accent, lineHeight: 16, opacity: 0.8 }}>Plan with AI — build a time-blocked day from your list.</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* From earlier (overdue — warm tone, not alarming red) */}
@@ -2540,6 +2553,7 @@ export default function DashboardScreen({ navigation }: any) {
   const [syncing,       setSyncing]       = useState(false);
   const [showQuickAdd,  setShowQuickAdd]  = useState(false);
   const [activePage,    setActivePage]    = useState(0);
+  const pagerRef = useRef<ScrollView>(null);
   const [showAllToday,  setShowAllToday]  = useState(false);
 
   // Lifted: focus session state (shared with AmbientChatStrip for "Yes, let's go")
@@ -2704,15 +2718,29 @@ export default function DashboardScreen({ navigation }: any) {
       <StatusBar barStyle="dark-content" />
       <SafeAreaView style={styles.safe} edges={['top']}>
 
-        {/* ── Page dots ──────────────────────────────────────────────────── */}
-        <View style={styles.dotRow}>
-          <View style={[styles.dot, activePage === 0 && styles.dotActive]} />
-          <View style={[styles.dot, activePage === 1 && styles.dotActive]} />
-          <View style={[styles.dot, activePage === 2 && styles.dotActive]} />
+        {/* ── Page tabs ──────────────────────────────────────────────────── */}
+        <View style={styles.tabRow}>
+          {(['Today', 'Inbox', 'Vision'] as const).map((label, i) => (
+            <TouchableOpacity
+              key={label}
+              style={styles.tabItem}
+              onPress={() => {
+                pagerRef.current?.scrollTo({ x: i * SCREEN_W, animated: true });
+                setActivePage(i);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.tabLabel, activePage === i && styles.tabLabelActive]}>
+                {label}
+              </Text>
+              {activePage === i && <View style={styles.tabUnderline} />}
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* ── Horizontal pager ───────────────────────────────────────────── */}
         <ScrollView
+          ref={pagerRef}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
@@ -2796,19 +2824,38 @@ function makeStyles(C: any) { return StyleSheet.create({
   safe:  { flex: 1 },
   scroll:{ paddingBottom: 40 },
 
-  // Page dots
-  dotRow: {
-    flexDirection: 'row', justifyContent: 'center',
-    alignItems: 'center', gap: 6,
-    paddingVertical: 8,
+  // Page tabs
+  tabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
+    marginBottom: 2,
   },
-  dot: {
-    width: 5, height: 5, borderRadius: 2.5,
-    backgroundColor: C.borderLight,
+  tabItem: {
+    marginRight: Spacing.lg,
+    paddingVertical: 10,
+    alignItems: 'center',
+    position: 'relative',
   },
-  dotActive: {
-    backgroundColor: C.textTertiary,
-    width: 14, borderRadius: 2.5,
+  tabLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: C.textTertiary,
+    letterSpacing: 0.1,
+  },
+  tabLabelActive: {
+    color: C.textPrimary,
+    fontWeight: '700',
+  },
+  tabUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: C.primary,
   },
 
   // Greeting

@@ -22,6 +22,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../theme';
+import { format } from 'date-fns';
 import { useStore, ChatMessage, DomainKey } from '../../store/useStore';
 import { pushAll } from '../../services/sync';
 import { fetchAnthropic } from '../../lib/anthropic';
@@ -76,8 +77,8 @@ When you have enough information (after at least 6-8 exchanges), end your messag
 Then on the VERY NEXT line output a JSON object (nothing else after it) in this exact format:
 {
   "name": "string",
-  "morningTime": "HH:MM",
-  "eveningTime": "HH:MM",
+  "morningTime": "07:00",
+  "eveningTime": "22:00",
   "deepWorkBlockLength": 60,
   "deepWorkBlocksPerWeek": 3,
   "areas": [
@@ -85,6 +86,9 @@ Then on the VERY NEXT line output a JSON object (nothing else after it) in this 
   ],
   "projects": [
     { "domain": "work|health|...", "title": "string (concrete end state)", "description": "string", "deadline": "YYYY-MM-DD or null" }
+  ],
+  "tasks": [
+    { "domain": "work|health|...", "text": "string (specific, actionable — what exactly needs doing)", "projectTitle": "string or null (title of the project this belongs to, if any)", "dueDate": "today|tomorrow|YYYY-MM-DD or null", "isMIT": false, "estimatedMinutes": 60 }
   ],
   "goals": [
     { "domain": "work|health|...", "horizon": "1year|5year|10year", "text": "string" }
@@ -111,7 +115,16 @@ Example of a GOOD goal: "I am running a small business that gives me creative au
 Example of a BAD goal: "Get fit and healthy"
 Example of a GOOD goal: "My body feels capable and energised — I exercise because it feels good, not out of guilt, and I wake up without dreading the day"
 
-Generate 1-2 goals per active life domain. Spread them across all three horizons (1year, 5year, 10year) so each horizon feels like a coherent chapter of the same story.`;
+Generate 1-2 goals per active life domain. Spread them across all three horizons (1year, 5year, 10year) so each horizon feels like a coherent chapter of the same story.
+
+TASK RULES — populate the tasks array with anything the user explicitly mentioned needing to do:
+- Only add tasks the user actually mentioned — don't invent them
+- Each task must be specific and actionable, not vague ("Finish chapter 3 draft" not "Work on dissertation")
+- If a task clearly belongs to a project, set projectTitle to match that project's title exactly
+- Tasks due soon (user said "this week", "soon", "by Friday") → use a real date or "tomorrow"
+- Tasks they said they need to do today → dueDate: "today", isMIT: true (max 3 MIT tasks total)
+- Estimate honestly: 30 min = quick task, 60 min = standard, 90-120 min = deep work
+- If the user mentioned nothing specific to do, leave tasks as an empty array []`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -184,10 +197,19 @@ export default function OnboardingChatScreen({ navigation }: any) {
 
       const data = await res.json();
 
-      // Show actual API error so we can debug
       if (!res.ok || data.error) {
-        const errMsg = data.error?.message ?? `API error ${res.status}`;
-        appendMessage('assistant', `API error: ${errMsg}`);
+        if (res.status === 401) {
+          appendMessage('assistant', userAnthropicKey
+            ? "Your API key was rejected. Check it in Settings → API Key."
+            : "Session expired. Try closing and reopening the app.");
+        } else if (res.status === 429) {
+          appendMessage('assistant', "Rate limit reached — wait a moment and try again.");
+        } else if (res.status >= 500) {
+          appendMessage('assistant', "The AI service is having a moment. Try again shortly.");
+        } else {
+          const errMsg = data.error?.message ?? `Error ${res.status}`;
+          appendMessage('assistant', `Something went wrong: ${errMsg}`);
+        }
         setLoading(false);
         return;
       }
@@ -217,8 +239,14 @@ export default function OnboardingChatScreen({ navigation }: any) {
       } else {
         appendMessage('assistant', reply);
       }
-    } catch (err) {
-      appendMessage('assistant', "Something went wrong. Check your API key in Settings and try again.");
+    } catch (err: any) {
+      if (err?.message?.includes('[anthropic] No valid session token')) {
+        appendMessage('assistant', "Session expired — try closing and reopening the app.");
+      } else if (err instanceof TypeError) {
+        appendMessage('assistant', "No internet connection. Check your connection and try again.");
+      } else {
+        appendMessage('assistant', "Something went wrong. Check your connection and try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -245,15 +273,33 @@ export default function OnboardingChatScreen({ navigation }: any) {
     await sendToLLM([...messages, userMsg]);
   }
 
-  /** Validate "HH:MM" format and clamp to valid range — returns null if unusable */
+  /** Parse a time string in any reasonable format → "HH:MM" or null */
   function sanitiseTime(t: any): string | null {
     if (typeof t !== 'string') return null;
-    const m = /^(\d{1,2}):(\d{2})$/.exec(t.trim());
-    if (!m) return null;
-    const h = Number(m[1]);
-    const min = Number(m[2]);
-    if (h < 0 || h > 23 || min < 0 || min > 59) return null;
-    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    const s = t.trim();
+    // Standard HH:MM or H:MM
+    const hhmm = /^(\d{1,2}):(\d{2})(?:\s*(am|pm))?$/i.exec(s);
+    if (hhmm) {
+      let h = Number(hhmm[1]);
+      const min = Number(hhmm[2]);
+      const meridiem = hhmm[3]?.toLowerCase();
+      if (meridiem === 'pm' && h < 12) h += 12;
+      if (meridiem === 'am' && h === 12) h = 0;
+      if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    }
+    // "7am", "10pm", "7" (assume am if < 12)
+    const bare = /^(\d{1,2})\s*(am|pm)?$/i.exec(s);
+    if (bare) {
+      let h = Number(bare[1]);
+      const meridiem = bare[2]?.toLowerCase();
+      if (meridiem === 'pm' && h < 12) h += 12;
+      if (meridiem === 'am' && h === 12) h = 0;
+      if (!meridiem && h < 6) h += 12; // "9" with no meridiem → assume PM if <6
+      if (h < 0 || h > 23) return null;
+      return `${String(h).padStart(2, '0')}:00`;
+    }
+    return null;
   }
 
   function applyOnboardingData(data: any) {
@@ -295,13 +341,40 @@ export default function OnboardingChatScreen({ navigation }: any) {
       addArea({ domain: a.domain as DomainKey, name: a.name, description: a.description, isActive: true });
     });
 
+    // Create projects and build a title→id map so tasks can link to them
+    const projectTitleToId: Record<string, string> = {};
     data.projects?.forEach((p: any) => {
-      addProject({
+      const id = addProject({
         domain: p.domain as DomainKey,
         title: p.title,
         description: p.description,
         deadline: p.deadline ?? undefined,
         status: 'active',
+      });
+      if (id && p.title) projectTitleToId[p.title] = id;
+    });
+
+    // Create tasks the user explicitly mentioned
+    const { addTask } = useStore.getState();
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const tomorrow = format(new Date(Date.now() + 86400000), 'yyyy-MM-dd');
+    data.tasks?.forEach((t: any) => {
+      if (!t.text) return;
+      const dueDate = t.dueDate === 'today' ? today
+        : t.dueDate === 'tomorrow' ? tomorrow
+        : (t.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate)) ? t.dueDate
+        : undefined;
+      const linkedProjectId = t.projectTitle ? projectTitleToId[t.projectTitle] : undefined;
+      addTask({
+        text:             t.text,
+        domain:           (t.domain ?? 'work') as DomainKey,
+        projectId:        linkedProjectId,
+        isMIT:            t.isMIT ?? false,
+        isToday:          dueDate === today,
+        date:             dueDate,
+        completed:        false,
+        priority:         t.isMIT ? 'high' : 'medium',
+        estimatedMinutes: t.estimatedMinutes ?? 60,
       });
     });
 

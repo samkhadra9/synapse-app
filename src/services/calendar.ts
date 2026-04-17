@@ -19,24 +19,49 @@ export async function requestCalendarPermissions(): Promise<boolean> {
   return status === 'granted';
 }
 
-// ── Find or create the Solas calendar ───────────────────────────────────────
+// ── Find or create the Aiteall calendar ─────────────────────────────────────
 
 export async function findOrCreateSolasCalendar(): Promise<string> {
   const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
   const existing  = calendars.find(c => c.title === CALENDAR_NAME && c.allowsModifications);
   if (existing) return existing.id;
 
-  // Create a local calendar
-  const defaultCalendarSource = Platform.OS === 'ios'
-    ? calendars.find(c => c.source?.isLocalAccount)?.source ?? { isLocalAccount: true, name: 'Default', id: '' }
-    : { isLocalAccount: true, name: 'Default', id: '' };
+  // Pick the best calendar source for creating a new calendar.
+  // On iOS we try getDefaultCalendarAsync first (returns the user's primary calendar
+  // which always has a valid sourceId), then fall back to scanning the list.
+  let calSource: { id: string; isLocalAccount?: boolean; name?: string } | null = null;
+
+  if (Platform.OS === 'ios') {
+    try {
+      const defaultCal = await Calendar.getDefaultCalendarAsync();
+      if (defaultCal?.source?.id) {
+        calSource = defaultCal.source as any;
+      }
+    } catch {
+      // getDefaultCalendarAsync may not be available in all Expo SDK versions
+    }
+  }
+
+  if (!calSource) {
+    // Prefer local-account sources; fall back to any source that has an id
+    const sourceFromCal =
+      calendars.find(c => c.source?.isLocalAccount && (c.source as any)?.id)?.source ??
+      calendars.find(c => (c.source as any)?.id)?.source;
+    calSource = sourceFromCal as any ?? null;
+  }
+
+  if (!calSource?.id) {
+    // Last resort: on iOS CalDAV / Exchange setups there may be no local source;
+    // use an empty-string source id (works for iCloud-only devices).
+    calSource = { id: '', isLocalAccount: false, name: 'iCloud' };
+  }
 
   const newId = await Calendar.createCalendarAsync({
     title:          CALENDAR_NAME,
     color:          CALENDAR_COLOR,
     entityType:     Calendar.EntityTypes.EVENT,
-    sourceId:       (defaultCalendarSource as any).id,
-    source:         defaultCalendarSource as any,
+    sourceId:       calSource.id,
+    source:         calSource as any,
     name:           CALENDAR_NAME,
     ownerAccount:   'personal',
     accessLevel:    Calendar.CalendarAccessLevel.OWNER,
@@ -185,7 +210,7 @@ export async function getTodayCalendarEvents(): Promise<TodayEvent[]> {
 
   const events = await Calendar.getEventsAsync(calIds, startOfDay, endOfDay);
 
-  // Filter out Solas's own time-block events — they're already surfaced via
+  // Filter out Aiteall's own time-block events — they're already surfaced via
   // buildSkeletonContext, so including them here would double-count committed time.
   return events.filter(e => !e.title?.startsWith('[Aiteall]')).map(e => {
     const formatTime = (d: Date | string): string => {
@@ -414,7 +439,10 @@ export async function completeReminder(reminderId: string): Promise<void> {
   }
 }
 
-/** Creates calendar events for a planned day's slots */
+/** Creates calendar events for a planned day's slots.
+ *  Prefixes every title with "[Aiteall]" and checks for existing events
+ *  with the same title+date before creating to prevent duplicates.
+ */
 export async function writeDayPlanToCalendar(
   slots: import('../store/useStore').PlannedSlot[],
   dateStr: string,   // "YYYY-MM-DD"
@@ -425,10 +453,27 @@ export async function writeDayPlanToCalendar(
     if (!hasPermission) return 0;
 
     const cid = calendarId ?? (await findOrCreateSolasCalendar());
+
+    // Fetch existing events for the day so we can skip duplicates
+    const dayStart = new Date(`${dateStr}T00:00:00`);
+    const dayEnd   = new Date(`${dateStr}T23:59:59`);
+    let existingTitles: Set<string> = new Set();
+    try {
+      const existing = await Calendar.getEventsAsync([cid], dayStart, dayEnd);
+      existing.forEach(e => { if (e.title) existingTitles.add(e.title); });
+    } catch {
+      // If we can't check, proceed anyway — better to duplicate than skip
+    }
+
     let createdCount = 0;
 
     for (const slot of slots) {
       try {
+        const prefixedTitle = `[Aiteall] ${slot.eventLabel}`;
+
+        // Skip if an event with this exact title already exists today
+        if (existingTitles.has(prefixedTitle)) continue;
+
         // Parse slot.time ("HH:MM") to build start date
         const [hours, minutes] = slot.time.split(':').map(Number);
         const startDate = new Date(`${dateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`);
@@ -442,7 +487,7 @@ export async function writeDayPlanToCalendar(
           .join('\n');
 
         const eventId = await Calendar.createEventAsync(cid, {
-          title: slot.eventLabel,
+          title: prefixedTitle,
           startDate,
           endDate,
           notes: taskNotes,

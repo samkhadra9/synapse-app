@@ -227,7 +227,7 @@ interface SolasState {
   archiveArea: (id: string) => void;
 
   projects: Project[];
-  addProject: (project: Omit<Project, 'id' | 'createdAt' | 'isDecomposed' | 'tasks' | 'milestones'>) => void;
+  addProject: (project: Omit<Project, 'id' | 'createdAt' | 'isDecomposed' | 'tasks' | 'milestones'>) => string;
   updateProject: (id: string, patch: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   toggleProjectTask: (projectId: string, taskId: string) => void;
@@ -394,6 +394,7 @@ export const useStore = create<SolasState>()(
         };
         set((s) => ({ projects: [...s.projects, newProject] }));
         syncIfAuthed(s => s.pushProject(newProject), get().session);
+        return newProject.id;
       },
       updateProject: (id, patch) => {
         set((s) => ({ projects: s.projects.map(p => p.id === id ? { ...p, ...patch } : p) }));
@@ -425,6 +426,11 @@ export const useStore = create<SolasState>()(
       // ── Tasks ─────────────────────────────────────────────────────────────────
       tasks: [],
       addTask: (task) => {
+        // Deduplicate — skip if a non-completed task with the same text already exists
+        const existing = get().tasks.find(
+          t => !t.completed && t.text.trim().toLowerCase() === task.text.trim().toLowerCase()
+        );
+        if (existing) return;
         const newTask = { ...task, id: uid(), createdAt: new Date().toISOString() };
         set((s) => ({ tasks: [...s.tasks, newTask] }));
         syncIfAuthed(s => s.pushTask(newTask), get().session);
@@ -690,6 +696,14 @@ export const useStore = create<SolasState>()(
       })),
 
       wipeAllData: async () => {
+        // Delete from Supabase first (best-effort — don't block if offline)
+        try {
+          const { deleteAllUserData } = await import('../services/sync');
+          await deleteAllUserData();
+        } catch (e) {
+          console.warn('[store] Supabase delete failed (continuing with local wipe):', e);
+        }
+        // Then wipe local storage
         await AsyncStorage.removeItem('synapse-v2-storage');
         set({
           profile:           defaultProfile,

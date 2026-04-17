@@ -195,6 +195,30 @@ export default function SettingsScreen() {
     );
   }
 
+  function handleWipeData() {
+    Alert.alert(
+      'Delete all your data?',
+      'This will permanently remove your profile, projects, tasks, goals, and habits — from this device and our servers.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', style: 'destructive', onPress: () => {
+            // Second confirm
+            Alert.alert(
+              'Are you really sure?',
+              'There is no undo. Everything will be gone.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete everything', style: 'destructive', onPress: async () => {
+                    await wipeAllData();
+                    navigation.reset({ index: 0, routes: [{ name: 'OnboardingChat' }] });
+                  }},
+              ]
+            );
+          }},
+      ]
+    );
+  }
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -561,19 +585,9 @@ export default function SettingsScreen() {
             <View style={styles.divider} />
             <TouchableOpacity
               style={styles.resetRow}
-              onPress={() => Alert.alert(
-                '⚠️ Wipe all data',
-                'This deletes everything — your profile, projects, tasks, goals, habits, and sessions. This cannot be undone.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Delete everything', style: 'destructive', onPress: async () => {
-                    await wipeAllData();
-                    navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
-                  }},
-                ]
-              )}
+              onPress={handleWipeData}
             >
-              <Text style={[styles.resetText, { color: '#DC2626' }]}>Wipe all data</Text>
+              <Text style={[styles.resetText, { color: '#DC2626' }]}>Delete all my data</Text>
               <Text style={styles.resetArrow}>›</Text>
             </TouchableOpacity>
           </View>

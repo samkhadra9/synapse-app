@@ -18,7 +18,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
-  StatusBar, Animated, Modal, ScrollView, Switch,
+  StatusBar, Animated, Modal, ScrollView, Switch, Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
@@ -35,15 +35,15 @@ import { supabase } from '../lib/supabase';
 export type ChatMode = 'dump' | 'morning' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'project' | 'quick' | 'fatigue';
 
 const MODE_META: Record<ChatMode, { title: string; subtitle: string }> = {
-  dump:    { title: 'Brain dump',      subtitle: "What's on your mind?" },
-  morning: { title: 'Morning planning',subtitle: "Let's build your day" },
-  evening: { title: 'Evening review',  subtitle: "Let's wind down" },
-  weekly:  { title: 'Weekly review',   subtitle: 'Recalibrate. Realign.' },
-  monthly: { title: 'Monthly review',  subtitle: 'Zoom out. Recalibrate.' },
-  yearly:  { title: 'Annual review',   subtitle: 'Redesign your life.' },
-  project: { title: 'New project',     subtitle: "Tell me what you're working on" },
-  quick:   { title: 'One small win',   subtitle: 'No pressure. Just one thing.' },
-  fatigue: { title: 'Decision fatigue', subtitle: 'Clear the noise. One thing.' },
+  dump:    { title: 'Brain dump',     subtitle: "What's on your mind?" },
+  morning: { title: 'Plan your day',  subtitle: "Let's build your day" },
+  evening: { title: 'Wind down',      subtitle: 'Close out the day' },
+  weekly:  { title: 'Weekly reset',   subtitle: 'Recalibrate. Realign.' },
+  monthly: { title: 'Monthly review', subtitle: 'Zoom out. Recalibrate.' },
+  yearly:  { title: 'Annual review',  subtitle: 'Redesign your life.' },
+  project: { title: 'New project',    subtitle: "Tell me what you're working on" },
+  quick:   { title: 'Quick check-in', subtitle: 'No pressure. Just one thing.' },
+  fatigue: { title: 'Stuck?',         subtitle: 'Clear the noise. One thing.' },
 };
 
 const ENV_OPENAI_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim(); // voice only (Whisper)
@@ -267,38 +267,45 @@ ${sharedRules}
 - Every task in the output MUST have estimatedMinutes — never omit it.
 - Reference specific calendar events and skeleton blocks by name when building the day plan.`,
 
-    evening: `You are the Aiteall AI. It's evening. ${firstName} is doing their end-of-day review.
+    evening: `You are the Aiteall AI. It's evening. ${firstName} is closing out the day.
 ${portraitSection}
 ${contextBlock}
 
-Your job:
-1. Start warm: "How did today actually go?" Let them talk.
-2. Help them log what got done — cross-reference with today's planned tasks.
-3. For unfinished tasks: should they roll to tomorrow? Drop? Schedule for later? Help decide, don't just carry everything over automatically.
-4. Ask: "What got in the way?" — capture system friction or distractions for the weekly review.
-5. Ask: "What's on your mind for tomorrow?" — light capture only, not full planning.
-6. Close with clarity: what's rolling, what's done, what's tomorrow's one thing.
+Keep this short and warm — 4-5 exchanges max. Don't drag it out.
+
+1. Open with: "How did today go?" One question. Let them respond.
+2. Based on their answer, either:
+   - Acknowledge a good day and ask what's worth carrying into tomorrow
+   - Acknowledge a rough day without judgment — ask what got in the way (one thing)
+3. Ask: "Anything you need to capture before you close out?" — brief brain dump if needed.
+4. Close with tomorrow's one thing: "What's the most important thing tomorrow?" That's your MIT seed.
+
+DO NOT go through a checklist. DO NOT ask about every unfinished task. One warm conversation, then done.
 
 ${outputFormat}
 ${sharedRules}
-- sessionNote should capture what actually happened for future reference.
-- Roll over tasks with dueDate: "tomorrow" only if they explicitly want to.
-- Be warm and closing. Help them feel done.`,
+- sessionNote: one sentence capturing how the day actually went.
+- If they mention tasks to roll over, set dueDate: "tomorrow". Never roll tasks over automatically without asking.
+- Tasks they want to drop → delete action.
+- Tomorrow's most important thing → task with isMIT: true, dueDate: "tomorrow".`,
 
-    weekly: `You are the Aiteall AI acting as a strategic weekly reviewer. It's probably Sunday. ${firstName} is recalibrating.
+    weekly: `You are the Aiteall AI doing a weekly reset with ${firstName}.
 ${portraitSection}
 ${contextBlock}
 
-Run this review in sequence — one question at a time:
+This is a short strategic conversation — not an interrogation. One question at a time. Aim for 6-8 exchanges total.
 
-1. WHAT HAPPENED: "Walk me through last week. What actually happened — not the plan, what really occurred?"
-2. VALUE AUDIT: "What produced real value? What moved something forward that matters to your goals?"
-3. TIME LEAKS: "Where did time go that you didn't intend? What drained you without giving anything back?"
-4. GOAL ALIGNMENT: Look at their 1-year goals above. "Are you building toward these, or has drift crept in?" Be honest if there's drift.
-5. PROJECT HEALTH: Look at their active projects. "Which projects need attention this week? Any that should be paused or killed?"
-6. NEXT WEEK DESIGN: "Where are your deep work blocks going? What are the 3 non-negotiables next week?"
+Run loosely in this order — but follow the conversation naturally, don't mechanically tick boxes:
 
-Be direct. If there's drift, name it clearly. If they're aligned, confirm it.
+1. Open: "How was the week?" Let them talk freely.
+2. Pick up on what they said — reflect briefly, then ask: "What actually moved forward that matters?"
+3. If there are active projects above, pick the most relevant one: "How's [project] sitting with you?"
+4. "What got in the way this week? Anything to name so it doesn't repeat?"
+5. "What are the 2-3 things that need to happen next week — not everything, just what actually matters?"
+6. Close: confirm the non-negotiables and wish them a good week.
+
+If they have no projects or goals set up yet, just focus on last week and next week's intentions — don't reference structure that doesn't exist.
+Be direct but warm. If there's obvious drift from their goals, name it once, cleanly.
 
 ${outputFormat}
 ${sharedRules}`,
@@ -1022,8 +1029,18 @@ export default function ChatScreen({ navigation, route }: any) {
       }, userAnthropicKey);
       const data = await res.json();
       if (!res.ok) {
-        const errMsg = data?.error?.message ?? `API error ${res.status}`;
-        appendMessage('assistant', `Connection error: ${errMsg}`);
+        if (res.status === 401) {
+          appendMessage('assistant', userAnthropicKey
+            ? "Your API key was rejected. Double-check it in Settings → API Key."
+            : "Session expired. Go to Settings and sign in again.");
+        } else if (res.status === 429) {
+          appendMessage('assistant', "Rate limit reached — wait a moment and try again.");
+        } else if (res.status >= 500) {
+          appendMessage('assistant', "The AI service is having issues right now. Try again in a minute.");
+        } else {
+          const errMsg = data?.error?.message ?? `Error ${res.status}`;
+          appendMessage('assistant', `Something went wrong: ${errMsg}`);
+        }
         return;
       }
       const reply: string = data.content?.[0]?.text ?? "Something went wrong. Try again?";
@@ -1048,8 +1065,14 @@ export default function ChatScreen({ navigation, route }: any) {
       } else {
         appendMessage('assistant', reply);
       }
-    } catch {
-      appendMessage('assistant', "Connection issue. Check your internet and try again.");
+    } catch (err: any) {
+      if (err?.message?.includes('[anthropic] No valid session token')) {
+        appendMessage('assistant', "Session expired — go to Settings and sign in again.");
+      } else if (err?.message?.toLowerCase().includes('network') || err instanceof TypeError) {
+        appendMessage('assistant', "No internet connection. Check your connection and try again.");
+      } else {
+        appendMessage('assistant', "Something went wrong. Check your connection and try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -1146,18 +1169,32 @@ export default function ChatScreen({ navigation, route }: any) {
     const today = format(new Date(), 'yyyy-MM-dd');
     const dayPlan = useStore.getState().dayPlan;
 
-    // Auto-sync day plan to calendar — fire-and-forget after plan is saved
+    // Auto-sync day plan to calendar — with user feedback
     if (mode === 'morning') {
-      setTimeout(() => {
-        const freshDayPlan = useStore.getState().dayPlan;  // read fresh inside callback
+      setTimeout(async () => {
+        const freshDayPlan = useStore.getState().dayPlan;
         if (!freshDayPlan || freshDayPlan.date !== today || !freshDayPlan.slots?.length) return;
-        requestCalendarPermissions().then(hasPermission => {
-          if (!hasPermission) return;
-          return findOrCreateSolasCalendar().then(calendarId =>
-            writeDayPlanToCalendar(freshDayPlan.slots, freshDayPlan.date, calendarId)
-          );
-        }).catch(() => {});
-      }, 300);
+        try {
+          const hasPermission = await requestCalendarPermissions();
+          if (!hasPermission) {
+            Alert.alert(
+              'Calendar access needed',
+              'Go to Settings → Privacy → Calendars and allow Aiteall to write your day plan.',
+            );
+            return;
+          }
+          const calendarId = await findOrCreateSolasCalendar();
+          const count = await writeDayPlanToCalendar(freshDayPlan.slots, freshDayPlan.date, calendarId);
+          if (count > 0) {
+            appendMessage('assistant', `✓ ${count} time block${count !== 1 ? 's' : ''} added to your calendar.`);
+          } else {
+            // Either all slots were already exported, or creation failed
+            appendMessage('assistant', 'Calendar blocks already added — no duplicates created.');
+          }
+        } catch (e) {
+          appendMessage('assistant', 'Could not write to calendar. Check your calendar permissions in Settings.');
+        }
+      }, 400);
     }
 
     // After first morning/quick plan: ask for notification permissions and schedule reminders
@@ -1237,9 +1274,9 @@ export default function ChatScreen({ navigation, route }: any) {
       setShowCalendarExport(false);
 
       if (count > 0) {
-        appendMessage('assistant', `Plan added to calendar ✓\n\n${count} event${count !== 1 ? 's' : ''} created from today's schedule.`);
+        appendMessage('assistant', `✓ ${count} time block${count !== 1 ? 's' : ''} added to your calendar.`);
       } else {
-        appendMessage('assistant', 'Could not add plan to calendar. Try again later.');
+        appendMessage('assistant', 'Calendar blocks already added — no duplicates created.');
       }
     } catch (e) {
       console.error('[ChatScreen] writePlanToCalendar failed:', e);

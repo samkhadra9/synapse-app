@@ -428,3 +428,21 @@ export async function pushAll(store: {
     // Non-fatal: profile was already pushed; log and continue
   }
 }
+
+// ── Delete all user data from Supabase ───────────────────────────────────────
+
+export async function deleteAllUserData(): Promise<void> {
+  const uid = await getUserId();
+  // Most tables use user_id; profiles uses id as primary key
+  const userIdTables = ['areas', 'projects', 'tasks', 'habits', 'goals', 'deep_work_sessions'];
+  await Promise.all([
+    ...userIdTables.map(table =>
+      supabase.from(table).delete().eq('user_id', uid).then(({ error }) => {
+        if (error) console.warn(`[sync] deleteAllUserData failed for ${table}:`, error.message);
+      })
+    ),
+    supabase.from('profiles').delete().eq('id', uid).then(({ error }) => {
+      if (error) console.warn('[sync] deleteAllUserData failed for profiles:', error.message);
+    }),
+  ]);
+}

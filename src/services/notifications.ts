@@ -57,6 +57,11 @@ export async function requestPermissions(): Promise<boolean> {
   return true;
 }
 
+// ── Stable IDs for recurring daily notifications ──────────────────────────────
+const DAILY_MORNING_ID = 'aiteall-daily-morning';
+const DAILY_MIDDAY_ID  = 'aiteall-daily-midday';
+const DAILY_EVENING_ID = 'aiteall-daily-evening';
+
 // ── Schedule Daily Notifications ──────────────────────────────────────────────
 
 function parseTime(timeStr: string): { hour: number; minute: number } {
@@ -76,14 +81,19 @@ function parseTime(timeStr: string): { hour: number; minute: number } {
 
 /**
  * Schedules all three daily notifications.
- * Call this whenever the user updates their timing preferences.
+ * Cancels only the recurring daily slots — not one-off notifications like morning
+ * brief, drift nudge, or lapse recovery — so those survive a time-preference update.
  */
 export async function scheduleDailyNotifications(
   morningTime: string,   // 'HH:mm'
   eveningTime: string,   // 'HH:mm'
 ): Promise<void> {
-  // Cancel all existing scheduled notifications first
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  // Cancel only the recurring daily ones — leave one-off notifications intact
+  await Promise.allSettled([
+    Notifications.cancelScheduledNotificationAsync(DAILY_MORNING_ID),
+    Notifications.cancelScheduledNotificationAsync(DAILY_MIDDAY_ID),
+    Notifications.cancelScheduledNotificationAsync(DAILY_EVENING_ID),
+  ]);
 
   const morning = parseTime(morningTime);
   const midday  = { hour: 12, minute: 30 };
@@ -91,6 +101,7 @@ export async function scheduleDailyNotifications(
 
   // ── Morning: Planning Prompt ──────────────────────────────────────────────
   await Notifications.scheduleNotificationAsync({
+    identifier: DAILY_MORNING_ID,
     content: {
       title: '🌅 Morning planning — 10 min',
       body: "What are your 3 most important things today? Open Aiteall to structure your day.",
@@ -98,14 +109,15 @@ export async function scheduleDailyNotifications(
       sound: true,
     },
     trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour: morning.hour,
       minute: morning.minute,
-      repeats: true,
-    } as Notifications.CalendarTriggerInput,
+    } as Notifications.DailyTriggerInput,
   });
 
   // ── Midday: Decision Fatigue check-in ────────────────────────────────────
   await Notifications.scheduleNotificationAsync({
+    identifier: DAILY_MIDDAY_ID,
     content: {
       title: '⚡ Overwhelmed? Stuck?',
       body: "Tap to get one clear thing to do right now. Decision fatigue mode.",
@@ -113,14 +125,15 @@ export async function scheduleDailyNotifications(
       sound: false,
     },
     trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour: midday.hour,
       minute: midday.minute,
-      repeats: true,
-    } as Notifications.CalendarTriggerInput,
+    } as Notifications.DailyTriggerInput,
   });
 
   // ── Evening: Reflection ───────────────────────────────────────────────────
   await Notifications.scheduleNotificationAsync({
+    identifier: DAILY_EVENING_ID,
     content: {
       title: '🌙 Evening review — 5 min',
       body: "Brain dump your open loops and set tomorrow's MITs. Takes 5 minutes.",
@@ -128,12 +141,11 @@ export async function scheduleDailyNotifications(
       sound: true,
     },
     trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour: evening.hour,
       minute: evening.minute,
-      repeats: true,
-    } as Notifications.CalendarTriggerInput,
+    } as Notifications.DailyTriggerInput,
   });
-
 }
 
 // ── Forgiveness / Lapse Recovery Notifications ────────────────────────────────
