@@ -473,7 +473,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
       <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAssistant]}>
         {!isUser && (
           <View style={styles.avatar}>
-            <Text style={styles.avatarInitial}>S</Text>
+            <Text style={styles.avatarInitial}>✦</Text>
           </View>
         )}
         <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
@@ -496,7 +496,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerIcon}>
-            <Text style={styles.avatarInitial}>S</Text>
+            <Text style={styles.avatarInitial}>✦</Text>
           </View>
           <View>
             <Text style={styles.headerTitle}>Aiteall</Text>
@@ -519,7 +519,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
         {loading && (
           <View style={styles.typingRow}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarInitial}>S</Text>
+              <Text style={styles.avatarInitial}>✦</Text>
             </View>
             <View style={styles.typingBubble}>
               <ActivityIndicator size="small" color={Colors.primary} />
@@ -597,7 +597,7 @@ const styles = StyleSheet.create({
   headerTitle:  { ...Typography.headline, color: Colors.textPrimary },
   headerSub:    { ...Typography.footnote, color: Colors.textSecondary },
 
-  messageList: { padding: Spacing.base, gap: 16, paddingBottom: Spacing.xl },
+  messageList: { flexGrow: 1, justifyContent: 'flex-end', padding: Spacing.base, gap: 16, paddingBottom: Spacing.xl },
 
   msgRow:          { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 4 },
   msgRowUser:      { flexDirection: 'row-reverse' },
@@ -607,7 +607,7 @@ const styles = StyleSheet.create({
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center',
   },
-  avatarInitial: { fontSize: 13, fontWeight: '700', color: Colors.primary },
+  avatarInitial: { fontSize: 11, fontWeight: '900', color: Colors.primary, letterSpacing: -0.5 },
 
   bubble: { maxWidth: '78%', borderRadius: Radius.lg, paddingHorizontal: 16, paddingVertical: 12 },
   bubbleUser:      { backgroundColor: Colors.primary, borderBottomRightRadius: 4 },

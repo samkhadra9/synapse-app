@@ -432,7 +432,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
     <KeyboardAvoidingView
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={insets.top}
     >
       <StatusBar barStyle="light-content" />
       <SafeAreaView style={s.safe} edges={['top']}>
@@ -486,7 +486,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
               <View style={[s.msgRow, isUser && s.msgRowUser]}>
                 {!isUser && (
                   <View style={s.avatar}>
-                    <Text style={s.avatarText}>S</Text>
+                    <Text style={s.avatarText}>✦</Text>
                   </View>
                 )}
                 <View style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAssistant]}>
@@ -505,7 +505,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
               {/* Typing indicator */}
               {loading && (
                 <View style={s.msgRow}>
-                  <View style={s.avatar}><Text style={s.avatarText}>S</Text></View>
+                  <View style={s.avatar}><Text style={s.avatarText}>✦</Text></View>
                   <View style={s.typingBubble}>
                     <ActivityIndicator size="small" color={TEAL.accent} />
                   </View>
@@ -632,7 +632,7 @@ const s = StyleSheet.create({
   knownChipLabel: { fontSize: 12, color: TEAL.textDim },
   knownChipValue: { fontSize: 12, fontWeight: '700', color: TEAL.text },
 
-  list: { padding: 20, gap: 12, paddingBottom: 20 },
+  list: { flexGrow: 1, justifyContent: 'flex-end', padding: 20, gap: 12, paddingBottom: 20 },
 
   msgRow:     { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 4 },
   msgRowUser: { flexDirection: 'row-reverse' },

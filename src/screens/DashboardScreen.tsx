@@ -1624,250 +1624,138 @@ function InboxTriageModal({ visible, tasks, onClose }: InboxTriageModalProps) {
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       <SafeAreaView style={{ flex: 1, backgroundColor: C.background }} edges={['top', 'bottom']}>
+
         {/* Header */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: Spacing.lg,
-            paddingTop: Spacing.md,
-            paddingBottom: Spacing.base,
-          }}
-        >
-          <Text style={{ fontSize: 20, fontWeight: '600', color: C.textPrimary }}>
-            Triage inbox
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
-            <Text style={{ fontSize: 14, color: C.textTertiary }}>
-              {currentIndex}/{tasks.length}
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          paddingHorizontal: Spacing.lg, paddingVertical: Spacing.base,
+          borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
+        }}>
+          <View>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.textPrimary }}>Triage inbox</Text>
+            <Text style={{ fontSize: 12, color: C.textTertiary, marginTop: 1 }}>
+              {isComplete ? 'All done' : `${currentIndex + 1} of ${tasks.length}`}
             </Text>
-            <TouchableOpacity
-              onPress={onClose}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                backgroundColor: C.surface,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close" size={20} color={C.textPrimary} />
-            </TouchableOpacity>
           </View>
+          <TouchableOpacity
+            onPress={onClose}
+            style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close" size={18} color={C.textSecondary} />
+          </TouchableOpacity>
         </View>
 
         {/* Progress Bar */}
-        <View
-          style={{
-            height: 3,
-            backgroundColor: C.border,
-            width: '100%',
-          }}
-        >
-          <View
-            style={{
-              height: '100%',
-              backgroundColor: C.primary,
-              width: `${progressPercent}%`,
-            }}
-          />
+        <View style={{ height: 2, backgroundColor: C.border }}>
+          <View style={{ height: '100%', backgroundColor: C.primary, width: `${progressPercent}%` }} />
         </View>
 
         {/* Main Content */}
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.lg }}>
-          {isComplete ? (
-            // Completion State
-            <View style={{ alignItems: 'center', gap: Spacing.lg }}>
-              <Ionicons name="checkmark-circle" size={80} color={C.primary} />
-              <Text style={{ fontSize: 28, fontWeight: '700', color: C.textPrimary }}>
-                Inbox clear.
-              </Text>
-              <Text style={{ fontSize: 16, color: C.textTertiary }}>Nice work.</Text>
-              <TouchableOpacity
-                onPress={onClose}
-                style={{
-                  marginTop: Spacing.lg,
-                  paddingHorizontal: Spacing.lg,
-                  paddingVertical: Spacing.base,
-                  backgroundColor: C.primary,
-                  borderRadius: Radius.lg,
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={{ fontSize: 16, fontWeight: '600', color: C.textInverse }}>
-                  Close
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : currentTask ? (
-            // Task Card
-            <Animated.View
-              style={{
-                width: '100%',
-                opacity: fadeAnim,
-                transform: [
-                  {
-                    translateX: slideAnim.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: [0, 100],
-                    }),
-                  },
-                ],
-              }}
+        {isComplete ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg }}>
+            <Ionicons name="checkmark-circle" size={72} color={C.primary} />
+            <Text style={{ fontSize: 26, fontWeight: '700', color: C.textPrimary }}>Inbox clear.</Text>
+            <Text style={{ fontSize: 15, color: C.textTertiary }}>Nice work.</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={{ marginTop: Spacing.md, paddingHorizontal: 32, paddingVertical: Spacing.base, backgroundColor: C.primary, borderRadius: Radius.full }}
+              activeOpacity={0.8}
             >
-              <View
-                style={{
-                  backgroundColor: C.surface,
-                  borderRadius: Radius.xl,
-                  borderWidth: 1,
-                  borderColor: C.border,
-                  padding: Spacing.xl,
-                  alignItems: 'center',
-                  gap: Spacing.lg,
-                }}
-              >
-                {/* Task Text */}
-                <Text
-                  style={{
-                    fontSize: 20,
-                    fontWeight: '600',
-                    color: C.textPrimary,
-                    textAlign: 'center',
-                    lineHeight: 28,
-                  }}
-                >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.textInverse }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        ) : currentTask ? (
+          <View style={{ flex: 1, paddingHorizontal: Spacing.lg, paddingTop: Spacing.xl }}>
+
+            {/* Question label */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.textTertiary, letterSpacing: 1, textTransform: 'uppercase', marginBottom: Spacing.base }}>
+              When should this happen?
+            </Text>
+
+            {/* Task Card */}
+            <Animated.View style={{
+              opacity: fadeAnim,
+              transform: [{ translateX: slideAnim.interpolate({ inputRange: [0, 100], outputRange: [0, 60] }) }],
+            }}>
+              <View style={{
+                backgroundColor: C.surface, borderRadius: Radius.xl,
+                borderWidth: 1, borderColor: C.border,
+                padding: Spacing.xl, gap: Spacing.xs, minHeight: 100,
+              }}>
+                <Text style={{ fontSize: 19, fontWeight: '600', color: C.textPrimary, lineHeight: 27 }}>
                   {currentTask.text}
                 </Text>
-
-                {/* Context Line (project or date) */}
                 {currentTask.date && (
                   <Text style={{ fontSize: 13, color: C.textTertiary }}>
-                    due {currentTask.date}
+                    Originally due {format(new Date(currentTask.date + 'T00:00:00'), 'd MMM')}
                   </Text>
                 )}
-
-                {/* Reason (if exists) */}
                 {currentTask.reason && (
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: C.textTertiary,
-                      fontStyle: 'italic',
-                      textAlign: 'center',
-                    }}
-                  >
+                  <Text style={{ fontSize: 13, color: C.textTertiary, fontStyle: 'italic' }}>
                     {currentTask.reason}
                   </Text>
                 )}
               </View>
-
-
-              {/* Action Buttons */}
-              <View style={{ marginTop: Spacing.xl, gap: Spacing.md, width: '100%' }}>
-                {/* Top Row: Today, Tomorrow, This Week */}
-                <View style={{ flexDirection: 'row', gap: Spacing.md }}>
-                  <TouchableOpacity
-                    onPress={() => handleAction('today')}
-                    style={{
-                      flex: 1,
-                      paddingVertical: Spacing.base,
-                      backgroundColor: C.primary,
-                      borderRadius: Radius.lg,
-                      alignItems: 'center',
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.textInverse }}>
-                      Today
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleAction('tomorrow')}
-                    style={{
-                      flex: 1,
-                      paddingVertical: Spacing.base,
-                      backgroundColor: 'transparent',
-                      borderRadius: Radius.lg,
-                      borderWidth: 1.5,
-                      borderColor: C.primary,
-                      alignItems: 'center',
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.primary }}>
-                      Tomorrow
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => handleAction('week')}
-                    style={{
-                      flex: 1,
-                      paddingVertical: Spacing.base,
-                      backgroundColor: 'transparent',
-                      borderRadius: Radius.lg,
-                      borderWidth: 1.5,
-                      borderColor: C.border,
-                      alignItems: 'center',
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.textPrimary }}>
-                      This Week
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Bottom Row: Later and Delete */}
-                <View style={{ flexDirection: 'row', gap: Spacing.md }}>
-                  <TouchableOpacity
-                    onPress={() => handleAction('later')}
-                    activeOpacity={0.8}
-                    style={{
-                      flex: 1,
-                      paddingVertical: Spacing.base,
-                      backgroundColor: 'transparent',
-                      borderRadius: Radius.lg,
-                      borderWidth: 1.5,
-                      borderColor: C.border,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.textSecondary }}>Later</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={handleDeleteWithConfirm}
-                    activeOpacity={0.8}
-                    style={{
-                      flex: 1,
-                      paddingVertical: Spacing.base,
-                      backgroundColor: isDeleting ? '#FEE2E2' : 'transparent',
-                      borderRadius: Radius.lg,
-                      borderWidth: 1.5,
-                      borderColor: isDeleting ? '#DC2626' : C.border,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: isDeleting ? '#DC2626' : C.textSecondary,
-                    }}>
-                      {isDeleting ? 'Confirm delete' : 'Delete'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
             </Animated.View>
-          ) : null}
-        </View>
+
+            {/* Action Buttons */}
+            <View style={{ marginTop: Spacing.xl, gap: Spacing.sm }}>
+              {/* Primary: Today + Tomorrow */}
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                <TouchableOpacity
+                  onPress={() => handleAction('today')}
+                  style={{ flex: 1, paddingVertical: 15, backgroundColor: C.primary, borderRadius: Radius.lg, alignItems: 'center' }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.textInverse }}>Today</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleAction('tomorrow')}
+                  style={{ flex: 1, paddingVertical: 15, borderRadius: Radius.lg, borderWidth: 1.5, borderColor: C.primary, alignItems: 'center' }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.primary }}>Tomorrow</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* This Week */}
+              <TouchableOpacity
+                onPress={() => handleAction('week')}
+                style={{ paddingVertical: 13, borderRadius: Radius.lg, borderWidth: 1.5, borderColor: C.border, alignItems: 'center' }}
+                activeOpacity={0.8}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.textPrimary }}>This Week</Text>
+              </TouchableOpacity>
+
+              {/* Skip + Remove */}
+              <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => handleAction('later')}
+                  style={{ flex: 1, paddingVertical: 12, borderRadius: Radius.lg, alignItems: 'center', backgroundColor: C.surface }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 13, color: C.textSecondary }}>Skip for now</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDeleteWithConfirm}
+                  style={{
+                    flex: 1, paddingVertical: 12, borderRadius: Radius.lg, alignItems: 'center',
+                    backgroundColor: isDeleting ? '#FEE2E2' : (C.surface),
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 13, color: isDeleting ? '#DC2626' : C.textTertiary, fontWeight: isDeleting ? '700' : '400' }}>
+                    {isDeleting ? 'Tap again to delete' : 'Remove'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
       </SafeAreaView>
     </Modal>
   );
