@@ -632,7 +632,7 @@ const s = StyleSheet.create({
   knownChipLabel: { fontSize: 12, color: TEAL.textDim },
   knownChipValue: { fontSize: 12, fontWeight: '700', color: TEAL.text },
 
-  list: { flexGrow: 1, justifyContent: 'flex-end', padding: 20, gap: 12, paddingBottom: 20 },
+  list: { padding: 20, gap: 12, paddingBottom: 20 },
 
   msgRow:     { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 4 },
   msgRowUser: { flexDirection: 'row-reverse' },

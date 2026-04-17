@@ -1543,7 +1543,7 @@ function makeStyles(C: any) {
     headerTitle:  { fontSize: 15, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.2 },
     headerSub:    { fontSize: 12, color: C.textTertiary, marginTop: 2 },
 
-    messageList: { flexGrow: 1, justifyContent: 'flex-end', padding: Spacing.base, gap: 14, paddingBottom: Spacing.xl },
+    messageList: { padding: Spacing.base, gap: 14, paddingBottom: Spacing.xl },
 
     msgRow:          { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 4 },
     msgRowUser:      { flexDirection: 'row-reverse' },

@@ -17,7 +17,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, Animated,
-  ActivityIndicator, StatusBar, Alert,
+  ActivityIndicator, StatusBar, Alert, Keyboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
@@ -159,9 +159,16 @@ export default function OnboardingChatScreen({ navigation }: any) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const completeBtnAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   // Add "Skip" button to native header
   useLayoutEffect(() => {
@@ -563,14 +570,16 @@ export default function OnboardingChatScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          {/* Escape hatch — schedule for later */}
-          <TouchableOpacity
-            style={styles.remindLaterBtn}
-            onPress={handleRemindLater}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.remindLaterText}>⏱  Not a good time? Remind me later</Text>
-          </TouchableOpacity>
+          {/* Escape hatch — hidden while keyboard is open so it doesn't crowd the input */}
+          {!keyboardVisible && (
+            <TouchableOpacity
+              style={styles.remindLaterBtn}
+              onPress={handleRemindLater}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.remindLaterText}>⏱  Not a good time? Remind me later</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </KeyboardAvoidingView>
@@ -597,7 +606,7 @@ const styles = StyleSheet.create({
   headerTitle:  { ...Typography.headline, color: Colors.textPrimary },
   headerSub:    { ...Typography.footnote, color: Colors.textSecondary },
 
-  messageList: { flexGrow: 1, justifyContent: 'flex-end', padding: Spacing.base, gap: 16, paddingBottom: Spacing.xl },
+  messageList: { padding: Spacing.base, gap: 16, paddingBottom: Spacing.xl },
 
   msgRow:          { flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 4 },
   msgRowUser:      { flexDirection: 'row-reverse' },
