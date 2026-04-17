@@ -61,6 +61,11 @@ export async function requestPermissions(): Promise<boolean> {
 const DAILY_MORNING_ID = 'aiteall-daily-morning';
 const DAILY_MIDDAY_ID  = 'aiteall-daily-midday';
 const DAILY_EVENING_ID = 'aiteall-daily-evening';
+const WEEKLY_REVIEW_ID = 'aiteall-weekly-review';
+
+/** Sensible fallback if user hasn't set a weekly review day/time yet. */
+export const DEFAULT_WEEKLY_REVIEW_DAY  = 0;      // Sunday (JS getDay() convention)
+export const DEFAULT_WEEKLY_REVIEW_TIME = '10:00';
 
 // ── Schedule Daily Notifications ──────────────────────────────────────────────
 
@@ -146,6 +151,58 @@ export async function scheduleDailyNotifications(
       minute: evening.minute,
     } as Notifications.DailyTriggerInput,
   });
+}
+
+// ── Weekly Review Notification ────────────────────────────────────────────────
+//
+// Fires once a week on the chosen day/time, deep-linking into Chat mode 'weekly'
+// so the user walks through projects/areas/goals for a short strategic reset.
+// Uses expo-notifications' WEEKLY trigger; weekday is 1-7 where Sunday = 1
+// (Apple NSDateComponents convention) — we convert from our 0-6 JS convention.
+
+/**
+ * Schedules the weekly review nudge. Idempotent — cancels the existing one
+ * first so repeated calls (e.g. user changes the day/time) rebind cleanly.
+ *
+ * @param day  0 = Sunday ... 6 = Saturday (matches JS Date.getDay())
+ * @param time 'HH:MM' 24h
+ */
+export async function scheduleWeeklyReview(
+  day: number = DEFAULT_WEEKLY_REVIEW_DAY,
+  time: string = DEFAULT_WEEKLY_REVIEW_TIME,
+): Promise<void> {
+  await Promise.allSettled([
+    Notifications.cancelScheduledNotificationAsync(WEEKLY_REVIEW_ID),
+  ]);
+
+  const { hour, minute } = parseTime(time);
+  const safeDay = (Number.isInteger(day) && day >= 0 && day <= 6) ? day : DEFAULT_WEEKLY_REVIEW_DAY;
+  // JS 0-6 (Sun=0) → Apple 1-7 (Sun=1)
+  const weekday = safeDay + 1;
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: WEEKLY_REVIEW_ID,
+    content: {
+      title: '🗓️ Weekly reset — 6 min',
+      body: "Zoom out. What moved, what stalled, what matters next week? Tap to run a quick audit.",
+      data: { screen: 'WeeklyReview' },
+      sound: true,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+      weekday,
+      hour,
+      minute,
+    } as Notifications.WeeklyTriggerInput,
+  });
+}
+
+export async function cancelWeeklyReview(): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(WEEKLY_REVIEW_ID);
+  } catch {
+    // no-op if not scheduled
+  }
 }
 
 // ── Forgiveness / Lapse Recovery Notifications ────────────────────────────────

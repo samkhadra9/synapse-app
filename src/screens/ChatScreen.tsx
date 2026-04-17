@@ -1218,9 +1218,15 @@ export default function ChatScreen({ navigation, route }: any) {
           reason:            action.reason ?? undefined,
         });
 
-        // Capture the new task's ID so we can reference it in the schedule
-        const allTasks = useStore.getState().tasks;
-        const newTask  = allTasks.find(t => t.text === action.text && !t.completed);
+        // Capture the new task's ID so we can reference it in the schedule.
+        // Use normalised (trim + lowercase) text match so we still find the task
+        // when the store dedup'd an existing duplicate with minor whitespace/
+        // case differences — otherwise we'd generate a phantom plan-* id below.
+        const allTasks  = useStore.getState().tasks;
+        const actionKey = String(action.text ?? '').trim().toLowerCase();
+        const newTask   = allTasks.find(
+          t => !t.completed && t.text.trim().toLowerCase() === actionKey,
+        );
         if (newTask) textToTaskId[action.text] = newTask.id;
 
         // Focus mode — if the AI (typically from fatigue mode) flagged this task
@@ -1267,15 +1273,32 @@ export default function ChatScreen({ navigation, route }: any) {
         }
       }
 
-      // Standalone focus action — picks an existing task by id or text
+      // Standalone focus action — picks an existing task by id or text.
+      // Normalise with trim + lowercase to match store dedup semantics; fall
+      // back to a loose "includes" match (either direction) so fatigue-mode
+      // nicknames like "the doc" still lock onto "Write the doc draft".
       if (action.type === 'focus') {
         const allTasks = useStore.getState().tasks;
         let target: typeof allTasks[number] | undefined;
         if (action.taskId) target = allTasks.find(t => t.id === action.taskId);
         if (!target && action.taskText) {
-          target = allTasks.find(t => t.text.toLowerCase() === String(action.taskText).toLowerCase() && !t.completed);
+          const key = String(action.taskText).trim().toLowerCase();
+          target = allTasks.find(
+            t => !t.completed && t.text.trim().toLowerCase() === key,
+          );
+          if (!target && key.length >= 3) {
+            target = allTasks.find(t => {
+              if (t.completed) return false;
+              const tt = t.text.trim().toLowerCase();
+              return tt.includes(key) || key.includes(tt);
+            });
+          }
         }
-        if (target) setFocusTask(target.id);
+        if (target) {
+          setFocusTask(target.id);
+        } else if (action.taskText) {
+          console.warn('[chat] focus action: no task matched', action.taskText);
+        }
       }
 
       if (action.type === 'goal') {
@@ -1291,11 +1314,26 @@ export default function ChatScreen({ navigation, route }: any) {
     // Third pass: build and save the day plan from schedule action
     const scheduleAction = parsed.actions.find((a: any) => a.type === 'schedule');
     if (scheduleAction?.slots && mode === 'morning') {
+      // Build a case/whitespace-insensitive lookup so "Write report" in a slot
+      // resolves to the real task id even if the task text was stored as
+      // "write report" after normalisation.
+      const normMap: Record<string, string> = {};
+      for (const [txt, id] of Object.entries(textToTaskId)) {
+        normMap[txt.trim().toLowerCase()] = id;
+      }
+      // Also fold in the full task store so references to pre-existing tasks
+      // (not created this turn) still find the right id.
+      for (const t of useStore.getState().tasks) {
+        if (!t.completed) normMap[t.text.trim().toLowerCase()] = normMap[t.text.trim().toLowerCase()] ?? t.id;
+      }
+
       const slots: PlannedSlot[] = (scheduleAction.slots as any[]).map((slot: any) => ({
         time:       slot.time ?? '08:00',
         eventLabel: slot.eventLabel ?? 'Work block',
         tasks:      (slot.tasks as string[]).map((text: string) => ({
-          id:   textToTaskId[text] ?? `plan-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          id:   textToTaskId[text]
+                  ?? normMap[text.trim().toLowerCase()]
+                  ?? `plan-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           text,
           done: false,
         })),

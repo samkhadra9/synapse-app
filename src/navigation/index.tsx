@@ -27,6 +27,7 @@ import { pullAll } from '../services/sync';
 import {
   requestPermissions,
   scheduleDailyNotifications,
+  scheduleWeeklyReview,
   addNotificationResponseListener,
 } from '../services/notifications';
 
@@ -285,6 +286,9 @@ function NotificationHandler() {
         case 'QuickWin':
           navigation.navigate('Chat', { mode: 'quick' });
           break;
+        case 'WeeklyReview':
+          navigation.navigate('Chat', { mode: 'weekly' });
+          break;
         default:
           break;
       }
@@ -322,9 +326,17 @@ async function syncRemindersToTasks() {
     if (!newReminders.length) return;
 
     // Filter out anything whose text already exists in the store
-    const truly_new = newReminders.filter(
-      r => !existingTexts.has(r.text.trim().toLowerCase())
-    );
+    // Filter against local tasks AND dedup within the new-reminders batch
+    // itself (defensive — getUnimportedReminders already dedups at source)
+    const batchSeen = new Set<string>();
+    const truly_new = newReminders.filter(r => {
+      const key = r.text.trim().toLowerCase();
+      if (!key) return false;
+      if (existingTexts.has(key)) return false;
+      if (batchSeen.has(key)) return false;
+      batchSeen.add(key);
+      return true;
+    });
     if (!truly_new.length) return;
 
     const today = format(new Date(), 'yyyy-MM-dd');
@@ -341,6 +353,9 @@ async function syncRemindersToTasks() {
       });
     }
     console.log(`[nav] imported ${truly_new.length} reminder(s) as tasks`);
+
+    // Final safety net: collapse any residual duplicates. Cheap when clean.
+    useStore.getState().dedupeTasks();
   } catch (e) {
     console.warn('[nav] reminder sync failed:', e);
   }
@@ -367,6 +382,11 @@ async function backgroundSync() {
     if (result.habits.length > 0)           useStore.setState({ habits: result.habits });
     if (result.goals.length > 0)            useStore.setState({ goals: result.goals });
     if (result.deepWorkSessions.length > 0) useStore.setState({ deepWorkSessions: result.deepWorkSessions });
+
+    // Scrub any leftover duplicate tasks after server replace (can happen if a
+    // prior session imported iOS reminders and they got replayed). Safe no-op
+    // when there's nothing to dedup.
+    try { useStore.getState().dedupeTasks(); } catch {}
 
     // If server is empty but local has data → upload (first sync after auth was set up)
     const { pushAll } = await import('../services/sync');
@@ -444,6 +464,9 @@ function AppNavigator() {
       requestPermissions().then(granted => {
         if (granted) {
           scheduleDailyNotifications(profile.morningTime, profile.eveningTime);
+          // Weekly strategic reset — defaults to Sunday 10:00 until user picks
+          // their own day/time in Settings.
+          scheduleWeeklyReview(profile.weeklyReviewDay, profile.weeklyReviewTime);
         }
       });
 

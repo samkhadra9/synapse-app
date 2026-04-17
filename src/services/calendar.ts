@@ -7,6 +7,7 @@
 
 import * as Calendar from 'expo-calendar';
 import { Platform } from 'react-native';
+import { format } from 'date-fns';
 import { Project, TimeBlock, TimeBlockType } from '../store/useStore';
 
 const CALENDAR_NAME = 'Aiteall';
@@ -394,7 +395,7 @@ export async function getUnimportedReminders(
       endWindow,
     );
 
-    return reminders
+    const filtered = reminders
       .filter(r => {
         if (!r.id) return false;
         if (existingReminderIds.includes(r.id)) return false;
@@ -405,10 +406,26 @@ export async function getUnimportedReminders(
       .map(r => ({
         reminderId: r.id!,
         text: r.title ?? '(no title)',
+        // Format in LOCAL time — toISOString() converts to UTC which can
+        // shift a reminder due tonight into tomorrow for users east of UTC
+        // (or yesterday for those west). date-fns format keeps the wall clock.
         date: r.dueDate
-          ? new Date(r.dueDate).toISOString().slice(0, 10)
+          ? format(new Date(r.dueDate), 'yyyy-MM-dd')
           : undefined,
       }));
+
+    // Dedup by normalised title — iOS can return the same logical reminder
+    // from multiple calendars (e.g. local "Reminders" + iCloud "Reminders"),
+    // each with its own unique id but identical title. Keep the first one.
+    const seen = new Set<string>();
+    const deduped: typeof filtered = [];
+    for (const r of filtered) {
+      const key = r.text.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(r);
+    }
+    return deduped;
   } catch (e) {
     console.warn('[calendar] getUnimportedReminders failed:', e);
     return [];

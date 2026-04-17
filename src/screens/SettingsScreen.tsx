@@ -18,9 +18,14 @@ import { useStore } from '../store/useStore';
 import { listWritableCalendars, DeviceCalendar } from '../services/calendar';
 import {
   scheduleDailyNotifications,
+  scheduleWeeklyReview,
   sendTestNotification,
   requestPermissions,
+  DEFAULT_WEEKLY_REVIEW_DAY,
+  DEFAULT_WEEKLY_REVIEW_TIME,
 } from '../services/notifications';
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const ENV_OPENAI_KEY = (process.env.EXPO_PUBLIC_OPENAI_KEY ?? '').trim();
 
@@ -54,6 +59,8 @@ export default function SettingsScreen() {
   const [editingVoice,   setEditingVoice]    = useState(false);
   const [morning,        setMorning]         = useState(profile.morningTime);
   const [evening,        setEvening]         = useState(profile.eveningTime);
+  const [weeklyDay,      setWeeklyDay]       = useState<number>(profile.weeklyReviewDay ?? DEFAULT_WEEKLY_REVIEW_DAY);
+  const [weeklyTime,     setWeeklyTime]      = useState(profile.weeklyReviewTime ?? DEFAULT_WEEKLY_REVIEW_TIME);
   const [saved,          setSaved]           = useState(false);
   const [showPrivacy,    setShowPrivacy]     = useState(false);
 
@@ -109,7 +116,7 @@ export default function SettingsScreen() {
   }
 
   function handleSave() {
-    if (!isValidTime(morning) || !isValidTime(evening)) {
+    if (!isValidTime(morning) || !isValidTime(evening) || !isValidTime(weeklyTime)) {
       Alert.alert('Invalid time', 'Please enter times in HH:MM format, e.g. 07:30');
       return;
     }
@@ -117,8 +124,10 @@ export default function SettingsScreen() {
       name,
       ...(newAnthropicKey.trim() ? { anthropicKey: newAnthropicKey.trim() } : {}),
       ...(newOpenAiKey.trim()    ? { openAiKey:    newOpenAiKey.trim()    } : {}),
-      morningTime: morning,
-      eveningTime: evening,
+      morningTime:      morning,
+      eveningTime:      evening,
+      weeklyReviewDay:  weeklyDay,
+      weeklyReviewTime: weeklyTime,
     });
     setEditingAI(false);
     setEditingVoice(false);
@@ -128,7 +137,10 @@ export default function SettingsScreen() {
 
     // Reschedule notifications with updated times
     requestPermissions().then(granted => {
-      if (granted) scheduleDailyNotifications(morning, evening);
+      if (granted) {
+        scheduleDailyNotifications(morning, evening);
+        scheduleWeeklyReview(weeklyDay, weeklyTime);
+      }
     });
   }
 
@@ -399,6 +411,48 @@ export default function SettingsScreen() {
             <TouchableOpacity style={styles.testNotifBtn} onPress={handleTestNotification} activeOpacity={0.75}>
               <Text style={styles.testNotifBtnText}>Send test notification</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Weekly Review */}
+          <SectionLabel label="WEEKLY REVIEW" />
+          <View style={styles.card}>
+            <View style={{ paddingHorizontal: Spacing.base, paddingTop: 14 }}>
+              <Text style={{ fontSize: 13, color: C.textSecondary, lineHeight: 18 }}>
+                One short strategic reset each week. Audit projects and areas, name what moved, set next week's non-negotiables.
+              </Text>
+            </View>
+            <View style={styles.weeklyDayRow}>
+              {DAY_LABELS.map((label, idx) => {
+                const selected = weeklyDay === idx;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => setWeeklyDay(idx)}
+                    activeOpacity={0.8}
+                    style={[
+                      styles.weeklyDayChip,
+                      selected && { backgroundColor: C.primary, borderColor: C.primary },
+                    ]}
+                  >
+                    <Text style={[
+                      styles.weeklyDayChipText,
+                      selected && { color: C.textInverse ?? '#fff' },
+                    ]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.divider} />
+            <SettingRow label="Time">
+              <TextInput
+                style={styles.input}
+                value={weeklyTime}
+                onChangeText={setWeeklyTime}
+                placeholder="10:00"
+                placeholderTextColor={C.textTertiary}
+                keyboardType="numbers-and-punctuation"
+              />
+            </SettingRow>
           </View>
 
           {/* Calendar Sync */}
@@ -701,6 +755,31 @@ function makeStyles(C: any) {
     },
     testNotifBtnText: {
       fontSize: 13, color: C.textSecondary, fontWeight: '500',
+    },
+
+    // ── Weekly review day picker ──────────────────────────────────────────
+    weeklyDayRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      paddingHorizontal: Spacing.base,
+      paddingVertical: 14,
+    },
+    weeklyDayChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: C.border,
+      backgroundColor: C.surfaceSecondary,
+      minWidth: 46,
+      alignItems: 'center',
+    },
+    weeklyDayChipText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: C.textSecondary,
+      letterSpacing: 0.3,
     },
 
     // Masked key display

@@ -8,7 +8,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { format, addDays, isWeekend } from 'date-fns';
+import { format, addDays, addMonths, isWeekend } from 'date-fns';
 import type { Session } from '@supabase/supabase-js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -214,6 +214,12 @@ export interface UserProfile {
   skeletonBuilt: boolean;
   portrait: string;       // evolving AI-written summary of who this person is
   lastActiveDate?: string; // YYYY-MM-DD — used for lapse detection
+  // Weekly review nudge — fires a local notification on the chosen day + time,
+  // deep-linking straight into Chat mode 'weekly'. Local-only for now; add
+  // `weekly_review_day` + `weekly_review_time` columns in Supabase to enable
+  // multi-device round-trip later.
+  weeklyReviewDay?: number;    // 0 = Sunday ... 6 = Saturday (matches JS Date.getDay())
+  weeklyReviewTime?: string;   // 'HH:MM' 24h
 }
 
 // ── State Interface ───────────────────────────────────────────────────────────
@@ -244,6 +250,7 @@ interface SolasState {
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
   setMIT: (id: string, isMIT: boolean) => void;
+  dedupeTasks: () => number;
   todaysTasks: () => Task[];
   todaysMITs: () => Task[];
   updateTask: (id: string, patch: Partial<Task>) => void;
@@ -489,7 +496,9 @@ export const useStore = create<SolasState>()(
               nextDate = addDays(baseDate, 1);
               while (isWeekend(nextDate)) nextDate = addDays(nextDate, 1);
             } else { // monthly
-              nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, baseDate.getDate());
+              // Use date-fns addMonths so Jan 31 → Feb 28/29 (end-of-month clamp)
+              // instead of the native Date rollover that lands on Mar 3.
+              nextDate = addMonths(baseDate, 1);
             }
             const nextDateStr = format(nextDate, 'yyyy-MM-dd');
             const nextTask: Task = {
@@ -511,6 +520,51 @@ export const useStore = create<SolasState>()(
       deleteTask: (id) => {
         set((s) => ({ tasks: s.tasks.filter(t => t.id !== id) }));
         syncIfAuthed(s => s.deleteTask(id), get().session);
+      },
+      /**
+       * Catch-all duplicate cleanup. Merges duplicate non-completed tasks by
+       * normalised text (trim + lowercase). Prefers the task with a reminderId,
+       * then the earliest createdAt, then the first occurrence. Silently
+       * deletes the losers locally and (best-effort) in Supabase.
+       *
+       * Why: iOS Reminders can appear in multiple calendars (local + iCloud),
+       * and pullAll round-trips strip reminderId (no column in Supabase).
+       * Addtask's per-call dedup protects single sessions, but races between
+       * pullAll and syncRemindersToTasks can still slip duplicates through.
+       * Run this on app start and after any bulk import.
+       */
+      dedupeTasks: () => {
+        const all = get().tasks;
+        // Sort by preference: reminderId first, then earliest createdAt
+        const sorted = [...all].sort((a, b) => {
+          const aHasRem = !!a.reminderId ? 0 : 1;
+          const bHasRem = !!b.reminderId ? 0 : 1;
+          if (aHasRem !== bHasRem) return aHasRem - bHasRem;
+          return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
+        });
+
+        const seen = new Set<string>();
+        const idsToDelete: string[] = [];
+        for (const t of sorted) {
+          if (t.completed) continue;
+          const key = t.text.trim().toLowerCase();
+          if (!key) continue;
+          if (seen.has(key)) {
+            idsToDelete.push(t.id);
+          } else {
+            seen.add(key);
+          }
+        }
+
+        if (!idsToDelete.length) return 0;
+        const toDeleteSet = new Set(idsToDelete);
+        console.log(`[store] dedupeTasks: removing ${idsToDelete.length} duplicate task(s)`);
+        set((s) => ({ tasks: s.tasks.filter(t => !toDeleteSet.has(t.id)) }));
+        const session = get().session;
+        idsToDelete.forEach(id => {
+          syncIfAuthed(s => s.deleteTask(id), session);
+        });
+        return idsToDelete.length;
       },
       setMIT: (id, isMIT) => {
         // Only count today's MITs — tasks from previous days shouldn't block today's limit
