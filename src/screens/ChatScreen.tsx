@@ -1033,29 +1033,33 @@ export default function ChatScreen({ navigation, route }: any) {
   // Keep messagesRef in sync so the unmount effect can read latest messages
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  // Portrait refresh on unmount is paused until Phase 3, when the new
-  // structured Portrait pipeline (section-by-section JSON refresh via
-  // Haiku) lands. The old free-text pipeline expected `portrait: string`
-  // and would be silently wrong against the new shape. Intentionally
-  // left as a placeholder so Phase 3 can re-enable it with the new logic.
-
-  // ── Background entity extraction (Phase 2) ───────────────────────────────
-  // On unmount, if the user had a real conversation (2+ user messages),
-  // fire a Haiku pass to notice net-new Areas / Projects / Tasks / Goals.
-  // Anything it finds is written with origin:'inferred' and stays
-  // local-only until the emergence moment (Phase 5) surfaces it for
-  // confirmation.
+  // ── Background entity extraction + portrait refresh on unmount ───────────
+  //
+  // After any real conversation (2+ user turns, not off-record), fire two
+  // silent Haiku passes:
+  //   1. entityExtractor — spots net-new Areas/Projects/Tasks/Goals.
+  //     Anything found is written with origin:'inferred' and stays
+  //     local-only until the emergence moment (Phase 5) confirms it.
+  //   2. portraitV2     — rewrites any portrait sections that actually
+  //     moved this session. User-edited sections are preserved unless
+  //     the AI has substantially new material.
+  //
+  // Both are fire-and-forget — never block navigation.
   useEffect(() => {
     return () => {
       const msgs = messagesRef.current;
       const userTurns = msgs.filter(m => m.role === 'user').length;
-      if (userTurns < 2) return; // not enough signal — skip
+      if (userTurns < 2) return;
 
-      // Grab a fresh snapshot of the store right before the call so we
-      // dedupe against everything that exists at unmount time (the user
-      // may have added entities via the Review sheet mid-session).
       const s = useStore.getState();
-      // Fire and forget — don't block navigation / don't leak an await.
+
+      // Respect "off record" — user explicitly paused background learning.
+      const offUntil = s.profile.offRecordUntil
+        ? new Date(s.profile.offRecordUntil).getTime()
+        : 0;
+      if (offUntil > Date.now()) return;
+
+      // 1) Entity extraction
       import('../services/entityExtractor')
         .then(({ runBackgroundExtraction }) =>
           runBackgroundExtraction(
@@ -1069,6 +1073,20 @@ export default function ChatScreen({ navigation, route }: any) {
               addProject: s.addProject,
               addTask:    s.addTask,
               addGoal:    s.addGoal,
+            },
+            userAnthropicKey,
+          ),
+        )
+        .catch(() => { /* silent — background work */ });
+
+      // 2) Portrait refresh
+      import('../services/portraitV2')
+        .then(({ refreshPortrait }) =>
+          refreshPortrait(
+            msgs,
+            {
+              portrait:              s.profile.portrait,
+              updatePortraitSection: s.updatePortraitSection,
             },
             userAnthropicKey,
           ),

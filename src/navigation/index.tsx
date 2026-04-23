@@ -36,6 +36,7 @@ import LoginScreen              from '../screens/auth/LoginScreen';
 import SkeletonBuilderScreen    from '../screens/onboarding/SkeletonBuilderScreen';
 import CalendarExportScreen     from '../screens/onboarding/CalendarExportScreen';
 import DashboardScreen          from '../screens/DashboardScreen';
+import PortraitScreen         from '../screens/PortraitScreen';
 import ChatScreen             from '../screens/ChatScreen';
 import ProjectsScreen         from '../screens/ProjectsScreen';
 import ProjectDetailScreen    from '../screens/ProjectDetailScreen';
@@ -76,6 +77,7 @@ export type RootStackParams = {
 
 export type TabParams = {
   Dashboard: undefined;
+  Portrait:  undefined;
   More:      undefined;
 };
 
@@ -91,22 +93,34 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 const TAB_ICON_DEFAULT: Record<string, IoniconName> = {
   Dashboard: 'home-outline',
+  Portrait:  'person-circle-outline',
   More:      'ellipsis-horizontal-outline',
 };
 const TAB_ICON_ACTIVE: Record<string, IoniconName> = {
   Dashboard: 'home',
+  Portrait:  'person-circle',
   More:      'ellipsis-horizontal',
 };
 const TAB_LABELS: Record<string, string> = {
   Dashboard: 'Home',
+  Portrait:  'You',
   More:      'More',
 };
 
-// Custom tab bar — Ionicons + floating Solas button
+/**
+ * Tab order: Home | You | [Sparkles centre button] | More
+ *
+ * The Sparkles button is the main chat entry. It's not a tab — it
+ * opens the Chat modal directly. We render it in position index=2
+ * so it sits between the "You" tab and "More".
+ */
 function CustomTabBar({ state, navigation }: any) {
   const C = useColors();
   const tabStyles = useMemo(() => makeTabStyles(C), [C]);
-  const tabs = ['Dashboard', 'More'];
+  const tabs = ['Dashboard', 'Portrait', 'More'];
+
+  // Split point: Sparkles sits between Portrait (i=1) and More (i=2).
+  const SPARKLES_AFTER = 1;
 
   return (
     <View style={tabStyles.container}>
@@ -116,30 +130,6 @@ function CustomTabBar({ state, navigation }: any) {
 
         return (
           <React.Fragment key={name}>
-            {/* Aiteall centre button sits between Dashboard and More */}
-            {i === 1 && (
-              <TouchableOpacity
-                style={tabStyles.centerWrap}
-                onPress={() => {
-                  // Zero-config: Sunday is the one day we bias toward the
-                  // ritual (weekly reset); every other tap just opens dump.
-                  // The system prompt inside 'dump' reads time-of-day and
-                  // adapts its opener, so we don't need 4 different modes.
-                  const dow = new Date().getDay();
-                  const mode: ChatModeV2 = dow === 0 ? 'ritual' : 'dump';
-                  navigation.navigate('Chat', { mode });
-                }}
-                activeOpacity={0.82}
-              >
-                {/* Outer amber ring */}
-                <View style={tabStyles.centerRing}>
-                  <View style={tabStyles.centerBtn}>
-                    <Ionicons name="sparkles" size={18} color="#fff" />
-                  </View>
-                </View>
-              </TouchableOpacity>
-            )}
-
             <TouchableOpacity
               style={tabStyles.tab}
               onPress={() => navigation.navigate(name)}
@@ -155,6 +145,28 @@ function CustomTabBar({ state, navigation }: any) {
               </Text>
               {focused && <View style={tabStyles.activeDot} />}
             </TouchableOpacity>
+
+            {i === SPARKLES_AFTER && (
+              <TouchableOpacity
+                style={tabStyles.centerWrap}
+                onPress={() => {
+                  // Zero-config: Sunday is the one day we bias toward the
+                  // ritual (weekly reset); every other tap just opens dump.
+                  // The system prompt inside 'dump' reads time-of-day and
+                  // adapts its opener, so we don't need 4 different modes.
+                  const dow = new Date().getDay();
+                  const mode: ChatModeV2 = dow === 0 ? 'ritual' : 'dump';
+                  navigation.navigate('Chat', { mode });
+                }}
+                activeOpacity={0.82}
+              >
+                <View style={tabStyles.centerRing}>
+                  <View style={tabStyles.centerBtn}>
+                    <Ionicons name="sparkles" size={18} color="#fff" />
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
           </React.Fragment>
         );
       })}
@@ -268,6 +280,7 @@ function MainTabs() {
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Portrait" component={PortraitScreen} />
       <Tab.Screen name="More" component={MoreScreen} />
     </Tab.Navigator>
   );
