@@ -48,7 +48,7 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
-  const { profile, updateProfile, resetOnboarding, wipeAllData, signOut, appTheme, setTheme } = useStore();
+  const { profile, updateProfile, wipeAllData, signOut, appTheme, setTheme } = useStore();
   const C = useColors();
   const styles = useMemo(() => makeStyles(C), [C]);
 
@@ -190,20 +190,6 @@ export default function SettingsScreen() {
     );
     Linking.openURL(`mailto:samkhadra9@gmail.com?subject=${subject}&body=${body}`).catch(() =>
       Alert.alert('Could not open email', 'Please email samkhadra9@gmail.com directly.')
-    );
-  }
-
-  function handleReset() {
-    Alert.alert(
-      'Reset onboarding',
-      'This will take you back to the onboarding conversation. Your data will be kept.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Reset', style: 'destructive', onPress: () => {
-            resetOnboarding();
-            navigation.reset({ index: 0, routes: [{ name: 'OnboardingChat' }] });
-          }},
-      ]
     );
   }
 
@@ -560,21 +546,6 @@ export default function SettingsScreen() {
           </Modal>
 
 
-          {/* Onboarding */}
-          <SectionLabel label="SETUP" />
-          <View style={styles.card}>
-            <TouchableOpacity
-              style={styles.resumeRow}
-              onPress={() => navigation.navigate('OnboardingChat')}
-            >
-              <View>
-                <Text style={styles.resumeText}>Resume setup chat</Text>
-                <Text style={styles.resumeSub}>Pick up where you left off</Text>
-              </View>
-              <Text style={styles.resetArrow}>›</Text>
-            </TouchableOpacity>
-          </View>
-
           {/* Week skeleton */}
           <SectionLabel label="WEEKLY STRUCTURE" />
           <View style={styles.card}>
@@ -624,11 +595,6 @@ export default function SettingsScreen() {
           {/* Account */}
           <SectionLabel label="ACCOUNT" />
           <View style={styles.card}>
-            <TouchableOpacity style={styles.resetRow} onPress={handleReset}>
-              <Text style={styles.resetText}>Restart onboarding</Text>
-              <Text style={styles.resetArrow}>›</Text>
-            </TouchableOpacity>
-            <View style={styles.divider} />
             <TouchableOpacity
               style={styles.resetRow}
               onPress={() => Alert.alert(

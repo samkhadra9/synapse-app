@@ -1,14 +1,14 @@
 /**
- * Solas V2 Navigation
+ * Aiteall Navigation
  *
  * Auth flow:
  *   No session  → LoginScreen
- *   Has session → Onboarding OR Main app
+ *   Has session → Main app (chat-first; no up-front onboarding)
  *
  * Main app flow:
- *   Onboarding: Welcome → OnboardingChat
- *   Main App:   Tab navigator (Dashboard | Projects | Goals | Settings)
- *               + Modal stack for Chat, DeepWork, ProjectDetail
+ *   Tabs: Home (chat) | You (portrait) | More
+ *   Modal stack: DeepWork, ProjectDetail, AreaDetail
+ *   Power-user tools reachable from Settings: SkeletonBuilder, CalendarExport
  */
 
 import React, { useEffect, useMemo } from 'react';
@@ -33,15 +33,12 @@ import {
 
 // Screens
 import LoginScreen              from '../screens/auth/LoginScreen';
-import WelcomeScreen            from '../screens/onboarding/WelcomeScreen';
-import OnboardingChatScreen     from '../screens/onboarding/OnboardingChatScreen';
 import SkeletonBuilderScreen    from '../screens/onboarding/SkeletonBuilderScreen';
 import CalendarExportScreen     from '../screens/onboarding/CalendarExportScreen';
 import DashboardScreen          from '../screens/DashboardScreen';
 import ChatScreen             from '../screens/ChatScreen';
 import ProjectsScreen         from '../screens/ProjectsScreen';
 import ProjectDetailScreen    from '../screens/ProjectDetailScreen';
-import GoalsScreen            from '../screens/GoalsScreen';
 import AreasScreen            from '../screens/AreasScreen';
 import AreaDetailScreen       from '../screens/AreaDetailScreen';
 import SettingsScreen         from '../screens/SettingsScreen';
@@ -50,8 +47,6 @@ import DeepWorkScreen         from '../screens/DeepWorkScreen';
 // ── Param types ───────────────────────────────────────────────────────────────
 
 export type RootStackParams = {
-  Welcome:          undefined;
-  OnboardingChat:   undefined;
   SkeletonBuilder:  undefined;
   CalendarExport:   undefined;
   Settings:         undefined;
@@ -437,48 +432,29 @@ function AppNavigator() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Schedule onboarding welcome notification for new users who haven't completed onboarding
+  // Zero-config entry: the moment we have a session, schedule notifications and
+  // pull iOS Reminders. No onboarding gate — the user landed in the app and
+  // starts talking immediately; everything else happens in the background.
   useEffect(() => {
-    if (session && !profile.onboardingCompleted) {
-      // New user — fire a gentle nudge 30 min after install in case they close the app
-      requestPermissions().then(granted => {
-        if (granted) {
-          import('../services/notifications')
-            .then(n => n.scheduleOnboardingWelcome())
-            .catch(() => {});
-        }
-      });
-    }
-  }, [session, profile.onboardingCompleted]);
+    if (!session) return;
 
-  // Request all permissions and schedule notifications once user is onboarded
-  useEffect(() => {
-    if (session && profile.onboardingCompleted) {
-      // Cancel the onboarding welcome/reminder — they're done
-      import('../services/notifications').then(n => {
-        n.cancelOnboardingWelcome().catch(() => {});
-        n.cancelOnboardingReminder().catch(() => {});
-      });
+    requestPermissions().then(granted => {
+      if (granted) {
+        scheduleDailyNotifications(profile.morningTime, profile.eveningTime);
+        // Weekly strategic reset — defaults to Sunday 10:00 until user picks
+        // their own day/time in Settings.
+        scheduleWeeklyReview(profile.weeklyReviewDay, profile.weeklyReviewTime);
+      }
+    });
 
-      // Notifications
-      requestPermissions().then(granted => {
-        if (granted) {
-          scheduleDailyNotifications(profile.morningTime, profile.eveningTime);
-          // Weekly strategic reset — defaults to Sunday 10:00 until user picks
-          // their own day/time in Settings.
-          scheduleWeeklyReview(profile.weeklyReviewDay, profile.weeklyReviewTime);
-        }
-      });
+    // Calendar + Reminders — request together so both prompts appear on first launch
+    import('../services/calendar').then(cal => {
+      cal.requestAllCalendarPermissions().catch(() => {});
+    });
 
-      // Calendar + Reminders — request together so both prompts appear on first launch
-      import('../services/calendar').then(cal => {
-        cal.requestAllCalendarPermissions().catch(() => {});
-      });
-
-      // Pull any iOS Reminders into the task list (fire-and-forget)
-      syncRemindersToTasks();
-    }
-  }, [session, profile.onboardingCompleted, profile.morningTime, profile.eveningTime]);
+    // Pull any iOS Reminders into the task list (fire-and-forget)
+    syncRemindersToTasks();
+  }, [session, profile.morningTime, profile.eveningTime]);
 
   // Not logged in — show auth screen
   if (!session) {
@@ -492,33 +468,18 @@ function AppNavigator() {
   // Notification tap handler — mounted once user is in the app
   // (needs NavigationContainer context, so must be here not in App.tsx)
 
-  const isOnboarded = profile.onboardingCompleted;
-
   return (
     <>
     <NotificationHandler />
     <Stack.Navigator
       id="RootStack"
-      initialRouteName={isOnboarded ? 'Main' : 'OnboardingChat'}
+      initialRouteName="Main"
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
       }}
     >
-      {/* Onboarding */}
-      <Stack.Screen name="Welcome"        component={WelcomeScreen} />
-      <Stack.Screen
-        name="OnboardingChat"
-        component={OnboardingChatScreen}
-        options={{
-          headerShown: true,
-          headerTitle: '',
-          headerBackTitle: 'Back',
-          headerTintColor: C.primary,
-          headerStyle: { backgroundColor: C.surface },
-          headerShadowVisible: false,
-        }}
-      />
+      {/* Power-user tools (reachable from Settings) */}
       <Stack.Screen
         name="SkeletonBuilder"
         component={SkeletonBuilderScreen}
@@ -538,7 +499,7 @@ function AppNavigator() {
         }}
       />
 
-      {/* Settings accessible before and after onboarding */}
+      {/* Settings */}
       <Stack.Screen
         name="Settings"
         component={SettingsScreen}
