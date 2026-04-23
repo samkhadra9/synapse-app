@@ -281,6 +281,17 @@ interface SolasState {
   addChatMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearConversation: () => void;
 
+  /**
+   * Chat sessions keyed by `${mode}:${windowKey}` — one conversation per
+   * (mode, time-window). Lets users resume a mid-chat after an interruption
+   * instead of starting over. See src/lib/chatSessionKey.ts.
+   */
+  chatSessions: Record<string, ChatMessage[]>;
+  getChatSession: (key: string) => ChatMessage[];
+  setChatSession: (key: string, messages: ChatMessage[]) => void;
+  appendChatSessionMessage: (key: string, msg: ChatMessage) => void;
+  clearChatSession: (key: string) => void;
+
   deepWorkSessions: DeepWorkSession[];
   addDeepWorkSession: (s: Omit<DeepWorkSession, 'id'>) => void;
   updateDeepWorkSession: (id: string, patch: Partial<DeepWorkSession>) => void;
@@ -696,6 +707,22 @@ export const useStore = create<SolasState>()(
         profile: { ...s.profile, conversationHistory: [] }
       })),
 
+      // ── Chat Sessions (per-mode, per-window) ─────────────────────────────
+      chatSessions: {},
+      getChatSession: (key) => get().chatSessions[key] ?? [],
+      setChatSession: (key, messages) => set((s) => ({
+        chatSessions: { ...s.chatSessions, [key]: messages },
+      })),
+      appendChatSessionMessage: (key, msg) => set((s) => {
+        const prev = s.chatSessions[key] ?? [];
+        return { chatSessions: { ...s.chatSessions, [key]: [...prev, msg] } };
+      }),
+      clearChatSession: (key) => set((s) => {
+        const next = { ...s.chatSessions };
+        delete next[key];
+        return { chatSessions: next };
+      }),
+
       // ── Deep Work Sessions ────────────────────────────────────────────────────
       deepWorkSessions: [],
       addDeepWorkSession: (session) => {
@@ -788,6 +815,7 @@ export const useStore = create<SolasState>()(
           goals:             [],
           dailyLogs:         [],
           deepWorkSessions:  [],
+          chatSessions:      {},
         } as any);
       },
     }),

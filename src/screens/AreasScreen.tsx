@@ -15,13 +15,14 @@
  * Tab: "Areas"
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, TextInput, Modal, Alert, StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 import { format, subDays, parseISO, isWithinInterval } from 'date-fns';
 import { useColors, Spacing, Radius, DomainColors } from '../theme';
 import { useStore, Area, DomainKey, ALL_DOMAINS } from '../store/useStore';
@@ -461,6 +462,21 @@ export default function AreasScreen({ navigation }: any) {
   const [showArchived, setShowArchived] = useState(false);
   const [addingTaskForAreaId, setAddingTaskForAreaId] = useState<string | null>(null);
   const [taskInput, setTaskInput] = useState('');
+
+  // Auto-open edit modal when navigated here with editAreaId param
+  // (e.g. from AreaDetailScreen's "Edit" menu item)
+  const route = useRoute<any>();
+  useEffect(() => {
+    const editAreaId = route.params?.editAreaId;
+    if (!editAreaId) return;
+    const target = areas.find(a => a.id === editAreaId);
+    if (target) {
+      setEditingArea(target);
+      setShowModal(true);
+    }
+    // Clear the param so re-focusing this screen doesn't re-open the modal
+    navigation.setParams({ editAreaId: undefined });
+  }, [route.params?.editAreaId, areas, navigation]);
 
   function openAdd() {
     setEditingArea(undefined);

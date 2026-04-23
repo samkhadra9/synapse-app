@@ -57,7 +57,7 @@ export type RootStackParams = {
   Settings:         undefined;
   Main:             undefined;
   Projects:         undefined;
-  Areas:            undefined;
+  Areas:            { editAreaId?: string } | undefined;
   Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'quick' | 'fatigue' };
   DeepWork:         undefined;
   ProjectDetail:    { projectId: string };

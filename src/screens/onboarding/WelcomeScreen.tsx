@@ -17,21 +17,9 @@ import { Colors, Radius, Spacing } from '../../theme';
 const ENV_API_KEY = (process.env.EXPO_PUBLIC_ANTHROPIC_KEY ?? '').trim();
 
 const PILLARS = [
-  {
-    label: 'CAPTURE',
-    title: 'Brain dump, structured.',
-    body: "Talk or type anything on your mind. Aiteall sorts it into projects, tasks, and priorities — so nothing gets lost and nothing takes up mental space unnecessarily.",
-  },
-  {
-    label: 'PLAN',
-    title: 'A real plan for today.',
-    body: "Every morning, Aiteall pulls your overdue tasks, active projects, and goals into a time-blocked sequence. Three priorities. Realistic timing. A day you can actually execute.",
-  },
-  {
-    label: 'BUILD',
-    title: 'Toward the life you mean to live.',
-    body: "Your tasks connect to your projects. Your projects connect to your goals. Over time, you can see whether what you're doing daily is actually building what you want long-term.",
-  },
+  { label: 'CAPTURE', body: 'Brain-dump into chat. Aiteall sorts it.' },
+  { label: 'PLAN',    body: 'Three priorities. Time-blocked. Every morning.' },
+  { label: 'BUILD',   body: 'Tasks → projects → the life you want.' },
 ];
 
 export default function WelcomeScreen({ navigation }: any) {
@@ -61,11 +49,10 @@ export default function WelcomeScreen({ navigation }: any) {
           {/* ── Hero ─────────────────────────────────────────────────── */}
           <Animated.View style={[s.hero, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
             <Text style={s.wordmark}>Aiteall</Text>
-            <Text style={s.heading}>Build the life{'\n'}you mean to live.</Text>
-            <Text style={s.headingAccent}>Intentionally.</Text>
+            <Text style={s.heading}>A calmer way{'\n'}to run your life.</Text>
             <Text style={s.sub}>
-              A personal operating system for people who want
-              momentum — not just another to-do list.
+              Chat with an AI that helps you plan, focus, and
+              follow through — built for ADHD brains.
             </Text>
           </Animated.View>
 
@@ -73,21 +60,10 @@ export default function WelcomeScreen({ navigation }: any) {
           <Animated.View style={[s.pillars, { opacity: fadeAnim }]}>
             {PILLARS.map((p, i) => (
               <View key={i} style={s.pillar}>
-                <View style={s.pillarAccent} />
-                <View style={s.pillarBody}>
-                  <Text style={s.pillarLabel}>{p.label}</Text>
-                  <Text style={s.pillarTitle}>{p.title}</Text>
-                  <Text style={s.pillarText}>{p.body}</Text>
-                </View>
+                <Text style={s.pillarLabel}>{p.label}</Text>
+                <Text style={s.pillarText}>{p.body}</Text>
               </View>
             ))}
-          </Animated.View>
-
-          {/* ── How it works note ─────────────────────────────────────── */}
-          <Animated.View style={[s.howItWorks, { opacity: fadeAnim }]}>
-            <Text style={s.howItWorksText}>
-              Setup takes about 5 minutes. Aiteall will ask you about your life, build your Areas and Projects, then help you design a weekly time structure that actually fits how you work.
-            </Text>
           </Animated.View>
 
           {/* ── CTA area ─────────────────────────────────────────────── */}
@@ -165,20 +141,11 @@ const s = StyleSheet.create({
   },
 
   // ── Pillars ───────────────────────────────────────────────────────────────
-  pillars: { gap: 12, marginBottom: 28 },
+  pillars: { gap: 14, marginBottom: 32 },
   pillar: {
-    flexDirection: 'row',
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-    backgroundColor: Colors.surface,
+    gap: 4,
+    paddingVertical: 4,
   },
-  pillarAccent: {
-    width: 3,
-    backgroundColor: Colors.primary,
-  },
-  pillarBody: { flex: 1, padding: 16, gap: 4 },
   pillarLabel: {
     fontSize: 10,
     fontWeight: '700',
@@ -186,33 +153,11 @@ const s = StyleSheet.create({
     letterSpacing: 1.4,
     textTransform: 'uppercase',
   },
-  pillarTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: -0.3,
-    marginBottom: 4,
-  },
   pillarText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-
-  // ── How it works ──────────────────────────────────────────────────────────
-  howItWorks: {
-    backgroundColor: Colors.surfaceSecondary,
-    borderRadius: Radius.lg,
-    padding: 16,
-    marginBottom: 28,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
-  howItWorksText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
+    fontSize: 15,
+    color: Colors.textPrimary,
     lineHeight: 22,
-    fontStyle: 'italic',
+    fontWeight: '500',
   },
 
   // ── CTA ───────────────────────────────────────────────────────────────────

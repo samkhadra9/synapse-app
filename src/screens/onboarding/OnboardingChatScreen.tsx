@@ -29,49 +29,68 @@ import { fetchAnthropic } from '../../lib/anthropic';
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are the Aiteall AI — a personal operating system for people who want to build a life with intention rather than just manage a schedule.
+const SYSTEM_PROMPT = `You are the Aiteall AI — a personal operating system for people with ADHD who want to build a life with intention, not just manage a schedule.
 
-Core belief: You don't react to life. You construct it. Every day can be a small act of becoming the person you're building toward.
+WHO YOU'RE TALKING TO
+Almost every user has ADHD, anxiety, or both. They've bounced off productivity apps that demanded too much executive function. Your job is the opposite: hold the structure so they don't have to.
 
-You are conducting a focused onboarding conversation. Be warm but direct — a thoughtful friend, not a form, and definitely not an AI assistant.
+Be a thoughtful friend, not a form. Fast, warm, direct. Validate what they said before moving on.
 
-Rules:
-- Ask ONE question at a time
-- Keep messages SHORT (2-3 sentences max)
-- Natural conversational prose only — no bullet points or lists
-- Never mention frameworks, productivity methods, or jargon
-- Sound human — contractions, natural rhythm, occasional informality
-- Move with purpose — don't linger
+HARD RULES
+- Maximum TWO short sentences per message. Aim for ONE.
+- Ask ONE question at a time.
+- Validate first, then advance. After the user shares something, reflect it back briefly ("OK — so X. That makes sense.") before the next question.
+- Never use bullet points, lists, or headers in your replies. Prose only.
+- Never mention "frameworks," "productivity," "PARA," "methods," or any jargon.
+- Give permission to be messy: if the user rambles or doubles back, that's fine. Say something like "no need to be neat — just say it how you'd say it to a friend."
+- NEVER re-introduce yourself. The intro has already been shown.
 
-Conversation arc (follow this order):
-1. The opening message has already been shown — it introduced Aiteall and asked "what brings you to Aiteall?". The user is now replying. Pick up from their reply warmly, naturally — do NOT re-introduce yourself or re-ask what brings them here.
-2. From their answer, pick up on who they are. Then ask their name naturally ("By the way, I don't think I caught your name?") if it hasn't come up.
-3. Ask: "Before we get into the practical stuff — what are you building toward? Like, where do you actually want to be in a few years?" This sets the motivational frame. Accept whatever they say without probing.
-4. Transition naturally into asking about what they're actively working on. When you do, briefly explain the two types of things Aiteall tracks — keep it to 2 sentences, conversational, not a lecture: something like "I'll ask you about two kinds of things — stuff you're actively trying to finish (like a project with a deadline), and the ongoing parts of life you're always tending (like health or finances). First — what are you actively trying to get done right now?"
-5. Ask about the ongoing areas of their life that never really finish — health, relationships, creative work, finances, learning.
-6. Ask about focus capacity: roughly an hour of deep focus, or can they go longer?
-7. Ask what time they wake up and wind down.
-8. Close warmly: "Perfect — I've got what I need. Let me build your system." — DO NOT ask about weekly schedule or time blocks here. The next step after this chat is a dedicated weekly structure builder that will handle that conversation properly.
+CHECK-INS (important)
+Every 3-4 exchanges, offer a pause: "I've got enough to build something decent if you want — or we can keep going and make it richer. Up to you." Give the user an out. This is non-negotiable — ADHD users need permission to stop.
 
-CRITICAL — AREAS vs PROJECTS (this is the most important distinction):
+THE FIVE PHASES (move through them in order, but fluidly)
 
-A PROJECT has a clear end state and a deadline — something that gets DONE and then is over.
-  Examples: "Launch the app by June", "Move to London", "Run the Sydney Half-Marathon in October"
-  Signs it's a project: You can imagine completing it. There's a finish line. It has a deadline.
+PHASE 1 — CONNECT (1-2 exchanges)
+Pick up warmly from their first reply. Get their name if they haven't said it.
 
-An AREA is an ongoing domain of life — it never gets done, it gets maintained.
-  Examples: "Health", "Relationship with family", "Financial wellbeing", "Career growth"
-  Signs it's an area: There's no finish line. It's something you tend to forever.
+PHASE 2 — AREAS (the ongoing shadows of their life) (2-3 exchanges)
+Ask: "Walk me through a typical week — what fills your days? Doesn't have to be neat, just how it actually is."
+From their answer, derive the ongoing domains that cut across their life (Health, Work/Career, Relationships, Finances, Learning, Creative, etc.). Reflect them back: "So the ongoing pieces look like: [X, Y, Z]. That feel right?" Let them edit.
 
-NEVER create a project for something that has no clear end state or deadline:
-  - "Get healthier" → AREA (health), not a project
-  - "Be more social" → AREA (relationships), not a project
-  - "Exercise more" → Area habit, suggest as a recurring routine
-  - "Train for a marathon in October" → PROJECT (has deadline + end state)
+PHASE 3 — ACTIVE PROJECTS (what they're pushing right now) (2-3 exchanges)
+Ask: "What are you actively trying to finish right now? Like, specific things with a finish line — a launch, a paper, a trip, a renovation."
+Capture 1-5 projects with deadlines if they have them. If they don't mention any, that's fine — skip.
 
-When you output the JSON, every project MUST have a specific title describing a concrete end state, and every area must be a life domain, not a deliverable.
+PHASE 4 — HOW THEY WORK (1-2 exchanges)
+Combine two questions briefly: "When does your best focus happen — morning or later? And roughly what time do you start and wind down?"
 
-When you have enough information (after at least 6-8 exchanges), end your message with:
+PHASE 5 — ASPIRATION (1 exchange)
+"Last thing — what are you building toward? Where do you want to be in a few years?" Accept anything. Don't probe.
+
+CLOSE
+"Perfect. Building your system now." Then output the JSON (see below). Do NOT ask about weekly schedule here — there's a dedicated step after.
+
+EARLY-EXIT BEHAVIOUR
+If the user taps the "Build from here" button, they're done. You'll receive a user message "[BUILD_NOW]". When you see that, immediately wrap up with whatever context you have — generate the JSON from available info, use empty arrays where you lack data, and finish cleanly. Do not push back. Do not ask for more.
+
+AREAS vs PROJECTS — THE ONE DISTINCTION THAT MATTERS
+
+An AREA is an overlapping shadow — an ongoing dimension of life with no finish line. Areas cut across everything: Health, Clinical Work, Relationships, Finances, Learning. You tend them forever.
+
+A PROJECT is bounded. It has a specific end state and (usually) a deadline. "Launch the app", "Run the marathon in October", "Submit the paper."
+
+Test: Is there a date on which this is done? Yes → project. No → area.
+
+Common miscategorisations to fix silently:
+- "Get healthier" → AREA (health)
+- "Be more social" → AREA (relationships)
+- "Exercise more" → AREA habit, not a project
+- "Write the paper by March" → PROJECT
+
+When you output the JSON, every project must have a specific title describing a concrete end state. Every area must be an ongoing life domain, not a deliverable.
+
+OUTPUT TRIGGER
+When you have enough information (minimum 5 exchanges, or immediately on [BUILD_NOW]), end your final message with:
 [ONBOARDING_COMPLETE]
 
 Then on the VERY NEXT line output a JSON object (nothing else after it) in this exact format:
@@ -151,7 +170,7 @@ export default function OnboardingChatScreen({ navigation }: any) {
   const INTRO_MESSAGE: ChatMessage = {
     id: 'intro-0',
     role: 'assistant',
-    content: `Welcome to Aiteall (pronounced 'AT-all').\n\nIt's an Irish word for a break in the clouds — that moment when the overcast lifts and you can finally see clearly.\n\nWhat do you want to get done today?`,
+    content: `Welcome to Aiteall — pronounced 'AT-all'. It's Gaelic for a break in the clouds.\n\nOne thing before we start: this takes about 20–30 minutes. I know that's a lot. But we're building something specific — the ecosystem that every future day, task, and project will live inside. Rushing this gives you a shell that doesn't hold up.\n\nHere's what we'll do together:\n• Map the ongoing parts of your life (your Areas — health, work, relationships, etc.)\n• Capture what you're actively pushing forward right now (your Projects)\n• Figure out how you actually work best (focus, timing, energy)\n\nAt the end you'll have a system that knows your shape. Then the daily stuff gets easy.\n\nReady? Tell me — what's bringing you here?`,
     timestamp: new Date().toISOString(),
   };
 
@@ -163,6 +182,28 @@ export default function OnboardingChatScreen({ navigation }: any) {
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const completeBtnAnim = useRef(new Animated.Value(0)).current;
+
+  // ── Phase inference ──────────────────────────────────────────────────────
+  // Count user messages (excluding the intro) to infer where we are in the
+  // 5-phase flow. Each phase expects roughly 1-3 exchanges.
+  const userMsgCount = messages.filter(m => m.role === 'user').length;
+  const PHASES = [
+    { label: 'Getting to know you' },      // Phase 1
+    { label: 'Mapping your areas' },       // Phase 2
+    { label: 'Active projects' },          // Phase 3
+    { label: 'How you work best' },        // Phase 4
+    { label: 'What you’re building' },     // Phase 5
+  ];
+  // 0 user msgs → phase 1, 1-2 → phase 2, 3-4 → phase 3, 5-6 → phase 4, 7+ → phase 5
+  const currentPhase =
+    userMsgCount === 0 ? 1 :
+    userMsgCount <= 2 ? 2 :
+    userMsgCount <= 4 ? 3 :
+    userMsgCount <= 6 ? 4 :
+    5;
+  // "Build from here" becomes available once the user has actually shared something
+  // meaningful — after phase 2 (3+ user replies)
+  const canBuildEarly = userMsgCount >= 3 && !isComplete && !loading;
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -278,6 +319,27 @@ export default function OnboardingChatScreen({ navigation }: any) {
     const userMsg = appendMessage('user', input.trim());
     setInput('');
     await sendToLLM([...messages, userMsg]);
+  }
+
+  /** Escape hatch — ask the LLM to wrap up immediately with whatever it has */
+  function handleBuildNow() {
+    if (loading || isComplete) return;
+    Alert.alert(
+      'Build from here?',
+      "I'll use what you've shared so far and set up your system now. You can always add more later.",
+      [
+        { text: 'Keep going', style: 'cancel' },
+        {
+          text: 'Build it',
+          style: 'default',
+          onPress: async () => {
+            Keyboard.dismiss();
+            const userMsg = appendMessage('user', '[BUILD_NOW]');
+            await sendToLLM([...messages, userMsg]);
+          },
+        },
+      ],
+    );
   }
 
   /** Parse a time string in any reasonable format → "HH:MM" or null */
@@ -511,6 +573,25 @@ export default function OnboardingChatScreen({ navigation }: any) {
           </View>
         </View>
 
+        {/* Progress indicator — subtle phase tracker */}
+        {!isComplete && (
+          <View style={styles.progressWrap}>
+            <View style={styles.progressLabelRow}>
+              <Text style={styles.progressLabel}>
+                {`Phase ${currentPhase} of 5 · ${PHASES[currentPhase - 1].label}`}
+              </Text>
+            </View>
+            <View style={styles.progressBarBg}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: `${(currentPhase / 5) * 100}%` },
+                ]}
+              />
+            </View>
+          </View>
+        )}
+
         {/* Messages */}
         <FlatList
           ref={listRef}
@@ -570,15 +651,26 @@ export default function OnboardingChatScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          {/* Escape hatch — hidden while keyboard is open so it doesn't crowd the input */}
+          {/* Escape hatches — hidden while keyboard is open so they don't crowd the input */}
           {!keyboardVisible && (
-            <TouchableOpacity
-              style={styles.remindLaterBtn}
-              onPress={handleRemindLater}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.remindLaterText}>⏱  Not a good time? Remind me later</Text>
-            </TouchableOpacity>
+            <View style={styles.footerRow}>
+              {canBuildEarly ? (
+                <TouchableOpacity
+                  style={styles.footerBtn}
+                  onPress={handleBuildNow}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.footerBtnText}>✦  Build from here</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                style={styles.footerBtn}
+                onPress={handleRemindLater}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.footerBtnText}>⏱  Remind me later</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       )}
@@ -654,12 +746,54 @@ const styles = StyleSheet.create({
   sendBtnDisabled: { backgroundColor: Colors.borderLight },
   sendBtnText:     { fontSize: 20, color: '#FFFFFF', fontWeight: '700', lineHeight: 24 },
 
-  remindLaterBtn: {
+  // Progress indicator
+  progressWrap: {
+    paddingHorizontal: Spacing.base,
+    paddingTop: 10,
+    paddingBottom: 10,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  progressLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 6,
+  },
+  progressLabel: {
+    fontSize: 12,
+    color: Colors.textTertiary,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  progressBarBg: {
+    height: 3,
+    backgroundColor: Colors.borderLight,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 3,
+    backgroundColor: Colors.primary,
+    borderRadius: 2,
+  },
+
+  // Footer escape hatches
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
     paddingVertical: 10,
     paddingBottom: 4,
+    flexWrap: 'wrap',
   },
-  remindLaterText: {
+  footerBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  footerBtnText: {
     fontSize: 13,
     color: Colors.textTertiary,
     fontWeight: '500',

@@ -196,12 +196,12 @@ export default function SettingsScreen() {
   function handleReset() {
     Alert.alert(
       'Reset onboarding',
-      'This will take you back to the welcome screen. Your data will be kept.',
+      'This will take you back to the onboarding conversation. Your data will be kept.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Reset', style: 'destructive', onPress: () => {
             resetOnboarding();
-            navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+            navigation.reset({ index: 0, routes: [{ name: 'OnboardingChat' }] });
           }},
       ]
     );
@@ -210,7 +210,7 @@ export default function SettingsScreen() {
   function handleWipeData() {
     Alert.alert(
       'Delete all your data?',
-      'This will permanently remove your profile, projects, tasks, goals, and habits — from this device and our servers.',
+      'This will permanently remove your profile, projects, tasks, goals, and habits — from this device and our servers. You will be signed out.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Continue', style: 'destructive', onPress: () => {
@@ -221,8 +221,18 @@ export default function SettingsScreen() {
               [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Delete everything', style: 'destructive', onPress: async () => {
-                    await wipeAllData();
-                    navigation.reset({ index: 0, routes: [{ name: 'OnboardingChat' }] });
+                    try {
+                      await wipeAllData();
+                    } catch (e) {
+                      console.warn('[Settings] wipeAllData error:', e);
+                    }
+                    // Sign out so no background sync with the current session
+                    // can resurrect data. The nav guard will route to Login.
+                    try {
+                      await signOut();
+                    } catch (e) {
+                      console.warn('[Settings] signOut error:', e);
+                    }
                   }},
               ]
             );

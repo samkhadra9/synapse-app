@@ -29,6 +29,7 @@ import { buildTodayCalendarContext, buildSkeletonContext, writeDayPlanToCalendar
 import { updatePortrait } from '../services/portrait';
 import { fetchAnthropic } from '../lib/anthropic';
 import { supabase } from '../lib/supabase';
+import { chatSessionKey, CHAT_CONTEXT_CAP } from '../lib/chatSessionKey';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -295,23 +296,49 @@ ${sharedRules}
 - Tasks they want to drop → delete action.
 - Tomorrow's most important thing → task with isMIT: true, dueDate: "tomorrow".`,
 
-    weekly: `You are the Aiteall AI doing a weekly reset with ${firstName}.
+    weekly: `You are the Aiteall AI running a weekly review with ${firstName}.
 ${portraitSection}
 ${contextBlock}
 
-This is a short strategic conversation — not an interrogation. One question at a time. Aim for 6-8 exchanges total.
+This is the most important session of the week — a 5-step ritual that keeps everything from collapsing. Run the steps in order, but stay conversational. One question at a time. Validate what they say before moving on. Keep replies SHORT — 1-2 sentences max.
 
-Run loosely in this order — but follow the conversation naturally, don't mechanically tick boxes:
+Check in after every step: "Want to keep going, or is that enough for today?" ADHD users need permission to stop. Never force them through all 5.
 
-1. Open: "How was the week?" Let them talk freely.
-2. Pick up on what they said — reflect briefly, then ask: "What actually moved forward that matters?"
-3. If there are active projects above, pick the most relevant one: "How's [project] sitting with you?"
-4. "What got in the way this week? Anything to name so it doesn't repeat?"
-5. "What are the 2-3 things that need to happen next week — not everything, just what actually matters?"
-6. Close: confirm the non-negotiables and wish them a good week.
+THE FIVE STEPS
 
-If they have no projects or goals set up yet, just focus on last week and next week's intentions — don't reference structure that doesn't exist.
-Be direct but warm. If there's obvious drift from their goals, name it once, cleanly.
+STEP 1 — INBOX CLEAR (2-3 exchanges)
+Ask: "What's floating around in your head from this week that hasn't landed anywhere yet? Random things you jotted down, half-thoughts, stuff you meant to do — just dump it."
+For each item they list: decide WITH them — is it a task (concrete, has a next action), a project (has an end state + deadline), belongs to an existing area, or is it trash?
+Keep this fast. Don't interrogate every item.
+
+STEP 2 — ORPHAN TRIAGE (1-2 exchanges)
+Look at the context above for tasks without a projectId or clear home. Ask: "I see a few tasks floating loose — [list 2-3]. Where do they belong, or should they go?"
+Help them assign each to a project, an area, or delete. Don't surface more than 5 at a time — pick the most stuck ones.
+If there are no orphans, skip this step entirely.
+
+STEP 3 — PROJECT NEXT ACTIONS (2-3 exchanges)
+For each active project above, ask one at a time: "[Project name] — what's the next concrete thing that needs to happen?"
+Push for specifics: "Finish the draft" is too vague. "Write the intro paragraph by Wednesday" is right.
+If a project has stalled for weeks, ask gently: "Is this still alive, or should we pause it?"
+Skip projects that clearly just got moved forward this week.
+
+STEP 4 — DISTILL (1-2 exchanges)
+Ask: "What did you notice about yourself this week? Patterns, wins, friction — anything worth remembering?"
+Capture the insight in the portrait note. This is where Aiteall learns who they are over time. Don't solve anything here — just listen and reflect.
+
+STEP 5 — SCAN NEXT WEEK (2 exchanges)
+Ask: "Looking at the week ahead — what's the shape of it? Any fixed commitments, deadlines, or energy-drainers?"
+Then: "What are the 2-3 things that, if they happen, would make next week a good one?" These become next week's MITs and project-level next actions.
+
+CLOSE
+Confirm the non-negotiables, name one thing to protect (rest, a person, a project). End warmly — no homework, no summary speech. Just: "OK — you're set. Have a good week."
+
+BEHAVIOUR NOTES
+- Every step has a built-in escape hatch. If they say "that's enough" at any point, wrap up immediately with what you've got.
+- If they arrive tired or anxious, compress: do Step 1 and Step 5 only.
+- If this is their first-ever weekly review and there's no history, focus on Steps 1, 3, and 5. Skip orphan triage and distill.
+- Never use the words "inbox", "orphan", "triage", "distill" with the user — they're internal labels. Ask the human question.
+- Be direct but warm. If there's obvious drift from their goals, name it once, cleanly.
 
 ${outputFormat}
 ${sharedRules}`,
@@ -980,7 +1007,15 @@ export default function ChatScreen({ navigation, route }: any) {
   const rv = useMemo(() => makeRv(C), [C]);
   const styles = useMemo(() => makeStyles(C), [C]);
 
-  const { profile, tasks, projects, goals, areas, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait, saveDayPlan, markCalendarSynced, setFocusTask } = useStore();
+  const { profile, tasks, projects, goals, areas, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait, saveDayPlan, markCalendarSynced, setFocusTask, getChatSession, setChatSession, appendChatSessionMessage, clearChatSession } = useStore();
+
+  // One session key per (mode, window). Locked in at mount so we don't
+  // accidentally swap mid-conversation if midnight ticks over.
+  const projectId: string | undefined = route?.params?.projectId;
+  const sessionKey = useMemo(
+    () => chatSessionKey(mode, new Date(), projectId),
+    [mode, projectId],
+  );
   const userAnthropicKey = profile.anthropicKey || undefined; // personal key or undefined → proxy
   const userOpenAiKey    = profile.openAiKey || ENV_OPENAI_KEY || undefined; // personal key or undefined → proxy
 
@@ -1018,7 +1053,8 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   }, [mode, profile.weekTemplate]);
 
-  const [messages,        setMessages]        = useState<ChatMessage[]>([]);
+  // Seed messages from the persisted session (if any). Empty → fresh session.
+  const [messages,        setMessages]        = useState<ChatMessage[]>(() => getChatSession(sessionKey));
   const [input,           setInput]           = useState(initialMessage);
   const [loading,         setLoading]         = useState(false);
   const [actionTaken,     setActionTaken]     = useState(false);
@@ -1062,7 +1098,14 @@ export default function ChatScreen({ navigation, route }: any) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { startConversation(); }, []);
+  useEffect(() => {
+    // Resume if there's already a conversation in this session window.
+    // Start fresh only if it's empty (new day / first open / after clear).
+    if (messages.length === 0) {
+      startConversation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reset done-state when the chat mode changes mid-session. Prevents the
   // previous session's summary card from leaking into a new conversation
@@ -1098,12 +1141,21 @@ export default function ChatScreen({ navigation, route }: any) {
       timestamp: new Date().toISOString(),
     };
     setMessages(prev => [...prev, msg]);
+    // Persist every turn so mid-conversation interruptions (phone call,
+    // app backgrounded, crash) don't lose context.
+    appendChatSessionMessage(sessionKey, msg);
     return msg;
   }
 
   async function sendToLLM(history: ChatMessage[]) {
     setLoading(true);
     try {
+      // Cap context at the last CHAT_CONTEXT_CAP messages to prevent token
+      // bloat when a user returns to a long-running session (e.g. a weekly
+      // conversation accumulated over a week).
+      const capped = history.length > CHAT_CONTEXT_CAP
+        ? history.slice(-CHAT_CONTEXT_CAP)
+        : history;
       const res = await fetchAnthropic({
         model: 'claude-sonnet-4-5-20250929',
         max_tokens: 1800,
@@ -1112,7 +1164,7 @@ export default function ChatScreen({ navigation, route }: any) {
         // We prepend a silent kickoff so the AI opens the conversation as the system prompt instructs.
         messages: [
           { role: 'user', content: 'Hello' },
-          ...history.map(m => ({ role: m.role, content: m.content })),
+          ...capped.map(m => ({ role: m.role, content: m.content })),
         ],
         temperature: 0.7,
       }, userAnthropicKey);

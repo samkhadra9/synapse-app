@@ -133,7 +133,7 @@ function makeStyles(C: any) {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function AreaDetailScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute<AreaDetailRoute>();
   const C = useColors();
   const styles = useMemo(() => makeStyles(C), [C]);
@@ -144,6 +144,8 @@ export default function AreaDetailScreen() {
   const habits = useStore(s => s.habits);
   const toggleTask = useStore(s => s.toggleTask);
   const addTask = useStore(s => s.addTask);
+  const deleteArea = useStore(s => s.deleteArea);
+  const archiveArea = useStore(s => s.archiveArea);
 
   const area = areas.find(a => a.id === areaId);
 
@@ -249,8 +251,54 @@ export default function AreaDetailScreen() {
           style={styles.moreBtn}
           onPress={() => {
             Alert.alert('Area options', undefined, [
-              { text: 'Edit', onPress: () => {/* TODO: open edit modal */ } },
-              { text: 'Archive', onPress: () => {/* TODO: confirm archive */ }, style: 'destructive' },
+              {
+                text: 'Edit',
+                onPress: () => {
+                  navigation.navigate('Areas', { editAreaId: area.id });
+                },
+              },
+              {
+                text: 'Archive',
+                style: 'destructive',
+                onPress: () => {
+                  Alert.alert(
+                    'Archive Area',
+                    `Archive "${area.name}"? It'll be hidden but can be restored later.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Archive',
+                        style: 'destructive',
+                        onPress: () => {
+                          archiveArea(area.id);
+                          navigation.goBack();
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
+              {
+                text: 'Delete permanently',
+                style: 'destructive',
+                onPress: () => {
+                  Alert.alert(
+                    'Delete Area?',
+                    `Delete "${area.name}" permanently? This cannot be undone. Tasks and projects linked to this area will no longer have an area.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: () => {
+                          deleteArea(area.id);
+                          navigation.goBack();
+                        },
+                      },
+                    ],
+                  );
+                },
+              },
               { text: 'Cancel', style: 'cancel' },
             ]);
           }}
