@@ -118,16 +118,27 @@ export default function HomeNarrow() {
           </View>
         )}
 
-        {/* Later chip */}
+        {/* Later chip — opens a dump chat to walk through the rest.
+            We deliberately don't try to force-render the full Dashboard:
+            the whole point of 'narrow' is to not flood the screen. If
+            the user wants to talk about the backlog, we take them to
+            chat where it can be decomposed one thing at a time. */}
         {laterCount > 0 && (
           <TouchableOpacity
             style={s.laterChip}
-            onPress={() => navigation.navigate('Main')}
+            onPress={() =>
+              navigation.navigate('Chat', {
+                mode: 'dump',
+                initialMessage: `There are ${laterCount} more things on today. Walk me through what's left — just what I actually need to look at.`,
+              })
+            }
             activeOpacity={0.75}
           >
             <Ionicons name="time-outline" size={14} color={C.textSecondary} />
             <Text style={s.laterText}>
-              {laterCount} more for today — later
+              {laterCount === 1
+                ? '1 more thing for today — later'
+                : `${laterCount} more things for today — later`}
             </Text>
             <Ionicons name="chevron-forward" size={14} color={C.textTertiary} />
           </TouchableOpacity>

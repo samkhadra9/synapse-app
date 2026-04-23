@@ -118,7 +118,12 @@ export default function HomeHeld() {
           {todayCount > 0 && (
             <TouchableOpacity
               style={s.chip}
-              onPress={() => navigation.navigate('Main')}
+              onPress={() =>
+                navigation.navigate('Chat', {
+                  mode: 'dump',
+                  initialMessage: `I've got ${todayCount} things marked for today. Help me see what actually matters before I pick anything up.`,
+                })
+              }
               activeOpacity={0.75}
             >
               <Ionicons name="sunny-outline" size={14} color={C.textSecondary} />
@@ -129,7 +134,11 @@ export default function HomeHeld() {
           )}
           <TouchableOpacity
             style={s.chip}
-            onPress={() => navigation.navigate('Main')}
+            // Cross-tab jump into Portrait. useNavigation is typed as the
+            // root stack, which doesn't include the tab routes — `as never`
+            // quiets TS while letting React Navigation resolve the name
+            // against the full navigator tree.
+            onPress={() => navigation.getParent()?.navigate('Portrait' as never)}
             activeOpacity={0.75}
           >
             <Ionicons name="person-circle-outline" size={14} color={C.textSecondary} />
