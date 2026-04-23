@@ -30,6 +30,8 @@ import { portraitToString } from '../services/portrait';
 import { fetchAnthropic } from '../lib/anthropic';
 import { supabase } from '../lib/supabase';
 import { chatSessionKey, CHAT_CONTEXT_CAP } from '../lib/chatSessionKey';
+import { computeContinuity, renderContinuityBlock } from '../services/continuity';
+import { Ionicons } from '@expo/vector-icons';
 import type { ChatModeV2 } from '../navigation';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -156,12 +158,25 @@ ${goals10yr.length ? goals10yr.map(g => `  • ${g.text}`).join('\n') : '  • n
 
 // ── System Prompts ─────────────────────────────────────────────────────────────
 
-function getSystemPrompt(mode: ChatModeV2, contextBlock: string, name: string, calendarContext = '', portrait = ''): string {
+function getSystemPrompt(
+  mode: ChatModeV2,
+  contextBlock: string,
+  name: string,
+  calendarContext = '',
+  portrait = '',
+  continuityBlock = '',
+): string {
   const firstName = name ? name.split(' ')[0] : 'there';
 
   const portraitSection = portrait
     ? `\nWHO ${firstName.toUpperCase()} IS — your persistent memory of this person (use this to calibrate your tone and approach, not to repeat back to them):\n${portrait}\n`
     : '';
+
+  // Continuity — the "welcome back" block. Only populated when there's a
+  // prior session worth referencing (see computeContinuity). We slot it
+  // in right above the time-of-day context so the model treats it as
+  // high-priority framing.
+  const continuitySection = continuityBlock ? `\n${continuityBlock}\n` : '';
 
   const sharedRules = `
 RULES:
@@ -261,6 +276,7 @@ Only output [SYNAPSE_ACTIONS] when you have enough context. Don't rush it.`;
     // the old morning / evening / quick / fatigue / dump modes.
     dump: `You are Aiteall — an ADHD-aware thinking partner for ${firstName}. This is the universal chat: whatever's in their head, right now.
 ${portraitSection}
+${continuitySection}
 ${contextBlock}
 
 ${calendarContext ? `LIVE DEVICE DATA (pulled from ${firstName}'s phone right now):\n${calendarContext}\n` : ''}
@@ -328,6 +344,7 @@ ${sharedRules}
     // runs the 5-step weekly ritual and expands scope at month/year end.
     ritual: `You are Aiteall, running a ritual session with ${firstName}.
 ${portraitSection}
+${continuitySection}
 ${contextBlock}
 
 SCOPE DETECTION (read this first, silently — don't announce it):
@@ -389,6 +406,7 @@ ${sharedRules}`,
 
     project: `You are the Aiteall AI helping ${firstName} plan a new project.
 ${portraitSection}
+${continuitySection}
 ${contextBlock}
 
 STEP 1 — CLASSIFY the project (do this first, before asking anything else):
@@ -956,7 +974,15 @@ export default function ChatScreen({ navigation, route }: any) {
   const rv = useMemo(() => makeRv(C), [C]);
   const styles = useMemo(() => makeStyles(C), [C]);
 
-  const { profile, tasks, projects, goals, areas, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait, saveDayPlan, markCalendarSynced, setFocusTask, getChatSession, setChatSession, appendChatSessionMessage, clearChatSession } = useStore();
+  const { profile, tasks, projects, goals, areas, addTask, addProject, addGoal, updateTodayLog, setProjectTasks, setPortrait, saveDayPlan, markCalendarSynced, setFocusTask, getChatSession, setChatSession, appendChatSessionMessage, clearChatSession, setOffRecord } = useStore();
+
+  // Off-record status — reactive so the header chip updates when the
+  // toggle flips. We don't run a ticker; the user can pull to refresh by
+  // re-entering the screen. Good enough for a privacy indicator.
+  const offRecordUntilMs = profile.offRecordUntil
+    ? new Date(profile.offRecordUntil).getTime()
+    : 0;
+  const isOffRecord = offRecordUntilMs > Date.now();
 
   // One session key per (mode, window). Locked in at mount so we don't
   // accidentally swap mid-conversation if midnight ticks over.
@@ -979,9 +1005,32 @@ export default function ChatScreen({ navigation, route }: any) {
 
   const [calendarContext, setCalendarContext] = useState('');
 
+  // Continuity — computed once at mount. This is the "AI speaks first
+  // on gap return" half of the companionship layer: we peek at every
+  // other persisted session, find the latest message anywhere, and
+  // let the system prompt reference it on re-entry. Locked in at mount
+  // so that moment-of-open is what the model sees — not the moving
+  // target of the live session.
+  const firstNameForContinuity = (profile.name || '').split(' ')[0] || 'they';
+  const continuityBlock = useMemo(
+    () => {
+      const snap = computeContinuity(useStore.getState().chatSessions, sessionKey);
+      return renderContinuityBlock(snap, firstNameForContinuity);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionKey],
+  );
+
   const systemPrompt = useMemo(
-    () => getSystemPrompt(mode, contextBlock, profile.name, calendarContext, portraitToString(profile.portrait)),
-    [mode, contextBlock, profile.name, calendarContext, profile.portrait],
+    () => getSystemPrompt(
+      mode,
+      contextBlock,
+      profile.name,
+      calendarContext,
+      portraitToString(profile.portrait),
+      continuityBlock,
+    ),
+    [mode, contextBlock, profile.name, calendarContext, profile.portrait, continuityBlock],
   );
 
   // Fetch today's calendar + reminders + skeleton blocks for the universal
@@ -1753,7 +1802,48 @@ export default function ChatScreen({ navigation, route }: any) {
             <Text style={styles.headerTitle}>{meta.title}</Text>
             <Text style={styles.headerSub}>{meta.subtitle}</Text>
           </View>
-          <View style={{ width: 60 }} />
+          <TouchableOpacity
+            style={styles.offRecordBtn}
+            onPress={() => {
+              if (isOffRecord) {
+                // Turn it back on — "come back on record".
+                Alert.alert(
+                  'Back on record?',
+                  "I'll start learning from this session again. That means updating your Portrait, spotting projects, and logging what you did.",
+                  [
+                    { text: 'Keep off', style: 'cancel' },
+                    {
+                      text: 'Back on record',
+                      onPress: () => setOffRecord(0),
+                    },
+                  ],
+                );
+              } else {
+                Alert.alert(
+                  'Go off record?',
+                  "For 3 hours I won't update your Portrait, spot new projects, or log what you said. The words stay here, on your phone.",
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Go off record',
+                      onPress: () => setOffRecord(180),
+                    },
+                  ],
+                );
+              }
+            }}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            {isOffRecord ? (
+              <View style={styles.offRecordChip}>
+                <Ionicons name="eye-off-outline" size={14} color={C.textSecondary} />
+                <Text style={styles.offRecordChipText}>off record</Text>
+              </View>
+            ) : (
+              <Ionicons name="eye-outline" size={20} color={C.textTertiary} />
+            )}
+          </TouchableOpacity>
         </View>
 
         <FlatList
@@ -1953,6 +2043,34 @@ function makeStyles(C: any) {
     headerCenter: { alignItems: 'center' },
     headerTitle:  { fontSize: 15, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.2 },
     headerSub:    { fontSize: 12, color: C.textTertiary, marginTop: 2 },
+
+    // Off-record toggle — right-side header slot (60px wide to mirror
+    // the back button for visual balance). Either a subtle eye icon or
+    // a small chip when the user has paused background learning.
+    offRecordBtn: {
+      width: 60,
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+      paddingRight: 4,
+    },
+    offRecordChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: Radius.full,
+      backgroundColor: C.surfaceSecondary,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: C.border,
+    },
+    offRecordChipText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: C.textSecondary,
+      letterSpacing: 0.4,
+      textTransform: 'uppercase',
+    },
 
     messageList: { padding: Spacing.base, gap: 14, paddingBottom: Spacing.xl },
 
