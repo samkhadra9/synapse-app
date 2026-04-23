@@ -90,6 +90,9 @@ function roundUpToHalfHour(date: Date): number {
 // Top action buttons — Deep Work + time-aware Plan/Wind-down
 const CHARCOAL = '#18181B';
 
+// UI label for the Plan / Wind-down / Ritual button. Still time-aware — it's
+// cosmetic. Under the hood all of morning/evening route into the single
+// zero-config `dump` chat, and Sunday routes into `ritual`.
 const PLAN_LABELS: Record<string, { label: string; title: string }> = {
   morning: { label: 'MORNING', title: 'Plan my day'   },
   evening: { label: 'EVENING', title: 'Wind down'     },
@@ -107,7 +110,7 @@ function HomeActionsV2({ navigation }: { navigation: any }) {
   return (
     <HomeActions
       onDeepWork={() => navigation.navigate('DeepWork')}
-      onPlan={() => navigation.navigate('Chat', { mode: planMode === 'weekly' ? 'weekly' : planMode === 'evening' ? 'evening' : 'morning' })}
+      onPlan={() => navigation.navigate('Chat', { mode: planMode === 'weekly' ? 'ritual' : 'dump' })}
       mode={planMode}
       accent="#D4821A"
     />
@@ -1061,7 +1064,7 @@ function TodayTimelinePage({
       {overwhelmReason && (
         <TouchableOpacity
           style={tl.overwhelmCard}
-          onPress={() => navigation.navigate('Chat', { mode: 'fatigue' })}
+          onPress={() => navigation.navigate('Chat', { mode: 'dump', initialMessage: "I'm overwhelmed. I don't know where to start." })}
           activeOpacity={0.85}
         >
           <View style={tl.overwhelmLeft}>
@@ -1157,7 +1160,7 @@ function TodayTimelinePage({
       {!todayPlan && showPlanningPrompt && (
         <PlanningPromptCard
           visible={!todayPlan && showPlanningPrompt}
-          onPlanPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+          onPlanPress={() => navigation.navigate('Chat', { mode: 'dump' })}
           onDismiss={() => setShowPlanningPrompt(false)}
         />
       )}
@@ -1168,7 +1171,7 @@ function TodayTimelinePage({
         calEvents={calEvents}
         isWorking={workingTask !== null}
         onStart={() => primaryMIT && setWorkingTask(primaryMIT, false)}
-        onReschedule={() => navigation.navigate('Chat', { mode: 'morning' })}
+        onReschedule={() => navigation.navigate('Chat', { mode: 'dump' })}
       />
 
       {/* ── Next event countdown ─────────────────────────────────────────── */}
@@ -1181,7 +1184,7 @@ function TodayTimelinePage({
         return (
           <TouchableOpacity
             style={tl.fatigueCard}
-            onPress={() => navigation.navigate('Chat', { mode: 'fatigue' })}
+            onPress={() => navigation.navigate('Chat', { mode: 'dump', initialMessage: "My brain is full. I need you to pick one thing." })}
             activeOpacity={0.82}
           >
             <View style={tl.fatigueInner}>
@@ -2206,7 +2209,7 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
             <Text style={{ fontSize: 12, color: C.textSecondary, lineHeight: 16 }}>Go through tasks one by one — when should each happen?</Text>
           </View>
           <TouchableOpacity
-            onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+            onPress={() => navigation.navigate('Chat', { mode: 'dump' })}
             style={{ flex: 1, padding: 12, backgroundColor: C.accentLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.accentMid }}
             activeOpacity={0.82}
           >
@@ -2431,7 +2434,7 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
       {!hasTasks ? (
         <TouchableOpacity
           style={ds.emptyTasks}
-          onPress={() => navigation.navigate('Chat', { mode: 'morning' })}
+          onPress={() => navigation.navigate('Chat', { mode: 'dump' })}
           activeOpacity={0.82}
         >
           <Text style={ds.emptyTasksText}>No tasks planned yet →</Text>
@@ -2682,7 +2685,7 @@ function GoalsPanelPage({ navigation }: { navigation: any }) {
       {/* CTA */}
       <TouchableOpacity
         style={gp.cta}
-        onPress={() => navigation?.navigate('Chat', { mode: 'yearly' })}
+        onPress={() => navigation?.navigate('Chat', { mode: 'ritual' })}
         activeOpacity={0.82}
       >
         <Text style={gp.ctaText}>Set goals →</Text>

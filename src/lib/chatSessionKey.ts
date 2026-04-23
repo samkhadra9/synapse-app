@@ -1,26 +1,22 @@
 /**
  * Chat session keys — one conversation per (mode, time-window).
  *
- * Each chat mode has a natural cadence:
- *   morning / evening / dump / quick / fatigue → one per calendar day
- *   weekly   → one per ISO week (Mon-Sun)
- *   monthly  → one per calendar month
- *   yearly   → one per calendar year
- *   project  → one per project (keyed by projectId)
+ * Phase 2 collapsed the old 9-mode set down to three. The cadences:
+ *   dump    → one per calendar day (resume mid-day after interruption)
+ *   ritual  → one per ISO week (Mon–Sun) — the weekly reset
+ *   project → one per project (keyed by projectId; date fallback)
  *
  * Keys look like:
- *   "morning:2026-04-23"
- *   "weekly:2026-W17"
- *   "monthly:2026-04"
- *   "yearly:2026"
+ *   "dump:2026-04-23"
+ *   "ritual:2026-W17"
  *   "project:<uuid>"
  *
- * This lets Aiteall resume a conversation if the user gets interrupted mid-way
- * (e.g. phone call during the morning chat) and come back into the same thread
- * later that day. When the window rolls over, a new empty session begins.
+ * This lets Aiteall resume a conversation if the user gets interrupted
+ * mid-way (e.g. phone call during a morning dump) and come back later
+ * that day. When the window rolls over, a new empty session begins.
  */
 
-import type { ChatMode } from '../screens/ChatScreen';
+import type { ChatModeV2 } from '../navigation';
 import { format, getISOWeek, getISOWeekYear } from 'date-fns';
 
 /** ISO-week key: "YYYY-Www" (e.g. "2026-W17") */
@@ -31,29 +27,23 @@ function isoWeekKey(d: Date): string {
 }
 
 export function chatSessionKey(
-  mode: ChatMode,
+  mode: ChatModeV2,
   now: Date = new Date(),
   projectId?: string,
 ): string {
   switch (mode) {
-    case 'weekly':
-      return `weekly:${isoWeekKey(now)}`;
-    case 'monthly':
-      return `monthly:${format(now, 'yyyy-MM')}`;
-    case 'yearly':
-      return `yearly:${format(now, 'yyyy')}`;
+    case 'ritual':
+      return `ritual:${isoWeekKey(now)}`;
     case 'project':
       // Projects have their own durable identity — tie the session to the
-      // project id, not to a date. If no projectId is provided, fall back to
-      // a date-based key so we still persist something sensible.
-      return projectId ? `project:${projectId}` : `project:${format(now, 'yyyy-MM-dd')}`;
-    case 'morning':
-    case 'evening':
+      // project id, not to a date. If no projectId is provided, fall back
+      // to a date-based key so we still persist something sensible.
+      return projectId
+        ? `project:${projectId}`
+        : `project:${format(now, 'yyyy-MM-dd')}`;
     case 'dump':
-    case 'quick':
-    case 'fatigue':
     default:
-      return `${mode}:${format(now, 'yyyy-MM-dd')}`;
+      return `dump:${format(now, 'yyyy-MM-dd')}`;
   }
 }
 

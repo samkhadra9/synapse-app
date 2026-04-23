@@ -607,7 +607,7 @@ export default function AreasScreen({ navigation }: any) {
               {/* Skeleton CTA */}
               <TouchableOpacity
                 style={styles.skeletonCTA}
-                onPress={() => navigation?.navigate('Chat', { mode: 'morning' })}
+                onPress={() => navigation?.navigate('Chat', { mode: 'dump' })}
                 activeOpacity={0.82}
               >
                 <Ionicons name="calendar-outline" size={18} color={C.primary} />

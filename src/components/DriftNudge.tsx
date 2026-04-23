@@ -16,7 +16,7 @@
  *     calEvents={calEvents}
  *     isWorking={workingTaskVisible}
  *     onStart={openFocusMode}
- *     onReschedule={() => navigation.navigate('Chat', { mode: 'morning' })}
+ *     onReschedule={() => navigation.navigate('Chat', { mode: 'dump' })}
  *   />
  */
 

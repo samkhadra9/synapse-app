@@ -46,6 +46,21 @@ import DeepWorkScreen         from '../screens/DeepWorkScreen';
 
 // ── Param types ───────────────────────────────────────────────────────────────
 
+/**
+ * Chat modes collapsed to three (Phase 2):
+ *   'dump'    — the default. Capture / reflect / talk it out. Time of day
+ *               changes the system prompt's opener (morning: "what's
+ *               today about?", late: "anything you're carrying home?"),
+ *               but the mode is the same underlying conversation.
+ *   'ritual'  — the weekly/monthly/yearly strategic reset. Structured
+ *               5-step prompt. One session per ISO week / month / year.
+ *   'project' — deep dive on a single project. Scoped, referential.
+ *
+ * The old 'morning' | 'evening' | 'quick' | 'fatigue' folded into 'dump'.
+ * The old 'weekly' | 'monthly' | 'yearly' folded into 'ritual'.
+ */
+export type ChatModeV2 = 'dump' | 'ritual' | 'project';
+
 export type RootStackParams = {
   SkeletonBuilder:  undefined;
   CalendarExport:   undefined;
@@ -53,7 +68,7 @@ export type RootStackParams = {
   Main:             undefined;
   Projects:         undefined;
   Areas:            { editAreaId?: string } | undefined;
-  Chat:             { mode: 'dump' | 'morning' | 'project' | 'evening' | 'weekly' | 'monthly' | 'yearly' | 'quick' | 'fatigue' };
+  Chat:             { mode: ChatModeV2; initialMessage?: string; projectId?: string };
   DeepWork:         undefined;
   ProjectDetail:    { projectId: string };
   AreaDetail:       { areaId: string };
@@ -101,19 +116,17 @@ function CustomTabBar({ state, navigation }: any) {
 
         return (
           <React.Fragment key={name}>
-            {/* Solas centre button sits between Dashboard and More */}
+            {/* Aiteall centre button sits between Dashboard and More */}
             {i === 1 && (
               <TouchableOpacity
                 style={tabStyles.centerWrap}
                 onPress={() => {
-                  const h = new Date().getHours();
+                  // Zero-config: Sunday is the one day we bias toward the
+                  // ritual (weekly reset); every other tap just opens dump.
+                  // The system prompt inside 'dump' reads time-of-day and
+                  // adapts its opener, so we don't need 4 different modes.
                   const dow = new Date().getDay();
-                  // Time-aware routing: morning plan / evening wind-down / weekly / brain dump
-                  let mode: 'morning' | 'evening' | 'weekly' | 'dump';
-                  if (dow === 0) mode = 'weekly';
-                  else if (h >= 20) mode = 'dump';      // late night → brain dump / capture
-                  else if (h >= 17) mode = 'evening';   // 5–8pm → wind down
-                  else mode = 'morning';                 // daytime → plan
+                  const mode: ChatModeV2 = dow === 0 ? 'ritual' : 'dump';
                   navigation.navigate('Chat', { mode });
                 }}
                 activeOpacity={0.82}
@@ -268,21 +281,18 @@ function NotificationHandler() {
 
   useEffect(() => {
     const cleanup = addNotificationResponseListener((screen) => {
+      // All morning/evening/fatigue/quick notifications now land in the
+      // same 'dump' chat — the system prompt reads the clock and adjusts.
+      // Weekly review keeps its own 'ritual' mode.
       switch (screen) {
         case 'MorningPlanning':
-          navigation.navigate('Chat', { mode: 'morning' });
-          break;
         case 'EveningReview':
-          navigation.navigate('Chat', { mode: 'evening' });
-          break;
         case 'Fatigue':
-          navigation.navigate('Chat', { mode: 'fatigue' });
-          break;
         case 'QuickWin':
-          navigation.navigate('Chat', { mode: 'quick' });
+          navigation.navigate('Chat', { mode: 'dump' });
           break;
         case 'WeeklyReview':
-          navigation.navigate('Chat', { mode: 'weekly' });
+          navigation.navigate('Chat', { mode: 'ritual' });
           break;
         default:
           break;
