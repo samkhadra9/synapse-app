@@ -35,7 +35,7 @@ import {
 import LoginScreen              from '../screens/auth/LoginScreen';
 import SkeletonBuilderScreen    from '../screens/onboarding/SkeletonBuilderScreen';
 import CalendarExportScreen     from '../screens/onboarding/CalendarExportScreen';
-import DashboardScreen          from '../screens/DashboardScreen';
+import HomeAdaptive           from '../screens/HomeAdaptive';
 import PortraitScreen         from '../screens/PortraitScreen';
 import ChatScreen             from '../screens/ChatScreen';
 import ProjectsScreen         from '../screens/ProjectsScreen';
@@ -279,7 +279,7 @@ function MainTabs() {
       tabBar={props => <CustomTabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Dashboard" component={HomeAdaptive} />
       <Tab.Screen name="Portrait" component={PortraitScreen} />
       <Tab.Screen name="More" component={MoreScreen} />
     </Tab.Navigator>
