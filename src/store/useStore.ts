@@ -24,7 +24,33 @@ export const ALL_DOMAINS: DomainKey[] = [
 
 export type LifeDomain = DomainKey;
 
-export interface Area {
+/**
+ * How an entity came into the store.
+ *
+ *   'user_created' — the user explicitly added it (existing behavior)
+ *   'inferred'    — the background entity extractor picked it out of chat and
+ *                   is *proposing* it. Not yet shown as first-class until the
+ *                   emergence-moment UI asks the user to confirm.
+ *   'confirmed'   — user has seen an 'inferred' entity and said "yes, this is
+ *                   a real thing for me". Treated the same as 'user_created'
+ *                   for display but we keep the provenance for analytics.
+ *
+ * See docs/AITEALL_BRAINSTORM_BRIEF.md — this is the spine that lets us do
+ * zero-config onboarding: the app watches you talk, proposes structure at
+ * day 3-7, and you confirm (or correct) rather than set up upfront.
+ */
+export type EntityOrigin = 'inferred' | 'confirmed' | 'user_created';
+
+/** Fields every AI-sourced entity carries so we can reason about trust */
+export interface EntityProvenance {
+  origin: EntityOrigin;
+  /** 0..1 from the extractor — only meaningful when origin === 'inferred' */
+  confidence?: number;
+  /** ISO timestamp of the last user confirmation; unset if never confirmed */
+  lastConfirmedAt?: string;
+}
+
+export interface Area extends EntityProvenance {
   id: string;
   name: string;
   domain: DomainKey;
@@ -48,7 +74,7 @@ export interface ProjectTask {
   dueDate?: string;
 }
 
-export interface Project {
+export interface Project extends EntityProvenance {
   id: string;
   areaId?: string;
   domain: DomainKey;
@@ -63,7 +89,7 @@ export interface Project {
   calendarEventId?: string;
 }
 
-export interface Task {
+export interface Task extends EntityProvenance {
   id: string;
   projectId?: string;
   areaId?: string;
@@ -81,6 +107,8 @@ export interface Task {
   reminderId?: string;    // iOS Reminder ID — links task to its paired Reminder
   recurrence?: 'daily' | 'weekly' | 'weekdays' | 'monthly';
   recurrenceGroupId?: string;
+  /** Source chat message id — if this task was extracted from a chat mention */
+  sourceMessageId?: string;
 }
 
 export type Todo = Task;
@@ -97,7 +125,7 @@ export interface Habit {
 
 export type TimeHorizon = '1year' | '5year' | '10year';
 
-export interface LifeGoal {
+export interface LifeGoal extends EntityProvenance {
   id: string;
   domain: DomainKey;
   horizon: TimeHorizon;
@@ -183,18 +211,64 @@ export interface DayPlan {
   summary?: string;      // one-sentence overview
 }
 
+/**
+ * Structured portrait — the hero feature.
+ *
+ * The portrait is written in *second-person voice* ("You work best when…")
+ * and is editable section-by-section. Each section tracks its own lastUpdated
+ * and source so we can show "What changed this week" and so the user can tell
+ * AI-written text from their own edits at a glance.
+ *
+ * Sections are intentionally small and human. We don't try to capture
+ * everything — the meta section `whatIDontKnowYet` is where the AI admits
+ * its blind spots and invites the user to fill them in.
+ */
+export interface PortraitSection {
+  text: string;
+  /** ISO timestamp — when this section was last written */
+  lastUpdated?: string;
+  /** Was the last write from the user editing, or AI summarising? */
+  source: 'ai' | 'user';
+}
+
+export interface Portrait {
+  /** Rhythms, focus patterns, when-you're-at-your-best */
+  howYouWork: PortraitSection;
+  /** Active projects + the quiet commitments behind them */
+  whatYoureBuilding: PortraitSection;
+  /** Friction, sticky loops, the shapes of stuckness */
+  whatGetsInTheWay: PortraitSection;
+  /** The horizon — what the last year of choices suggests you're aiming at */
+  whereYoureGoing: PortraitSection;
+  /** AI's admitted blind spots; prompts the user to teach it */
+  whatIDontKnowYet: PortraitSection;
+  /** ISO — last time *any* section changed (for the "weekly diff" card) */
+  lastAnyUpdate?: string;
+}
+
+/**
+ * A lightweight session record — every time the app opens we stamp one of
+ * these. UIStateClassifier (Phase 4) reads the last N events to decide
+ * whether the user is in an 'open' / 'narrow' / 'held' state.
+ */
+export interface SessionEvent {
+  /** ISO timestamp */
+  at: string;
+  /** What surface they landed on — helps classify intent */
+  kind: 'open' | 'chat' | 'dump' | 'dashboard' | 'portrait' | 'deepwork';
+  /** Optional freeform tag, e.g. the chat mode */
+  note?: string;
+}
+
 export interface UserProfile {
   name: string;
   phone: string;
   morningTime: string;
   eveningTime: string;
   selectedDomains: DomainKey[];
-  onboardingCompleted: boolean;
   anthropicKey: string;    // Main AI (Claude) — chat + planning
   openAiKey: string;       // Optional — only needed for voice transcription (Whisper)
   backendUrl: string;
-  onboardingStep: 'welcome' | 'chat' | 'done';
-  conversationHistory: ChatMessage[];
   personality?: {
     bigFive?: Record<string, number>;
     adhdType?: string;
@@ -209,18 +283,39 @@ export interface UserProfile {
   };
   synapseCalendarId?:    string;
   selectedCalendarName?: string;
-  systemPhase: 1 | 2 | 3;
   weekTemplate: TimeBlock[];
   skeletonBuilt: boolean;
-  portrait: string;       // evolving AI-written summary of who this person is
+  /** Structured portrait — the "You" tab. See Portrait type above. */
+  portrait: Portrait;
   lastActiveDate?: string; // YYYY-MM-DD — used for lapse detection
+  /** When the user first opened the app — drives the day-3-to-7 emergence moment */
+  firstOpenDate?: string;  // YYYY-MM-DD
   // Weekly review nudge — fires a local notification on the chosen day + time,
   // deep-linking straight into Chat mode 'weekly'. Local-only for now; add
   // `weekly_review_day` + `weekly_review_time` columns in Supabase to enable
   // multi-device round-trip later.
   weeklyReviewDay?: number;    // 0 = Sunday ... 6 = Saturday (matches JS Date.getDay())
   weeklyReviewTime?: string;   // 'HH:MM' 24h
+  /** User said "off record" — pause entity extraction until next app open */
+  offRecordUntil?: string;     // ISO timestamp
 }
+
+/** Empty-state portrait — used for new accounts and after wipe */
+export function makeEmptyPortrait(): Portrait {
+  const empty: PortraitSection = { text: '', source: 'ai' };
+  return {
+    howYouWork:        { ...empty },
+    whatYoureBuilding: { ...empty },
+    whatGetsInTheWay:  { ...empty },
+    whereYoureGoing:   { ...empty },
+    whatIDontKnowYet:  {
+      text: "I don't know you yet. We've only just started talking. Give it a few days — I'll pay attention.",
+      source: 'ai',
+    },
+  };
+}
+
+export type PortraitSectionKey = keyof Omit<Portrait, 'lastAnyUpdate'>;
 
 // ── State Interface ───────────────────────────────────────────────────────────
 
@@ -232,21 +327,32 @@ interface SolasState {
   profile: UserProfile;
   updateProfile: (patch: Partial<UserProfile>) => void;
 
+  // NOTE: add* actions accept Omit<…, 'id' | 'origin'>-style inputs. When
+  // `origin` is not provided we default to 'user_created' — the right answer
+  // 99% of the time. The background entity extractor (Phase 2) passes
+  // `origin: 'inferred'` explicitly to tag proposals.
+
   areas: Area[];
-  addArea: (area: Omit<Area, 'id'>) => void;
+  addArea: (area: Omit<Area, 'id' | 'origin'> & { origin?: EntityOrigin; confidence?: number }) => string;
   updateArea: (id: string, patch: Partial<Area>) => void;
   deleteArea: (id: string) => void;
   archiveArea: (id: string) => void;
+  /** Promote an 'inferred' entity to 'confirmed' — used by the emergence UI */
+  confirmArea: (id: string) => void;
 
   projects: Project[];
-  addProject: (project: Omit<Project, 'id' | 'createdAt' | 'isDecomposed' | 'tasks' | 'milestones'>) => string;
+  addProject: (
+    project: Omit<Project, 'id' | 'createdAt' | 'isDecomposed' | 'tasks' | 'milestones' | 'origin'>
+      & { origin?: EntityOrigin; confidence?: number }
+  ) => string;
   updateProject: (id: string, patch: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   toggleProjectTask: (projectId: string, taskId: string) => void;
   setProjectTasks: (projectId: string, tasks: ProjectTask[]) => void;
+  confirmProject: (id: string) => void;
 
   tasks: Task[];
-  addTask: (task: Omit<Task, 'id'>) => void;
+  addTask: (task: Omit<Task, 'id' | 'origin'> & { origin?: EntityOrigin; confidence?: number }) => void;
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
   setMIT: (id: string, isMIT: boolean) => void;
@@ -256,9 +362,10 @@ interface SolasState {
   updateTask: (id: string, patch: Partial<Task>) => void;
   scheduleTaskToDate: (id: string, date: string) => void;
   setPriority: (id: string, priority: 'high' | 'medium' | 'low') => void;
+  confirmTask: (id: string) => void;
 
   todos: Task[];
-  addTodo: (todo: Omit<Task, 'id'>) => void;
+  addTodo: (todo: Omit<Task, 'id' | 'origin'> & { origin?: EntityOrigin; confidence?: number }) => void;
   toggleTodo: (id: string) => void;
   deleteTodo: (id: string) => void;
   setTopPriority: (id: string, isTop: boolean) => void;
@@ -270,16 +377,17 @@ interface SolasState {
   deleteHabit: (id: string) => void;
 
   goals: LifeGoal[];
-  addGoal: (goal: Omit<LifeGoal, 'id' | 'createdAt'>) => void;
+  addGoal: (
+    goal: Omit<LifeGoal, 'id' | 'createdAt' | 'origin'>
+      & { origin?: EntityOrigin; confidence?: number }
+  ) => void;
   updateGoal: (id: string, patch: Partial<LifeGoal>) => void;
   deleteGoal: (id: string) => void;
+  confirmGoal: (id: string) => void;
 
   dailyLogs: DailyLog[];
   todayLog: () => DailyLog;
   updateTodayLog: (patch: Partial<DailyLog>) => void;
-
-  addChatMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
-  clearConversation: () => void;
 
   /**
    * Chat sessions keyed by `${mode}:${windowKey}` — one conversation per
@@ -292,13 +400,31 @@ interface SolasState {
   appendChatSessionMessage: (key: string, msg: ChatMessage) => void;
   clearChatSession: (key: string) => void;
 
+  /**
+   * Lightweight session history — every app-open/surface-switch appends one
+   * record. UIStateClassifier (Phase 4) reads the last ~20 events to infer
+   * whether the user is exploring, narrowing, or in a held state. We keep
+   * this bounded at 200 events; older events are trimmed silently.
+   */
+  sessionLog: SessionEvent[];
+  logSession: (evt: Omit<SessionEvent, 'at'> & { at?: string }) => void;
+  recentSessions: (limit?: number) => SessionEvent[];
+
   deepWorkSessions: DeepWorkSession[];
   addDeepWorkSession: (s: Omit<DeepWorkSession, 'id'>) => void;
   updateDeepWorkSession: (id: string, patch: Partial<DeepWorkSession>) => void;
 
   setWeekTemplate: (blocks: TimeBlock[]) => void;
-  setPortrait: (portrait: string) => void;
+  /** Replace the entire structured portrait (e.g. after an AI refresh) */
+  setPortrait: (portrait: Portrait) => void;
+  /** Patch a single section — used by inline edit on the You screen */
+  updatePortraitSection: (
+    key: PortraitSectionKey,
+    patch: Partial<PortraitSection>,
+  ) => void;
   touchLastActive: () => void;
+  /** Mark "off record" window — extractor pauses until then */
+  setOffRecord: (minutes: number) => void;
 
   /** Today's AI-generated day plan (reactive calendar) */
   dayPlan?: DayPlan;
@@ -316,7 +442,6 @@ interface SolasState {
   appTheme: import('../theme/themes').ThemeName;
   setTheme: (theme: import('../theme/themes').ThemeName) => void;
 
-  resetOnboarding: () => void;
   wipeAllData: () => Promise<void>;
 }
 
@@ -328,18 +453,14 @@ const defaultProfile: UserProfile = {
   morningTime: '07:30',
   eveningTime: '21:00',
   selectedDomains: ['work', 'health', 'relationships', 'personal', 'learning'],
-  onboardingCompleted: false,
   anthropicKey: '',
   openAiKey: '',
   backendUrl: '',
-  onboardingStep: 'welcome',
-  conversationHistory: [],
   deepWorkBlockLength: 60,
   deepWorkBlocksPerWeek: 2,
-  systemPhase: 1,
   weekTemplate: [],
   skeletonBuilt: false,
-  portrait: '',
+  portrait: makeEmptyPortrait(),
 };
 
 const defaultHabits: Habit[] = [
@@ -394,9 +515,30 @@ export const useStore = create<SolasState>()(
       // ── Areas ─────────────────────────────────────────────────────────────────
       areas: [],
       addArea: (area) => {
-        const newArea = { ...area, id: uid() };
+        const origin: EntityOrigin = area.origin ?? 'user_created';
+        // Strip the optional provenance keys off the caller payload so we can
+        // re-merge them canonically — avoids TS's "duplicate property" rule
+        // when the callsite already passed them.
+        const { origin: _o, confidence: _c, ...rest } = area;
+        const newArea: Area = {
+          ...rest,
+          id: uid(),
+          origin,
+          confidence: area.confidence,
+          lastConfirmedAt: origin === 'user_created' ? new Date().toISOString() : undefined,
+        };
         set((s) => ({ areas: [...s.areas, newArea] }));
         syncIfAuthed(s => s.pushArea(newArea), get().session);
+        return newArea.id;
+      },
+      confirmArea: (id) => {
+        set((s) => ({
+          areas: s.areas.map(a => a.id === id
+            ? { ...a, origin: 'confirmed' as EntityOrigin, lastConfirmedAt: new Date().toISOString() }
+            : a),
+        }));
+        const updated = get().areas.find(a => a.id === id);
+        if (updated) syncIfAuthed(s => s.pushArea(updated), get().session);
       },
       updateArea: (id, patch) => {
         set((s) => ({ areas: s.areas.map(a => a.id === id ? { ...a, ...patch } : a) }));
@@ -416,6 +558,7 @@ export const useStore = create<SolasState>()(
       // ── Projects ──────────────────────────────────────────────────────────────
       projects: [],
       addProject: (project) => {
+        const origin: EntityOrigin = project.origin ?? 'user_created';
         const newProject: Project = {
           ...project,
           id: uid(),
@@ -423,10 +566,22 @@ export const useStore = create<SolasState>()(
           milestones: [],
           isDecomposed: false,
           createdAt: new Date().toISOString(),
+          origin,
+          confidence: project.confidence,
+          lastConfirmedAt: origin === 'user_created' ? new Date().toISOString() : undefined,
         };
         set((s) => ({ projects: [...s.projects, newProject] }));
         syncIfAuthed(s => s.pushProject(newProject), get().session);
         return newProject.id;
+      },
+      confirmProject: (id) => {
+        set((s) => ({
+          projects: s.projects.map(p => p.id === id
+            ? { ...p, origin: 'confirmed' as EntityOrigin, lastConfirmedAt: new Date().toISOString() }
+            : p),
+        }));
+        const updated = get().projects.find(p => p.id === id);
+        if (updated) syncIfAuthed(s => s.pushProject(updated), get().session);
       },
       updateProject: (id, patch) => {
         set((s) => ({ projects: s.projects.map(p => p.id === id ? { ...p, ...patch } : p) }));
@@ -463,7 +618,15 @@ export const useStore = create<SolasState>()(
           t => !t.completed && t.text.trim().toLowerCase() === task.text.trim().toLowerCase()
         );
         if (existing) return;
-        const newTask = { ...task, id: uid(), createdAt: new Date().toISOString() };
+        const origin: EntityOrigin = task.origin ?? 'user_created';
+        const newTask: Task = {
+          ...task,
+          id: uid(),
+          createdAt: new Date().toISOString(),
+          origin,
+          confidence: task.confidence,
+          lastConfirmedAt: origin === 'user_created' ? new Date().toISOString() : undefined,
+        };
         set((s) => ({ tasks: [...s.tasks, newTask] }));
         syncIfAuthed(s => s.pushTask(newTask), get().session);
         // If task has no paired reminder yet, create one in iOS Reminders (fire-and-forget)
@@ -609,6 +772,15 @@ export const useStore = create<SolasState>()(
         const updated = get().tasks.find(t => t.id === id);
         if (updated) syncIfAuthed(s => s.pushTask(updated), get().session);
       },
+      confirmTask: (id) => {
+        set((s) => ({
+          tasks: s.tasks.map(t => t.id === id
+            ? { ...t, origin: 'confirmed' as EntityOrigin, lastConfirmedAt: new Date().toISOString() }
+            : t),
+        }));
+        const updated = get().tasks.find(t => t.id === id);
+        if (updated) syncIfAuthed(s => s.pushTask(updated), get().session);
+      },
 
       // Legacy aliases
       get todos() { return get().tasks; },
@@ -653,7 +825,15 @@ export const useStore = create<SolasState>()(
       // ── Goals ─────────────────────────────────────────────────────────────────
       goals: [],
       addGoal: (goal) => {
-        const newGoal = { ...goal, id: uid(), createdAt: new Date().toISOString() };
+        const origin: EntityOrigin = goal.origin ?? 'user_created';
+        const newGoal: LifeGoal = {
+          ...goal,
+          id: uid(),
+          createdAt: new Date().toISOString(),
+          origin,
+          confidence: goal.confidence,
+          lastConfirmedAt: origin === 'user_created' ? new Date().toISOString() : undefined,
+        };
         set((s) => ({ goals: [...s.goals, newGoal] }));
         syncIfAuthed(s => s.pushGoal(newGoal), get().session);
       },
@@ -665,6 +845,15 @@ export const useStore = create<SolasState>()(
       deleteGoal: (id) => {
         set((s) => ({ goals: s.goals.filter(g => g.id !== id) }));
         syncIfAuthed(s => s.deleteGoal(id), get().session);
+      },
+      confirmGoal: (id) => {
+        set((s) => ({
+          goals: s.goals.map(g => g.id === id
+            ? { ...g, origin: 'confirmed' as EntityOrigin, lastConfirmedAt: new Date().toISOString() }
+            : g),
+        }));
+        const updated = get().goals.find(g => g.id === id);
+        if (updated) syncIfAuthed(s => s.pushGoal(updated), get().session);
       },
 
       // ── Daily Logs ────────────────────────────────────────────────────────────
@@ -693,20 +882,6 @@ export const useStore = create<SolasState>()(
         });
       },
 
-      // ── Conversation ──────────────────────────────────────────────────────────
-      addChatMessage: (msg) => set((s) => ({
-        profile: {
-          ...s.profile,
-          conversationHistory: [
-            ...s.profile.conversationHistory,
-            { ...msg, id: uid(), timestamp: new Date().toISOString() }
-          ]
-        }
-      })),
-      clearConversation: () => set((s) => ({
-        profile: { ...s.profile, conversationHistory: [] }
-      })),
-
       // ── Chat Sessions (per-mode, per-window) ─────────────────────────────
       chatSessions: {},
       getChatSession: (key) => get().chatSessions[key] ?? [],
@@ -723,6 +898,24 @@ export const useStore = create<SolasState>()(
         return { chatSessions: next };
       }),
 
+      // ── Session Log ──────────────────────────────────────────────────────
+      sessionLog: [],
+      logSession: (evt) => set((s) => {
+        const next: SessionEvent = {
+          at: evt.at ?? new Date().toISOString(),
+          kind: evt.kind,
+          note: evt.note,
+        };
+        // Keep a rolling 200-event buffer — plenty for classifier lookback
+        // without unbounded AsyncStorage growth.
+        const trimmed = [...s.sessionLog, next].slice(-200);
+        return { sessionLog: trimmed };
+      }),
+      recentSessions: (limit = 20) => {
+        const log = get().sessionLog;
+        return log.slice(-limit);
+      },
+
       // ── Deep Work Sessions ────────────────────────────────────────────────────
       deepWorkSessions: [],
       addDeepWorkSession: (session) => {
@@ -738,18 +931,51 @@ export const useStore = create<SolasState>()(
         if (updated) syncIfAuthed(s => s.pushDeepWorkSession(updated), get().session);
       },
 
-      // ── Week Template ─────────────────────────────────────────────────────────
+      // ── Portrait + lifecycle flags ───────────────────────────────────────
       setPortrait: (portrait) => {
-        const updated = { ...get().profile, portrait };
+        const withStamp: Portrait = {
+          ...portrait,
+          lastAnyUpdate: new Date().toISOString(),
+        };
+        const updated = { ...get().profile, portrait: withStamp };
+        set({ profile: updated });
+        syncIfAuthed(s => s.pushProfile(updated), get().session);
+      },
+
+      updatePortraitSection: (key, patch) => {
+        const now = new Date().toISOString();
+        const current = get().profile.portrait;
+        const merged: Portrait = {
+          ...current,
+          [key]: {
+            ...current[key],
+            ...patch,
+            lastUpdated: now,
+          },
+          lastAnyUpdate: now,
+        };
+        const updated = { ...get().profile, portrait: merged };
         set({ profile: updated });
         syncIfAuthed(s => s.pushProfile(updated), get().session);
       },
 
       touchLastActive: () => {
         const today   = new Date().toISOString().slice(0, 10);
-        const updated = { ...get().profile, lastActiveDate: today };
+        const patch: Partial<UserProfile> = { lastActiveDate: today };
+        // Stamp firstOpenDate the first time we see an active day — this is
+        // what the emergence-moment timer (Phase 5) will key off.
+        if (!get().profile.firstOpenDate) patch.firstOpenDate = today;
+        const updated = { ...get().profile, ...patch };
         set({ profile: updated });
         syncIfAuthed(s => s.pushProfile(updated), get().session);
+      },
+
+      setOffRecord: (minutes) => {
+        const until = new Date(Date.now() + minutes * 60_000).toISOString();
+        const updated = { ...get().profile, offRecordUntil: until };
+        set({ profile: updated });
+        // Intentionally NOT synced — "off record" is a privacy request and
+        // we don't want the server tracking it either.
       },
 
       setWeekTemplate: (blocks) => {
@@ -792,10 +1018,6 @@ export const useStore = create<SolasState>()(
       setTheme: (theme) => set({ appTheme: theme }),
 
       // ── Dev / Reset ───────────────────────────────────────────────────────────
-      resetOnboarding: () => set((s) => ({
-        profile: { ...s.profile, onboardingCompleted: false, onboardingStep: 'welcome', conversationHistory: [] }
-      })),
-
       wipeAllData: async () => {
         // Delete from Supabase first (best-effort — don't block if offline)
         try {
@@ -816,6 +1038,7 @@ export const useStore = create<SolasState>()(
           dailyLogs:         [],
           deepWorkSessions:  [],
           chatSessions:      {},
+          sessionLog:        [],
         } as any);
       },
     }),
@@ -824,14 +1047,24 @@ export const useStore = create<SolasState>()(
       storage: createJSONStorage(() => AsyncStorage),
       // Deep-merge profile so new fields (e.g. anthropicKey) always have their
       // default values for existing users whose stored state predates the field.
+      //
+      // Portrait went from `string` to `Portrait` object in Phase 1. We coerce
+      // any legacy string payload into the new shape so stale persisted state
+      // doesn't crash the app on first launch after the upgrade.
       merge: (persistedState: unknown, currentState: SolasState): SolasState => {
         const persisted = persistedState as Partial<SolasState>;
+        const storedProfile = (persisted.profile ?? {}) as any;
+        const portrait: Portrait =
+          storedProfile.portrait && typeof storedProfile.portrait === 'object'
+            ? { ...makeEmptyPortrait(), ...storedProfile.portrait }
+            : makeEmptyPortrait();
         return {
           ...currentState,
           ...persisted,
           profile: {
             ...currentState.profile,        // defaults first (includes anthropicKey: '')
-            ...(persisted.profile ?? {}),   // stored values on top
+            ...storedProfile,               // stored values on top
+            portrait,                       // coerced to structured shape
           },
         };
       },

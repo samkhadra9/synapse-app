@@ -46,28 +46,44 @@ function sanitiseDate(d?: string): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
 }
 
+/**
+ * Inferred entities (proposed by the background extractor but not yet
+ * confirmed) are LOCAL-ONLY until the user accepts them. We don't want
+ * the server filling up with every noun the extractor hallucinates out
+ * of a chat, so skip sync for origin === 'inferred'. Once confirmed,
+ * the entity's origin flips to 'confirmed' and the next pushX() call
+ * writes it up normally.
+ */
+function isLocalOnly(entity: { origin?: string }): boolean {
+  return entity.origin === 'inferred';
+}
+
 // ── Profile ───────────────────────────────────────────────────────────────────
 
 /** Push local profile to Supabase profiles table */
 export async function pushProfile(profile: UserProfile): Promise<void> {
   const uid = await getUserId();
+  // Portrait is a structured object locally — serialise to JSON for the
+  // existing text/jsonb column. Keep the legacy onboarding_* columns fed
+  // with safe defaults so older rows don't break (server schema change
+  // can come later).
   const { error } = await supabase.from('profiles').upsert({
     id:                        uid,
     name:                      profile.name,
     morning_time:              profile.morningTime,
     evening_time:              profile.eveningTime,
     selected_domains:          profile.selectedDomains,
-    onboarding_completed:      profile.onboardingCompleted,
-    onboarding_step:           profile.onboardingStep,
+    onboarding_completed:      true,        // legacy column — always true post-rebuild
+    onboarding_step:           'done',      // legacy column — hard-coded
     deep_work_block_length:    profile.deepWorkBlockLength,
     deep_work_blocks_per_week: profile.deepWorkBlocksPerWeek,
-    system_phase:              profile.systemPhase,
+    system_phase:              3,           // legacy column — peg to last phase
     routines:                  profile.routines ?? null,
     synapse_calendar_id:       profile.synapseCalendarId ?? null,
     selected_calendar_name:    profile.selectedCalendarName ?? null,
     week_template:             profile.weekTemplate ?? [],
     skeleton_built:            profile.skeletonBuilt,
-    portrait:                  profile.portrait ?? null,
+    portrait:                  profile.portrait ? JSON.stringify(profile.portrait) : null,
     last_active_date:          profile.lastActiveDate ?? null,
     updated_at:                new Date().toISOString(),
   });
@@ -85,22 +101,35 @@ export async function pullProfile(): Promise<Partial<UserProfile> | null> {
 
   if (error || !data) return null;
 
+  // Portrait may be stored as JSON string (post-rebuild) or as legacy plain
+  // text (pre-rebuild). We try to parse; if it fails, drop the legacy string
+  // and let the store's makeEmptyPortrait() take over.
+  let portrait: UserProfile['portrait'] | undefined;
+  if (data.portrait && typeof data.portrait === 'string') {
+    try {
+      const parsed = JSON.parse(data.portrait);
+      if (parsed && typeof parsed === 'object') portrait = parsed;
+    } catch {
+      // legacy string — ignore; merge() in useStore will fall back to empty
+      portrait = undefined;
+    }
+  } else if (data.portrait && typeof data.portrait === 'object') {
+    portrait = data.portrait;
+  }
+
   return {
     name:                   data.name           ?? '',
     morningTime:            data.morning_time   ?? '07:30',
     eveningTime:            data.evening_time   ?? '21:00',
     selectedDomains:        data.selected_domains ?? [],
-    onboardingCompleted:    data.onboarding_completed ?? false,
-    onboardingStep:         data.onboarding_step ?? 'welcome',
     deepWorkBlockLength:    data.deep_work_block_length ?? 60,
     deepWorkBlocksPerWeek:  data.deep_work_blocks_per_week ?? 2,
-    systemPhase:            data.system_phase   ?? 1,
     routines:               data.routines       ?? undefined,
     synapseCalendarId:      data.synapse_calendar_id    ?? undefined,
     selectedCalendarName:   data.selected_calendar_name ?? undefined,
     weekTemplate:           data.week_template  ?? [],
     skeletonBuilt:          data.skeleton_built ?? false,
-    portrait:               data.portrait       ?? '',
+    portrait:               portrait,
     lastActiveDate:         data.last_active_date ?? undefined,
   };
 }
@@ -108,6 +137,7 @@ export async function pullProfile(): Promise<Partial<UserProfile> | null> {
 // ── Areas ─────────────────────────────────────────────────────────────────────
 
 export async function pushArea(area: Area): Promise<void> {
+  if (isLocalOnly(area)) return;
   if (!isValidUUID(area.id)) { console.warn('[sync] skipping area with non-UUID id:', area.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('areas').upsert({
@@ -139,12 +169,16 @@ export async function pullAreas(): Promise<Area[]> {
     name:        r.name,
     description: r.description ?? '',
     isActive:    r.is_active ?? true,
+    // Anything that round-tripped through the server is treated as a real,
+    // user-owned record — no server column for origin yet.
+    origin:      'user_created' as const,
   }));
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 export async function pushProject(project: Project): Promise<void> {
+  if (isLocalOnly(project)) return;
   if (!isValidUUID(project.id)) { console.warn('[sync] skipping project with non-UUID id:', project.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('projects').upsert({
@@ -190,12 +224,14 @@ export async function pullProjects(): Promise<Project[]> {
     isDecomposed:    r.is_decomposed ?? false,
     createdAt:       r.created_at,
     calendarEventId: r.calendar_event_id ?? undefined,
+    origin:          'user_created' as const,
   }));
 }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
 export async function pushTask(task: Task): Promise<void> {
+  if (isLocalOnly(task)) return;
   if (!isValidUUID(task.id)) { console.warn('[sync] skipping task with non-UUID id:', task.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('tasks').upsert({
@@ -246,6 +282,7 @@ export async function pullTasks(): Promise<Task[]> {
     priority:          r.priority           ?? 'medium',
     reason:            r.reason             ?? undefined,
     createdAt:         r.created_at         ?? undefined,
+    origin:            'user_created' as const,
   }));
 }
 
@@ -293,6 +330,7 @@ export async function pullHabits(): Promise<Habit[]> {
 // ── Goals ─────────────────────────────────────────────────────────────────────
 
 export async function pushGoal(goal: LifeGoal): Promise<void> {
+  if (isLocalOnly(goal)) return;
   if (!isValidUUID(goal.id)) { console.warn('[sync] skipping goal with non-UUID id:', goal.id); return; }
   const uid = await getUserId();
   const { error } = await supabase.from('goals').upsert({
@@ -326,6 +364,7 @@ export async function pullGoals(): Promise<LifeGoal[]> {
     text:       r.text,
     milestones: r.milestones ?? [],
     createdAt:  r.created_at,
+    origin:     'user_created' as const,
   }));
 }
 

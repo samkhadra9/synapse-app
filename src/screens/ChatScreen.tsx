@@ -26,7 +26,7 @@ import { format, addDays } from 'date-fns';
 import { Colors, Spacing, Radius, useColors } from '../theme';
 import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile, Area, DayPlan, PlannedSlot } from '../store/useStore';
 import { buildTodayCalendarContext, buildSkeletonContext, writeDayPlanToCalendar, requestCalendarPermissions, findOrCreateSolasCalendar } from '../services/calendar';
-import { updatePortrait } from '../services/portrait';
+import { portraitToString } from '../services/portrait';
 import { fetchAnthropic } from '../lib/anthropic';
 import { supabase } from '../lib/supabase';
 import { chatSessionKey, CHAT_CONTEXT_CAP } from '../lib/chatSessionKey';
@@ -1031,7 +1031,7 @@ export default function ChatScreen({ navigation, route }: any) {
   const [calendarContext, setCalendarContext] = useState('');
 
   const systemPrompt = useMemo(
-    () => getSystemPrompt(mode, contextBlock, profile.name, calendarContext, profile.portrait ?? ''),
+    () => getSystemPrompt(mode, contextBlock, profile.name, calendarContext, portraitToString(profile.portrait)),
     [mode, contextBlock, profile.name, calendarContext, profile.portrait],
   );
 
@@ -1081,22 +1081,11 @@ export default function ChatScreen({ navigation, route }: any) {
   // Keep messagesRef in sync so the unmount effect can read latest messages
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  // On unmount: fire portrait update silently in background.
-  // Read the key fresh from the store at cleanup time — avoids stale closure
-  // if AsyncStorage hydration completed after this effect was first registered.
-  useEffect(() => {
-    return () => {
-      const msgs = messagesRef.current;
-      const liveKey = useStore.getState().profile.anthropicKey || undefined;
-      if (msgs.length >= 4 && liveKey) {
-        updatePortrait(msgs, useStore.getState().profile.portrait ?? '', liveKey, mode)
-          .then(newPortrait => {
-            if (newPortrait) useStore.getState().setPortrait(newPortrait);
-          })
-          .catch(() => {}); // always silent
-      }
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Portrait refresh on unmount is paused until Phase 3, when the new
+  // structured Portrait pipeline (section-by-section JSON refresh via
+  // Haiku) lands. The old free-text pipeline expected `portrait: string`
+  // and would be silently wrong against the new shape. Intentionally
+  // left as a placeholder so Phase 3 can re-enable it with the new logic.
 
   useEffect(() => {
     // Resume if there's already a conversation in this session window.

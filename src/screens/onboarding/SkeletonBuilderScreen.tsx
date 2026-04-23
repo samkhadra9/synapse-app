@@ -549,7 +549,7 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
                   <TouchableOpacity style={s.skipBtn} onPress={() => {
                     // Go to main app, skip calendar export
                     const { updateProfile } = useStore.getState();
-                    updateProfile({ onboardingCompleted: true, onboardingStep: 'done', skeletonBuilt: true });
+                    updateProfile({ skeletonBuilt: true });
                     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
                   }}>
                     <Text style={s.skipBtnText}>Skip for now</Text>

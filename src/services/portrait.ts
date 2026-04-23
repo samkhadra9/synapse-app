@@ -1,16 +1,15 @@
 /**
- * portrait.ts — Solas user portrait service
+ * portrait.ts — Aiteall user portrait service
  *
- * Maintains a short (~150 word) evolving portrait of the user that persists
- * across all chat sessions. After any meaningful conversation (≥4 exchanges),
- * one background call to Claude Haiku updates the portrait with anything new
- * learned. The portrait is then injected at the top of every future system
- * prompt so Solas always feels like it knows the person.
- *
- * Cost: ~0.001 cents per update on Claude Haiku — practically free.
+ * NOTE (v2 rebuild, Phase 3): The legacy free-text portrait pipeline below
+ * is scheduled to be replaced by a structured JSON Portrait with five
+ * named sections. For now we keep `updatePortrait` callable so ChatScreen
+ * can no-op on the unmount path without breaking. The serialiser at the
+ * bottom of this file (portraitToString) bridges the new structured
+ * Portrait into the string-shaped interfaces that still exist elsewhere.
  */
 
-import { ChatMessage } from '../store/useStore';
+import type { ChatMessage, Portrait, PortraitSection } from '../store/useStore';
 import { fetchAnthropic } from '../lib/anthropic';
 
 const PORTRAIT_UPDATE_PROMPT = `You maintain a concise, evolving portrait of a user to help their AI assistant know them better across sessions.
@@ -31,36 +30,46 @@ Based on this conversation, update the portrait. Rules:
 
 Output the updated portrait only, nothing else.`;
 
+/**
+ * Legacy free-text portrait updater.
+ *
+ * Phase 1: disabled — the old string portrait is gone, and the new
+ * structured refresh pipeline lives in Phase 3 (portraitV2.ts). We keep
+ * the function signature so existing callsites in ChatScreen can stay
+ * shaped the same until Phase 3 replaces them.
+ */
 export async function updatePortrait(
-  messages: ChatMessage[],
-  existingPortrait: string,
-  apiKey: string,
-  mode = 'general',
+  _messages: ChatMessage[],
+  _existingPortrait: string,
+  _apiKey: string,
+  _mode = 'general',
 ): Promise<string | null> {
-  if (messages.length < 4) return null; // not enough signal
+  // intentionally a no-op; Phase 3 will replace this call site with a
+  // structured JSON refresh that writes section-by-section.
+  return null;
+}
 
-  const conversationText = messages
-    .slice(-30) // cap at last 30 messages so we don't bloat the request
-    .map(m => `${m.role === 'user' ? 'User' : 'Aiteall'}: ${m.content}`)
-    .join('\n\n');
-
-  const prompt = PORTRAIT_UPDATE_PROMPT
-    .replace('{{EXISTING_PORTRAIT}}', existingPortrait || '(none yet — this is the first session)')
-    .replace('{{MODE}}', mode)
-    .replace('{{CONVERSATION}}', conversationText);
-
-  try {
-    const res = await fetchAnthropic({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 250,
-      messages: [{ role: 'user', content: prompt }],
-    }, apiKey || undefined);
-
-    if (!res.ok) return null;
-    const data = await res.json();
-    const updated = data.content?.[0]?.text?.trim();
-    return updated || null;
-  } catch {
-    return null; // always silent — never block the user for this
-  }
+/**
+ * Flatten the structured Portrait into a paragraph suitable for injection
+ * at the top of a system prompt. Second-person "you" framing. Empty
+ * sections are dropped. Returns '' when nothing has been written yet.
+ *
+ * Why this exists: the AI chat still wants a single compact string of
+ * "what we know about this person" to prime responses. The new Portrait
+ * type stores each section separately so the UI can diff and edit, but
+ * for the LLM we just fold them together.
+ */
+export function portraitToString(portrait: Portrait | undefined | null): string {
+  if (!portrait) return '';
+  const parts: Array<[string, PortraitSection]> = [
+    ['How you work',        portrait.howYouWork],
+    ['What you\'re building', portrait.whatYoureBuilding],
+    ['What gets in the way', portrait.whatGetsInTheWay],
+    ['Where you\'re going',  portrait.whereYoureGoing],
+    ['What I don\'t know yet', portrait.whatIDontKnowYet],
+  ];
+  const lines = parts
+    .filter(([, s]) => s && s.text && s.text.trim())
+    .map(([label, s]) => `${label}: ${s.text.trim()}`);
+  return lines.join('\n\n');
 }

@@ -124,7 +124,7 @@ export default function CalendarExportScreen({ navigation }: any) {
   const [error,   setError]   = useState('');
 
   function finishOnboarding() {
-    updateProfile({ onboardingCompleted: true, onboardingStep: 'done', skeletonBuilt: true });
+    updateProfile({ skeletonBuilt: true });
     // Schedule daily notifications now that morning/evening times are set.
     // Fire-and-forget — don't block navigation if permission is denied.
     import('../../services/notifications')
