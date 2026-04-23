@@ -23,7 +23,7 @@ import { useColors } from '../theme';
 import { useStore } from '../store/useStore';
 import { classifyUIState, UIState, UIStateDecision } from '../services/uiStateClassifier';
 import { getEmergenceReadiness, EmergenceCandidates } from '../services/emergence';
-import EmergenceSheet from '../components/EmergenceSheet';
+import EmergenceSheet    from '../components/EmergenceSheet';
 
 import DashboardScreen from './DashboardScreen';
 import HomeNarrow      from './HomeNarrow';

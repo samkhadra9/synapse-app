@@ -1092,6 +1092,20 @@ export default function ChatScreen({ navigation, route }: any) {
           ),
         )
         .catch(() => { /* silent — background work */ });
+
+      // 3) Completion extraction — "what I did" log
+      import('../services/completionExtractor')
+        .then(({ runCompletionExtraction }) =>
+          runCompletionExtraction(
+            msgs,
+            {
+              completions:   s.completions,
+              logCompletion: s.logCompletion,
+            },
+            userAnthropicKey,
+          ),
+        )
+        .catch(() => { /* silent — background work */ });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

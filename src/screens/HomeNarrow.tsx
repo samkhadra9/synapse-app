@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import { Spacing, Radius, useColors } from '../theme';
 import { useStore, Task } from '../store/useStore';
 import { RootStackParams } from '../navigation';
+import DayEndReflection from '../components/DayEndReflection';
 
 type Nav = NativeStackNavigationProp<RootStackParams>;
 
@@ -65,6 +66,9 @@ export default function HomeNarrow() {
           paddingTop: Spacing.lg,
         }}
       >
+        {/* Day-end reflection (evening only, if completions exist) */}
+        <DayEndReflection />
+
         {/* Eyebrow — why we simplified */}
         <View style={s.eyebrowRow}>
           <View style={s.eyebrowDot} />

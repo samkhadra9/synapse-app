@@ -260,6 +260,30 @@ export interface SessionEvent {
   note?: string;
 }
 
+/**
+ * A "what I did" entry — the passive completion log (Phase 6).
+ *
+ * Populated from two sources:
+ *   - 'task'       : a task toggled from incomplete → complete
+ *   - 'chat'       : the completion extractor found an "I did X" in chat
+ *   - 'deepwork'   : a deep-work session ended
+ *
+ * Used by DayEndReflection to show "here's what you did today" without
+ * the user having to journal. The list intentionally doesn't sync to
+ * Supabase yet — it's a local derivation for the UI. If we later want
+ * weekly reports we can aggregate from here.
+ */
+export interface CompletionEntry {
+  id: string;
+  /** ISO timestamp */
+  at: string;
+  source: 'task' | 'chat' | 'deepwork';
+  /** Short human-readable text — "emailed Sarah", "went for a run". */
+  text: string;
+  /** If source === 'task', the task id it came from. */
+  taskId?: string;
+}
+
 export interface UserProfile {
   name: string;
   phone: string;
@@ -409,6 +433,18 @@ interface SolasState {
   sessionLog: SessionEvent[];
   logSession: (evt: Omit<SessionEvent, 'at'> & { at?: string }) => void;
   recentSessions: (limit?: number) => SessionEvent[];
+
+  /**
+   * "What I did" passive log (Phase 6). Populated from three sources:
+   *   - toggleTask() when a task flips to completed
+   *   - completionExtractor() when chat mentions "I did / finished X"
+   *   - DeepWorkScreen when a session ends
+   * The DayEndReflection card reads this to show a retrospective.
+   * Bounded at 500 rows so we don't blow up AsyncStorage.
+   */
+  completions: CompletionEntry[];
+  logCompletion: (c: Omit<CompletionEntry, 'id' | 'at'> & { at?: string }) => void;
+  completionsOn: (ymd: string) => CompletionEntry[];
 
   deepWorkSessions: DeepWorkSession[];
   addDeepWorkSession: (s: Omit<DeepWorkSession, 'id'>) => void;
@@ -643,12 +679,19 @@ export const useStore = create<SolasState>()(
         }
       },
       toggleTask: (id) => {
+        // Grab the pre-toggle state so we only log when flipping → completed
+        const pre = get().tasks.find(t => t.id === id);
         set((s) => ({
           tasks: s.tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t)
         }));
         const updated = get().tasks.find(t => t.id === id);
         if (updated) {
           syncIfAuthed(s => s.pushTask(updated), get().session);
+          // Log completion to the passive "what I did" log — only on the
+          // incomplete → complete transition.
+          if (pre && !pre.completed && updated.completed) {
+            get().logCompletion({ source: 'task', text: updated.text, taskId: updated.id });
+          }
           // If completing the task and it has a paired iOS Reminder, mark it done too
           if (updated.completed && updated.reminderId) {
             import('../services/calendar')
@@ -916,6 +959,24 @@ export const useStore = create<SolasState>()(
         return log.slice(-limit);
       },
 
+      // ── Completion Log (Phase 6) ─────────────────────────────────────────
+      completions: [],
+      logCompletion: (c) => set((s) => {
+        const next: CompletionEntry = {
+          id:     uid(),
+          at:     c.at ?? new Date().toISOString(),
+          source: c.source,
+          text:   c.text,
+          taskId: c.taskId,
+        };
+        // 500 entries is roughly a year's worth for a heavy user.
+        const trimmed = [...s.completions, next].slice(-500);
+        return { completions: trimmed };
+      }),
+      completionsOn: (ymd) => {
+        return get().completions.filter(c => c.at.slice(0, 10) === ymd);
+      },
+
       // ── Deep Work Sessions ────────────────────────────────────────────────────
       deepWorkSessions: [],
       addDeepWorkSession: (session) => {
@@ -1039,6 +1100,7 @@ export const useStore = create<SolasState>()(
           deepWorkSessions:  [],
           chatSessions:      {},
           sessionLog:        [],
+          completions:       [],
         } as any);
       },
     }),

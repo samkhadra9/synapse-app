@@ -24,6 +24,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Spacing, Radius, useColors } from '../theme';
 import { useStore } from '../store/useStore';
 import { RootStackParams } from '../navigation';
+import DayEndReflection from '../components/DayEndReflection';
 
 type Nav = NativeStackNavigationProp<RootStackParams>;
 
@@ -66,6 +67,9 @@ export default function HomeHeld() {
           paddingTop: Spacing.lg,
         }}
       >
+        {/* Day-end reflection — shows in the evening when there are completions */}
+        <DayEndReflection />
+
         {/* Greeting */}
         <Text style={s.greeting}>{greeting(firstName)}</Text>
         {lastActiveLabel && (
