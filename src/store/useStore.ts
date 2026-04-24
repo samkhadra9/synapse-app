@@ -518,6 +518,15 @@ interface SolasState {
   uiState: 'open' | 'narrow' | 'held' | null;
   setUIState: (state: 'open' | 'narrow' | 'held' | null) => void;
 
+  /**
+   * CP4.1a — One-shot intent from a deep link (e.g. Quick Action "mark
+   * the one done"). The screen that can fulfil it (Dashboard, in that
+   * example) watches this and clears it after handling. Transient — not
+   * persisted.
+   */
+  pendingIntent: 'theOneDone' | null;
+  clearPendingIntent: () => void;
+
   wipeAllData: () => Promise<void>;
 }
 
@@ -1153,6 +1162,11 @@ export const useStore = create<SolasState>()(
       uiState: null,
       setUIState: (state) => set({ uiState: state }),
 
+      // CP4.1a — one-shot deep-link intent. Dashboard consumes 'theOneDone'
+      // and calls clearPendingIntent() after applying.
+      pendingIntent: null,
+      clearPendingIntent: () => set({ pendingIntent: null }),
+
       // ── Dev / Reset ───────────────────────────────────────────────────────────
       wipeAllData: async () => {
         // Delete from Supabase first (best-effort — don't block if offline)
@@ -1203,6 +1217,9 @@ export const useStore = create<SolasState>()(
             ...storedProfile,               // stored values on top
             portrait,                       // coerced to structured shape
           },
+          // CP4.1a — deep-link intents are always a fresh one-shot per
+          // process; never inherit a stale value from persisted state.
+          pendingIntent: null,
         };
       },
     }

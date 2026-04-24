@@ -14,6 +14,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { navigationRef, installDeepLinkListeners } from './linking';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -333,6 +334,37 @@ function NotificationHandler() {
   return null;
 }
 
+// ── Deep-link intent handler (CP4.1a) ─────────────────────────────────────────
+// Consumes one-shot intents set by the deep-link listener. Lives inside
+// the auth gate so we only fire these for signed-in users.
+//
+// Current intents:
+//   'theOneDone' — toggles the-one task complete, logs a completion, fires
+//                  a gentle haptic, clears the flag.
+
+function PendingIntentHandler() {
+  const intent          = useStore(s => s.pendingIntent);
+  const clearIntent     = useStore(s => s.clearPendingIntent);
+  const theOneForToday  = useStore(s => s.theOneForToday);
+  const toggleTask      = useStore(s => s.toggleTask);
+
+  useEffect(() => {
+    if (!intent) return;
+    if (intent === 'theOneDone') {
+      const task = theOneForToday();
+      if (task && !task.completed) {
+        // toggleTask internally calls logCompletion() for us
+        toggleTask(task.id);
+        // Haptic lives in services/haptics; dynamic-import to avoid a cycle
+        import('../services/haptics').then(h => h.done()).catch(() => {});
+      }
+      clearIntent();
+    }
+  }, [intent, theOneForToday, toggleTask, clearIntent]);
+
+  return null;
+}
+
 // ── Auth-gated app navigator ──────────────────────────────────────────────────
 
 /** Prevent syncRemindersToTasks running more than once per app session */
@@ -521,6 +553,7 @@ function AppNavigator() {
   return (
     <>
     <NotificationHandler />
+    <PendingIntentHandler />
     <Stack.Navigator
       id="RootStack"
       initialRouteName="Main"
@@ -635,8 +668,18 @@ function AppNavigator() {
 // ── Root Navigator ────────────────────────────────────────────────────────────
 
 export function RootNavigator() {
+  // CP4.1a — mount the deep-link URL listener once the navigator is live.
+  // installDeepLinkListeners() wires Linking.addEventListener('url', …) and
+  // consumes Linking.getInitialURL() for cold-start cases (widget tap,
+  // Siri, share sheet). navigationRef is populated by NavigationContainer
+  // below; the listener retries dispatches until it's ready.
+  useEffect(() => {
+    const cleanup = installDeepLinkListeners();
+    return cleanup;
+  }, []);
+
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <AppNavigator />
     </NavigationContainer>
   );

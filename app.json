@@ -2,6 +2,7 @@
   "expo": {
     "name": "Aiteall",
     "slug": "synapse-adhd",
+    "scheme": "aiteall",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -23,6 +24,12 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.synapseadhd.app",
       "buildNumber": "2",
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.synapseadhd.app"
+        ],
+        "com.apple.developer.usernotifications.time-sensitive": true
+      },
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "Aiteall sends you daily planning reminders and check-ins to help you stay on track.",
         "NSCalendarsUsageDescription": "Aiteall adds your time blocks to your calendar so your day is always visible.",
@@ -30,6 +37,26 @@
         "NSMicrophoneUsageDescription": "Aiteall uses your microphone so you can voice-record your brain dumps and planning sessions.",
         "UISpeechRecognitionUsageDescription": "Aiteall transcribes your voice notes to help you capture ideas hands-free.",
         "NSRemindersUsageDescription": "Aiteall reads your due-today reminders to include them in your morning planning context.",
+        "NSUserActivityTypes": [
+          "TellAiteallIntent"
+        ],
+        "UIApplicationShortcutItems": [
+          {
+            "UIApplicationShortcutItemType": "dump",
+            "UIApplicationShortcutItemTitle": "Dump something quick",
+            "UIApplicationShortcutItemIconType": "UIApplicationShortcutIconTypeCompose"
+          },
+          {
+            "UIApplicationShortcutItemType": "the-one-done",
+            "UIApplicationShortcutItemTitle": "Mark the one done",
+            "UIApplicationShortcutItemIconType": "UIApplicationShortcutIconTypeAccept"
+          },
+          {
+            "UIApplicationShortcutItemType": "stuck",
+            "UIApplicationShortcutItemTitle": "I'm stuck",
+            "UIApplicationShortcutItemIconType": "UIApplicationShortcutIconTypeMessage"
+          }
+        ],
         "UIBackgroundModes": [
           "fetch",
           "remote-notification"
@@ -54,7 +81,14 @@
     },
     "plugins": [
       "expo-notifications",
-      "expo-calendar"
+      "expo-calendar",
+      [
+        "expo-quick-actions",
+        {
+          "androidIcons": {}
+        }
+      ],
+      "@bacons/apple-targets"
     ],
     "extra": {
       "eas": {

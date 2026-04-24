@@ -1,0 +1,7 @@
+{
+  "name": "aiteall-native",
+  "version": "1.0.0",
+  "description": "Local Expo module — AppIntents (Siri), Live Activity control, App-Group bridge.",
+  "main": "index.ts",
+  "private": true
+}

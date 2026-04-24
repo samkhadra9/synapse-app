@@ -496,3 +496,114 @@ src/screens shows only informational / error-reporting uses remain
 off-record toggle — educative, not destructive-confirm). All destructive
 confirms either removed or collapsed to single-tier-with-undo.
 
+### Checkpoint 4 — Widget + Siri + Share Sheet + Quick Actions + Live Activity
+
+First native spike. Punches out of pure-JS into Swift/SwiftUI/ActivityKit/
+AppIntents. All Swift source written in sandbox against canonical Apple
+patterns; compile-verify happens on Sam's Mac after `expo prebuild`.
+See WIDGET_SETUP.md for the Mac-side command sequence.
+
+**CP4.1a — Deep-link scheme + navigation linking.** Added
+`scheme: "aiteall"` to app.json. New `src/navigation/linking.ts` houses
+the URL parser + dispatcher; an inline parser handles `aiteall://chat/
+dump?seed=...`, `aiteall://the-one/done`, `aiteall://deep-work`, and
+`aiteall://projects/<id>`. Bypasses react-navigation's built-in
+`LinkingOptions` config because our Chat screen lives in a modal stack
+with param aliasing (`?seed → initialMessage`) that the built-in parser
+makes awkward. `installDeepLinkListeners()` wires
+`Linking.getInitialURL()` for cold-start consumption + `addEventListener`
+for warm URLs. A `navigationRef` is threaded through
+`NavigationContainer` so deep links can dispatch navigate actions without
+a hook context. Small retry loop if nav container isn't mounted yet
+(cold-start race). `PendingIntentHandler` mounted in
+`AppNavigator` consumes the one-shot `theOneDone` intent from store.
+
+**CP4.1b — App Group + shared-state bridge.** Added
+`group.com.synapseadhd.app` App Group entitlement to `ios.entitlements`
+in app.json. Created `src/services/sharedState.ts` that writes a
+snapshot of `{ theOne, fifteen, lastSyncedAt }` to the App Group's
+shared UserDefaults via `react-native-shared-group-preferences`.
+`installSharedStateSync()` subscribes to the zustand store and re-syncs
+on any tasks mutation. Writes call
+`AiteallNative.reloadWidget()` so WidgetKit picks up the change
+immediately rather than waiting for the 30-min timeline cadence.
+
+**CP4.1c — Widget target.** `targets/widget/AiteallWidget.swift` — a
+SwiftUI `TimelineProvider` reading from the App Group UserDefaults
+suite, with small + medium layouts. Small shows the-one in serif on a
+warm cream gradient. Medium adds two tappable pills (Dump, Done) whose
+`Link` destinations are the same deep-link URLs. `widgetURL` on the
+small widget routes taps into `aiteall://chat/dump`. Registered via
+`@bacons/apple-targets` config plugin — `expo-target.config.js`
+declares `type: 'widget'`, bundle ID, App Group membership,
+deployment target 16.4. `@main` bundle declaration includes the
+FifteenLiveActivity widget so they ship in one extension target.
+
+**CP4.1d — Quick Actions.** `UIApplicationShortcutItems` declared
+statically in app.json's `ios.infoPlist` (three items: Dump, Mark the
+one done, I'm stuck). `expo-quick-actions` config plugin added to
+app.json's plugins array. `src/services/quickActions.ts` registers
+dynamic items (same list, with icons) and listens for taps,
+cold-start-consuming the initial item if the app was launched by a
+long-press shortcut. Each action maps to a deep-link URL and flows
+through `applyDeepLinkAction` so widget/quick-action/share/Siri use
+one dispatcher.
+
+**CP4.2a — Share Extension.** `targets/share/ShareViewController.swift`
+extends `SLComposeServiceViewController`. Reads URL or plain-text
+attachments from the share sheet, combines with any user-typed note,
+stores in App Group as `pendingShareSeed`, then opens the main app
+via a scheme URL by walking the responder chain. `@bacons/apple-targets`
+config declares `type: 'share'` with extension activation rules for
+text/URL/web page. Linking.ts's chat-route fallback reads
+`pendingShareSeed` from App Group if no `?seed=` on the URL (iOS can
+truncate long URLs in extensions).
+
+**CP4.2b — Siri via AppIntents.** `modules/aiteall-native/ios/
+TellAiteallIntent.swift` implements `AppIntent` (iOS 16+) with a
+free-form `message` parameter. `parameterSummary` phrase "Tell
+Aiteall <message>". `perform()` returns `.result(opensIntent:
+OpenURLIntent(url))` where the URL is
+`aiteall://chat/dump?seed=<message>`. `AiteallAppShortcuts`
+conforms to `AppShortcutsProvider` so iOS auto-discovers and
+donates the phrase. Lives in a local Expo module (`modules/
+aiteall-native/`) so the Swift file links into the main app
+target, not an extension — AppIntents don't need an extension
+when the intent's whole job is to open the app.
+
+**CP4.3 — Live Activity.** `targets/widget/LiveActivity.swift`
+declares `FifteenAttributes: ActivityAttributes` + a `FifteenLiveActivity`
+widget with `ActivityConfiguration`. Lock-screen view shows a soft
+progress ring + the-one label + monospaced timerInterval countdown.
+Dynamic Island compact/expanded/minimal presentations all wired.
+`modules/aiteall-native/ios/FifteenAttributes.swift` duplicates the
+struct (byte-identical comment-tagged) so it's available in the main
+app module too — ActivityKit routes activities to widgets by
+attribute type name, so a shared definition isn't strictly needed.
+`AiteallNativeModule.swift` exposes `startFifteen / updateFifteen /
+endFifteen / reloadWidget` to JS via ExpoModulesCore. `fifteen.ts`
+calls `startFifteen(label, durationSeconds)` on session start and
+`endFifteen()` on completion or user-tap-to-stop. Also writes the
+session window to the App Group so the widget can render a
+countdown on home screen even when no Live Activity is pinned.
+
+**CP4 Mac-side action list.** Build artifacts require a Mac. See
+WIDGET_SETUP.md for:
+  - `npm install` (new deps: @bacons/apple-targets, expo-quick-actions,
+    react-native-shared-group-preferences)
+  - `npx expo prebuild --clean`
+  - `cd ios && pod install`
+  - Open Xcode workspace, set signing team on all 3 targets
+  - Verify App Group capability on each target
+  - Run on physical iPhone (widgets/Live Activities don't work in sim)
+
+**CP4 deferred / future:**
+  - Android parity for widget + quick actions (Glance + App Shortcuts) —
+    Android audience secondary; revisit post-v3 launch.
+  - iPad widget layouts — currently `supportsTablet: false` anyway.
+  - Rich Share Extension UI (preview of what will be dumped) — current
+    is zero-UI pass-through for <1s capture; can layer preview later.
+  - Live Activity push updates via APNs so the countdown stays fresh
+    when the app is fully backgrounded for >8hrs — not needed for 15min
+    sessions.
+

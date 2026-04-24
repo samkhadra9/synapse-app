@@ -7,6 +7,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { RootNavigator } from './src/navigation';
 import FifteenBanner from './src/components/FifteenBanner';
 import UndoSnackbar from './src/components/UndoSnackbar';
+import { installSharedStateSync } from './src/services/sharedState';
+import { installQuickActions } from './src/services/quickActions';
 // NotificationHandler is wired inside RootNavigator (needs NavigationContainer context)
 
 /**
@@ -30,6 +32,22 @@ export default function App() {
     // Hide on the first render tick. The native layer keeps the splash
     // drawn until we release it; release it now that React is painting.
     SplashScreen.hideAsync().catch(() => {});
+  }, []);
+
+  // CP4.1b — mirror theOne to the App Group shared container so the
+  // home-screen widget can read it. First write happens immediately;
+  // subsequent writes fire whenever tasks change.
+  useEffect(() => {
+    const unsub = installSharedStateSync();
+    return unsub;
+  }, []);
+
+  // CP4.1d — register long-press app-icon quick actions and route any
+  // taps (including the one that cold-launched the app) into the
+  // matching deep link.
+  useEffect(() => {
+    const cleanup = installQuickActions();
+    return cleanup;
   }, []);
 
   return (

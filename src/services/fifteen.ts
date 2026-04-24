@@ -23,6 +23,8 @@
 
 import { create } from 'zustand';
 import { soft, gentle, done as hapticDone } from './haptics';
+import { AiteallNative } from '../../modules/aiteall-native';
+import { syncFifteen } from './sharedState';
 
 const DEFAULT_DURATION_MIN = 15;
 /** When to buzz during a session, measured from start. */
@@ -91,6 +93,18 @@ export const useFifteen = create<FifteenState>((set, get) => ({
     // Opening tick — confirms the tap.
     soft();
 
+    // CP4.3 — pin a Live Activity to the lock screen + dynamic island for
+    // the duration of the session. Best-effort: silently no-ops on iOS
+    // <16.1, on Android, and in Expo Go. Also mirror the window to the
+    // App Group so the widget can render a live countdown.
+    const label = taskText || '15 minutes';
+    void AiteallNative.startFifteen(label, durationMinutes * 60).catch(() => {});
+    void syncFifteen({
+      startedAt: new Date(now).toISOString(),
+      endsAt: new Date(endsAt).toISOString(),
+    });
+    AiteallNative.reloadWidget();
+
     // One-second tick so any <FifteenBanner /> countdown stays accurate.
     tickInterval = setInterval(() => {
       const { endsAt: e, active: a } = get();
@@ -99,6 +113,10 @@ export const useFifteen = create<FifteenState>((set, get) => ({
         // Final tick handled by the scheduled haptic at t+15; just flip state.
         clearAllTimers();
         set(s => ({ active: false, tick: s.tick + 1 }));
+        // CP4.3 — dismiss the Live Activity + clear the widget countdown.
+        void AiteallNative.endFifteen().catch(() => {});
+        void syncFifteen(null);
+        AiteallNative.reloadWidget();
         return;
       }
       set(s => ({ tick: s.tick + 1 }));
@@ -123,6 +141,10 @@ export const useFifteen = create<FifteenState>((set, get) => ({
       startedAt: 0,
       endsAt: 0,
     });
+    // CP4.3 — dismiss the Live Activity + clear the widget countdown.
+    void AiteallNative.endFifteen().catch(() => {});
+    void syncFifteen(null);
+    AiteallNative.reloadWidget();
   },
 
   remaining: () => {
