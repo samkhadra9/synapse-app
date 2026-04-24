@@ -268,9 +268,9 @@ export async function scheduleMorningBrief(
     fireDate.setTime(now.getTime() + 30000);
   }
 
-  const title = mitText ? '☀️ Morning, time to focus' : '☀️ Good morning';
+  const title = mitText ? '☀️ Morning' : '☀️ Good morning';
   const body = mitText
-    ? `Your MIT: ${mitText}. ${taskCount ?? 0} tasks + ${calendarEventCount ?? 0} events today.`
+    ? `The one thing: ${mitText}. ${taskCount ?? 0} tasks + ${calendarEventCount ?? 0} events today.`
     : `${taskCount ?? 0} tasks waiting. Tap to plan your day.`;
 
   await Notifications.scheduleNotificationAsync({

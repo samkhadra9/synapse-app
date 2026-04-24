@@ -109,7 +109,7 @@ function getStaticContextualMessage(
     if (nextEvent) {
       return `You've got ${nextEvent.label} until "${nextEvent.title}". Enough time to move "${primaryMIT.text.slice(0, 40)}" forward. Ready when you are.`;
     } else {
-      return `Your MIT is "${primaryMIT.text.slice(0, 40)}${primaryMIT.text.length > 40 ? '…' : ''}". Let's make a dent.`;
+      return `The one thing: "${primaryMIT.text.slice(0, 40)}${primaryMIT.text.length > 40 ? '…' : ''}". Ready when you are.`;
     }
   }
 
@@ -147,21 +147,22 @@ function buildProactivePrompt(
 Context:
 - Time: ${timeStr} (${dayPhase})
 - User: ${firstName ?? 'them'}
-- MIT (most important task): ${primaryMIT ? `"${primaryMIT.text}"${primaryMIT.estimatedMinutes ? ` (~${primaryMIT.estimatedMinutes}m)` : ''}` : 'none set'}
+- The one (today's single focal task): ${primaryMIT ? `"${primaryMIT.text}"${primaryMIT.estimatedMinutes ? ` (~${primaryMIT.estimatedMinutes}m)` : ''}` : 'not picked'}
 - Next event: ${nextEvent ? `"${nextEvent.title}" in ${nextEvent.label}` : 'none'}
 - Tasks today: ${totalToday} remaining, ${doneTasks} done
 - 1-year goal: ${topGoal ? `"${topGoal.text}"` : 'not set'}
 
 Rules:
 1. Be specific about time if you have it: "You're clear until X" or "You've got Yh before Z"
-2. Reference the actual MIT name if available
-3. End with a warm, forward-leaning prompt: "Ready when you are." / "Where do you want to start?" / "Let's make a dent."
+2. Reference the actual task name if available — call it "the one thing" or just the task name, never "MIT"
+3. End with a warm, forward-leaning prompt: "Ready when you are." / "Where do you want to start?"
 4. 1-2 sentences MAX. Tight and warm. No lists. No questions except the final invite.
 5. Do NOT start with "Hi" or "Hello" — just say the thing.
+6. Banned: "Great job", "Nice work", "Amazing", "Awesome", "productive", "achieve", "overdue", "deadline", "behind", "missed". No exclamation-mark praise. Past-dated tasks are "from earlier", not "overdue".
 
 Examples of good messages:
 - "You're clear until 10am — 1h 20min. Enough to get the draft intro done. Ready when you are."
-- "8:15am and your MIT hasn't started yet. Open the doc and just read your last sentence."
+- "8:15am and the one thing hasn't started yet. Open the doc and just read your last sentence."
 - "You've done 2 tasks already. Momentum's good. What's next?"`.trim();
 }
 
@@ -186,7 +187,7 @@ function buildAmbientSystemPrompt(profile: UserProfile, tasks: Task[], goals: Li
 Current context:
 - Time: ${timeStr} (${dayPhase})
 - User: ${firstName ?? 'them'}
-- MITs today: ${mits.length > 0 ? mits.map(t => `"${t.text}"${t.estimatedMinutes ? ` (~${t.estimatedMinutes}m)` : ''}`).join(', ') : 'none set'}
+- Today's focal tasks (the one + any legacy MITs): ${mits.length > 0 ? mits.map(t => `"${t.text}"${t.estimatedMinutes ? ` (~${t.estimatedMinutes}m)` : ''}`).join(', ') : 'not picked'}
 - Other tasks today: ${otherTasks.length > 0 ? otherTasks.map(t => `"${t.text}"`).slice(0, 3).join(', ') : 'none'}
 - Done today: ${doneTasks.length} task${doneTasks.length !== 1 ? 's' : ''}
 - Inbox (unscheduled): ${inboxTasks.length} item${inboxTasks.length !== 1 ? 's' : ''}
@@ -195,11 +196,12 @@ ${topGoal ? `- 1-year goal: "${topGoal.text}"` : ''}
 Your rules:
 1. Reply in 1-3 sentences MAX. Shorter is better.
 2. Give ONE specific, actionable next step. Not options. Not lists.
-3. Use the user's actual task names when referencing them.
+3. Use the user's actual task names when referencing them. Call the focal task "the one thing" — never "MIT".
 4. Be warm, direct, slightly energising. No corporate tone.
 5. If stuck or overwhelmed: name the feeling, then give the one door to walk through.
 6. Never ask clarifying questions. Just respond.
-7. End with the physical first action if possible.`.trim();
+7. End with the physical first action if possible.
+8. Banned words: "Great job", "Nice work", "Amazing", "Awesome", "productive", "achieve", "overdue", "deadline", "behind", "missed". No exclamation-mark praise. Past-dated tasks are "from earlier", not "overdue".`.trim();
 }
 
 export default function AmbientChatStrip({
@@ -343,7 +345,7 @@ export default function AmbientChatStrip({
             ) : (
               <Text style={s.proactiveText}>
                 {proactiveMsg ?? (hasMIT
-                  ? `Your MIT is "${primaryMIT!.text.slice(0, 40)}${primaryMIT!.text.length > 40 ? '…' : ''}". Ready to start?`
+                  ? `The one: "${primaryMIT!.text.slice(0, 40)}${primaryMIT!.text.length > 40 ? '…' : ''}". Ready when you are.`
                   : "What would make today a win?"
                 )}
               </Text>

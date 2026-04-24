@@ -511,7 +511,7 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               </View>
               <Text style={styles.calModalSub}>
-                Aiteall will add your project deadlines to this calendar. Pick any calendar on your device — Apple, Google, iCloud, all work.
+                Aiteall will add your project dates to this calendar. Pick any calendar on your device — Apple, Google, iCloud, all work.
               </Text>
               <FlatList
                 data={calendarList}

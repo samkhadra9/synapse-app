@@ -162,7 +162,7 @@ export async function decomposeProject(
   const userMessage = [
     `Project: ${title}`,
     description ? `Description: ${description}` : '',
-    deadline ? `Deadline: ${deadline}` : 'No deadline set',
+    deadline ? `Target date: ${deadline}` : 'No target date set',
     extraContext?.trim() ? `\nAdditional context from the user:\n${extraContext.trim()}` : '',
   ].filter(Boolean).join('\n');
 

@@ -25,6 +25,7 @@ import { Spacing, Radius, useColors } from '../theme';
 import { useStore, Task } from '../store/useStore';
 import { RootStackParams } from '../navigation';
 import DayEndReflection from '../components/DayEndReflection';
+import { useFifteen } from '../services/fifteen';
 
 type Nav = NativeStackNavigationProp<RootStackParams>;
 
@@ -34,7 +35,9 @@ function pickOneThing(tasks: Task[]): Task | null {
   const candidates = tasks.filter(
     t => !t.completed && !t.isInbox && (t.isToday || t.date === today),
   );
-  // Priority: MIT → high → everything else
+  // Priority: the-one → legacy MIT (migration) → high → everything else
+  const theOne = candidates.find(t => t.isTheOne);
+  if (theOne) return theOne;
   const mit = candidates.find(t => t.isMIT);
   if (mit) return mit;
   const high = candidates.find(t => t.priority === 'high');
@@ -84,13 +87,26 @@ export default function HomeNarrow() {
               <Text style={s.focusReason}>{oneThing.reason}</Text>
             )}
             <View style={s.focusActions}>
+              {/* Primary: start a 15-min session. Zero decisions required. */}
               <TouchableOpacity
                 style={s.primaryBtn}
-                onPress={() => toggleTask(oneThing.id)}
+                onPress={() => {
+                  useFifteen.getState().start({
+                    taskId: oneThing.id,
+                    taskText: oneThing.text,
+                  });
+                }}
                 activeOpacity={0.82}
               >
-                <Ionicons name="checkmark" size={16} color={C.textInverse} />
-                <Text style={s.primaryBtnText}>Done</Text>
+                <Ionicons name="play" size={14} color={C.textInverse} />
+                <Text style={s.primaryBtnText}>Start 15 min</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.secondaryBtn}
+                onPress={() => toggleTask(oneThing.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={s.secondaryBtnText}>Done</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.secondaryBtn}

@@ -108,12 +108,14 @@ function buildContextBlock(store: {
       ).join('\n')
     : '  • none yet';
 
+  // CP1.8: task rendering uses "the one" vocabulary. `isTheOne` is the
+  // new single-task-of-focus flag; `isMIT` remains for legacy records.
   const todayList = todayTasks.length
-    ? todayTasks.map(t => `  • [${t.completed ? '✓' : ' '}] "${t.text}"${t.isMIT ? ' ★' : ''}`).join('\n')
+    ? todayTasks.map(t => `  • [${t.completed ? '✓' : ' '}] "${t.text}"${t.isTheOne ? ' ◉ (the one)' : t.isMIT ? ' ★' : ''}`).join('\n')
     : '  • nothing planned yet';
 
   const overdueList = overdue.length
-    ? overdue.slice(0, 8).map(t => `  • "${t.text}" (was due ${t.date})`).join('\n')
+    ? overdue.slice(0, 8).map(t => `  • "${t.text}" (from ${t.date})`).join('\n')
     : '  • none — clean slate';
 
   const inboxList = inboxTasks.length
@@ -136,7 +138,7 @@ ${projectList}
 TODAY'S TASKS:
 ${todayList}
 
-OVERDUE (${overdue.length} tasks — surface the important ones):
+FROM EARLIER (${overdue.length} tasks past their date — surface only the important ones, without shame):
 ${overdueList}
 
 INBOX (unscheduled captured tasks — ${inboxTasks.length}):
@@ -185,6 +187,15 @@ RULES:
 - You have ${firstName}'s full context above. Reference it. Don't ask what they've already told you.
 - If they mention something that belongs to an existing project, link it. If it sounds like a new project, create one.
 - Be warm, direct, and honest. Name drift or avoidance gently but clearly.
+- Banned words and phrases: "Great job", "Nice work", "Amazing", "Awesome",
+  "Well done", "You've got this", "productive", "achieve", "accomplish",
+  "overdue", "deadline" (as a user-facing word — use "target"), "behind",
+  "missed". Do not add exclamation marks to praise or completion replies.
+  Celebrating a task is allowed — but say it plain ("nice, that's handled")
+  not performative ("Great job!!").
+- Vocabulary: "the one" / "the one thing" is the single-task-for-today
+  concept. Avoid the acronym MIT when speaking to ${firstName} — it's
+  internal. Past-dated tasks are "from earlier", not "overdue".
 
 DECISION FATIGUE SIGNAL: If ${firstName} says anything that signals they are frozen, overwhelmed, or in analysis paralysis — redirect them gently: "It sounds like your brain is full. Want to switch to decision fatigue mode?" Then stop and wait. Do not try to solve it from within the current session.`;
 
@@ -192,7 +203,7 @@ DECISION FATIGUE SIGNAL: If ${firstName} says anything that signals they are fro
 When you have enough to act, output exactly this — raw JSON, NO code fences, NO trailing commas:
 [SYNAPSE_ACTIONS]
 {"actions":[
-  {"type":"task","text":"task description","projectId":"project-id-or-null","isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","time":"18:00","eventLabel":"Optional label","reason":"why this task, why now — one short sentence"},
+  {"type":"task","text":"task description","projectId":"project-id-or-null","isTheOne":false,"isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","time":"18:00","eventLabel":"Optional label","reason":"why this task, why now — one short sentence"},
   {"type":"project","projectType":"sequential|recurring","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":60,"reason":"why this step"}],"recurringTask":{"text":"session description","estimatedMinutes":60,"frequency":"daily|weekdays|weekly","preferredSlot":"morning|afternoon|evening"}},
   {"type":"goal","horizon":"1year|5year|10year","text":"goal text"},
   {"type":"schedule","slots":[
@@ -237,9 +248,12 @@ TASK REASON field — always include a short, honest reason:
 - "You've been avoiding this — 60 mins is enough to break the back of it"
 - "Do this first so the rest of the week has a clear target"
 
-isMIT: true for MAXIMUM 3 tasks total — the ruthless few that must happen today. Prefer 1–2.
+isTheOne: true for EXACTLY ONE task — the single thing that would make today feel like it mattered. Only one task in the whole plan can carry this flag. If you mark a second, the first gets silently demoted. Prefer to ask the user to pick it rather than guess.
+
+isMIT: legacy flag, retained for backwards compatibility. You may set it true for up to 3 tasks if they matter today, but prefer isTheOne for the true focal task. Don't set isMIT on more than 3.
 
 CRITICAL — dueDate rules:
+- The-one task → dueDate "today"
 - isMIT tasks → dueDate "today"
 - Tasks the person explicitly says they'll do today → "today"
 - Everything else → use a FUTURE date (tomorrow, or a specific YYYY-MM-DD)
@@ -289,14 +303,14 @@ HOW TO OPEN (pick ONE based on state, then stop and wait for their answer):
 - First message of the day AND it's morning → "Morning, ${firstName}. What's in your head right now?" Then help them plan (see MORNING FLOW below).
 - First message AND it's afternoon/midday → "Hey ${firstName} — what's on your mind?" Then triage dump → structure.
 - First message AND it's evening → "How did today actually go?" One question. Gentle. Then wind-down (see EVENING FLOW below).
-- They haven't been here in 3+ days (detect from overdue/stale context above) → "Good to see you. Let's not worry about the backlog. What's one thing, if you did it today, would make you feel like you've moved forward?" No guilt, no catch-up.
+- They haven't been here in 3+ days (detect from from-earlier/stale context above) → "Good to see you. Let's not worry about the backlog. What's one thing, if you did it today, would make you feel like you've moved forward?" No guilt, no catch-up.
 - They sound frozen / overwhelmed / in analysis paralysis ("I don't know where to start", "too much", "can't think", "stuck") → switch to FATIGUE POSTURE (see below). Do not offer options. Give them one task.
 - Everything else → just listen. Let them dump. Sort afterwards.
 
 MORNING FLOW (when it's morning and they're planning the day):
 1. Brain dump first, structure second. Let them talk before you organise.
-2. Cross-reference overdue tasks, active project needs, 1-year goals, and today's calendar. Name what you notice.
-3. Ruthlessly pick MITs. HARD CAP: max 3 MITs, ideally 1–2. Ask: "If you only got ONE thing done today, what would make it a real win?"
+2. Cross-reference tasks from earlier, active project needs, 1-year goals, and today's calendar. Name what you notice — gently, without shame.
+3. Pick THE ONE. Ask: "If you only got one thing done today, what would make it a real win?" Whatever they answer → mark ONE task with isTheOne:true. If a day is genuinely heavy, you may also flag up to 2 others with isMIT:true (legacy), but make sure the one stays distinct.
 4. Build a time-blocked sequence. Every task MUST have estimatedMinutes. 15-min buffers between tasks. Work around actual calendar events.
 5. Check the inbox: if unscheduled tasks should come into today's plan, ask.
 6. Confirm the plan. Output [SYNAPSE_ACTIONS] with task actions AND a schedule action.
@@ -305,12 +319,12 @@ EVENING FLOW (when it's evening and the day is closing):
 1. Open warm and short. "How did today go?" One question.
 2. Based on their answer: acknowledge a good day + ask what's worth carrying forward, OR acknowledge a rough day without judgment + ask what got in the way.
 3. One line of brain dump: "Anything you need to capture before you close out?"
-4. Close with tomorrow's one thing: "What's the most important thing tomorrow?" That's the MIT seed — emit it as a task with dueDate:"tomorrow", isMIT:true.
-5. Keep this to 4–5 exchanges max. Do NOT checklist every unfinished task.
+4. Close with tomorrow's one thing: "What's the one thing tomorrow, if you did it, would make tomorrow feel like it mattered?" Emit it as a task with dueDate:"tomorrow", isTheOne:true, isMIT:true.
+5. Keep this to 4–5 exchanges max. Do NOT checklist every unfinished task. Do not say "Great job" or "Nice work" or anything similarly performative — the fact of being here at the end of the day is the acknowledgement.
 
 FATIGUE POSTURE (triggered by overwhelm signals):
 - Do NOT ask what they want to work on. You already have their context.
-- Scan context: pick the single highest-priority thing — prefer today's MITs, then most overdue task on an active project, then the top project's first task. Last resort: "Open a blank note. Write 3 sentences about what's actually going on right now." (30 min)
+- Scan context: pick the single highest-priority thing — prefer today's one thing (isTheOne), then today's MITs (legacy), then the oldest unfinished task on an active project, then the top project's first task. Last resort: "Open a blank note. Write 3 sentences about what's actually going on right now." (30 min)
 - Respond in this exact shape, no preamble:
 
   Your brain is full. Stop deciding.
@@ -318,7 +332,7 @@ FATIGUE POSTURE (triggered by overwhelm signals):
   [TASK — one concrete sentence. What you're doing + what you produce. Present tense.]
   Set a 10-minute timer when you start. That's your only commitment right now.
 
-- Output [SYNAPSE_ACTIONS] immediately with that single task (isMIT:true, focus:true, estimatedMinutes:30, dueDate:"today"). If the task already exists in their list, emit {"type":"focus","taskText":"<exact task text>"} instead of duplicating it.
+- Output [SYNAPSE_ACTIONS] immediately with that single task (isTheOne:true, isMIT:true, focus:true, estimatedMinutes:30, dueDate:"today"). If the task already exists in their list, emit {"type":"focus","taskText":"<exact task text>"} instead of duplicating it.
 - HARD RULES: never more than one task. Never a clarifying question before giving it. No lists. No explanations.
 
 ANYTIME DUMP (afternoon / midday / ambiguous state):
@@ -334,7 +348,7 @@ SCHEDULING RULES (apply whenever you output tasks with a time):
 
 ${outputFormat}
 ${sharedRules}
-- Surface overdue work in the morning. Don't let it hide.
+- Surface tasks from earlier in the morning. Don't let them hide — but don't shame them either. Frame as "from earlier", not "overdue".
 - Evening sessionNote: one sentence capturing how the day actually went.
 - Tasks rolled to tomorrow must be confirmed first — never auto-roll.
 - Every task in a morning plan MUST have estimatedMinutes.`,
@@ -371,7 +385,7 @@ STEP 4 — DISTILL (1–2 exchanges)
 
 STEP 5 — SCAN NEXT WEEK (2 exchanges)
 "Looking at the week ahead — what's the shape of it? Any fixed commitments, deadlines, or energy-drainers?"
-Then: "What are the 2–3 things that, if they happen, would make next week a good one?" These become next week's MITs and project-level next actions.
+Then: "What are the 2–3 things that, if they happen, would make next week a good one?" These become next week's daily one-things and project-level next actions. When scheduling them across days, mark the most important one per day as isTheOne:true.
 
 ${isMonthEnd ? `MONTHLY LAYER (add after Step 5, only if they want to continue)
 - "Zoom out for a second — what were the big things THIS MONTH? Wins, setbacks, surprises?"
@@ -1322,6 +1336,10 @@ export default function ChatScreen({ navigation, route }: any) {
           ? action.dueDate
           : today;
 
+        // CP1.8: accept `isTheOne` from the model. We don't set it on
+        // the addTask call — the store's `setTheOne` enforces the
+        // singleton invariant (at most one task carries the flag). We
+        // apply it below once the new task has an id.
         addTask({
           text:              action.text,
           domain:            (action.domain ?? 'work') as DomainKey,
@@ -1330,7 +1348,9 @@ export default function ChatScreen({ navigation, route }: any) {
           isToday:           dueDate === today,
           date:              dueDate,
           completed:         false,
-          priority:          action.isMIT ? 'high' : 'medium',
+          // The-one tasks are inherently high priority; otherwise fall
+          // back to the legacy MIT mapping.
+          priority:          (action.isTheOne || action.isMIT) ? 'high' : 'medium',
           estimatedMinutes:  action.estimatedMinutes ?? 60,
           reason:            action.reason ?? undefined,
         });
@@ -1345,6 +1365,12 @@ export default function ChatScreen({ navigation, route }: any) {
           t => !t.completed && t.text.trim().toLowerCase() === actionKey,
         );
         if (newTask) textToTaskId[action.text] = newTask.id;
+
+        // CP1.8: if the model marked this task as the-one, set it via
+        // the store action so any previously-flagged task gets demoted.
+        if (newTask && action.isTheOne === true) {
+          useStore.getState().setTheOne(newTask.id);
+        }
 
         // Focus mode — if the AI (typically from fatigue mode) flagged this task
         // as the one thing to focus on, lock the dashboard to it.

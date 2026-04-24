@@ -17,17 +17,11 @@ type Nav = NativeStackNavigationProp<RootStackParams>;
 function ProjectCard({ project }: { project: Project }) {
   const navigation = useNavigation<Nav>();
   const C = useColors();
-  const completed = project.tasks.filter(t => t.completed).length;
-  const total     = project.tasks.length;
-  const pct       = total > 0 ? completed / total : 0;
-  const dc        = DomainColors[project.domain] ?? DomainColors.work;
-  const daysLeft  = (() => {
-    if (!project.deadline) return null;
-    try {
-      const d = parseISO(project.deadline);
-      return isNaN(d.getTime()) ? null : differenceInDays(d, new Date());
-    } catch { return null; }
-  })();
+  // CP1.5: daysLeft removed.
+  // CP1.6: completed/total/pct/dc accent computations removed with the
+  // progress bar. At rest a project card is a name + a one-line
+  // description. Progress surfaces inside ProjectDetail, which the user
+  // opens deliberately.
   const styles = useMemo(() => makeStyles_card(C), [C]);
 
   return (
@@ -36,25 +30,10 @@ function ProjectCard({ project }: { project: Project }) {
       onPress={() => navigation.navigate('ProjectDetail', { projectId: project.id })}
       activeOpacity={0.85}
     >
-      {daysLeft !== null && (
-        <Text style={[styles.deadline, daysLeft < 7 && { color: C.error }]}>
-          {daysLeft < 0 ? 'Past deadline' : daysLeft === 0 ? 'Due today' : `${daysLeft}d left`}
-        </Text>
-      )}
-
       <Text style={styles.cardTitle}>{project.title}</Text>
       {project.description ? (
         <Text style={styles.cardDesc} numberOfLines={2}>{project.description}</Text>
       ) : null}
-
-      {total > 0 && (
-        <View style={styles.progressContainer}>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${Math.round(pct * 100)}%` as any, backgroundColor: dc.text }]} />
-          </View>
-          <Text style={styles.progressLabel}>{completed}/{total} tasks</Text>
-        </View>
-      )}
 
       {!project.isDecomposed && (
         <View style={[styles.decomposeBadge, { backgroundColor: C.primaryLight }]}>
@@ -107,7 +86,7 @@ function AddProjectModal({ visible, onClose }: { visible: boolean; onClose: () =
               placeholder="What does success look like?" placeholderTextColor={C.textTertiary} multiline
             />
 
-            <Text style={styles.fieldLabel}>Deadline (optional)</Text>
+            <Text style={styles.fieldLabel}>Target date (optional)</Text>
             <TextInput
               style={styles.input} value={deadline} onChangeText={setDeadline}
               placeholder="YYYY-MM-DD" placeholderTextColor={C.textTertiary}
@@ -200,11 +179,14 @@ export default function ProjectsScreen() {
         windowSize={10}
         initialNumToRender={10}
         ListEmptyComponent={
+          // CP1.7: empty state rewritten without the implicit "you
+          // should have one" framing. "No projects yet" → "Nothing here
+          // yet." Nothing here is a state, not a failure.
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No projects yet</Text>
-            <Text style={styles.emptySub}>Projects are things you're building with a clear outcome. Add your first one to get started.</Text>
+            <Text style={styles.emptyTitle}>Nothing here yet</Text>
+            <Text style={styles.emptySub}>When you've got something bigger on your mind — the kind of thing that needs more than one step — this is where it lives.</Text>
             <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowAdd(true)}>
-              <Text style={styles.emptyBtnText}>+ Add your first project</Text>
+              <Text style={styles.emptyBtnText}>Add one</Text>
             </TouchableOpacity>
           </View>
         }

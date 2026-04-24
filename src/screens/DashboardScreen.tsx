@@ -26,9 +26,10 @@ import { useStore, DomainKey, Task, LifeGoal, TimeHorizon, TimeBlockType, Planne
 import { syncAllProjects, getTodayCalendarEvents, getTodayReminders, TodayEvent, TodayReminder, reconcileCalendarToDayPlan } from '../services/calendar';
 import FloatingAddButton from '../components/FloatingAddButton';
 import WorkingModeModal from '../components/WorkingModeModal';
-import MITHeroBlock from '../components/MITHeroBlock';
+import TheOneBlock from '../components/TheOneBlock';
+import { useFifteen } from '../services/fifteen';
 import AmbientChatStrip from '../components/AmbientChatStrip';
-import DriftNudge from '../components/DriftNudge';
+// CP1.5: DriftNudge import dropped — no longer rendered.
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -275,70 +276,25 @@ function InboxRow({ task, onSchedule }: { task: Task; onSchedule: () => void }) 
   );
 }
 
-// Overdue banner — shown above Today if tasks are overdue
-function OverdueBanner({ tasks, onPress }: { tasks: Task[]; onPress: () => void }) {
-  const C = useColors();
-  const styles = useMemo(() => makeStyles(C), [C]);
-  const today = format(new Date(), 'yyyy-MM-dd');
-  if (!tasks.length) return null;
-  const aged = tasks.filter(t => {
-    try { return differenceInDays(new Date(today), parseISO(t.date)) >= 7; }
-    catch { return false; }
-  });
-  return (
-    <TouchableOpacity style={styles.overdueBanner} onPress={onPress} activeOpacity={0.82}>
-      <View style={styles.overdueLeft}>
-        <Text style={styles.overdueTitle}>
-          {tasks.length} overdue{aged.length > 0 ? ` · ${aged.length} stale 7d+` : ''}
-        </Text>
-        <Text style={styles.overdueSub} numberOfLines={1}>
-          {tasks.slice(0, 2).map(t => t.text).join(' · ')}
-          {tasks.length > 2 ? ` +${tasks.length - 2} more` : ''}
-        </Text>
-      </View>
-      <Text style={styles.overdueAction}>Review →</Text>
-    </TouchableOpacity>
-  );
-}
+// CP1.5: OverdueBanner removed — ambient time-pressure. Past-dated tasks
+// surface through the inbox / chat, not as a red banner at the top of the day.
 
 // Compact project row
 function ProjectRow({ project, onPress }: { project: any; onPress: () => void }) {
   const C = useColors();
   const styles = useMemo(() => makeStyles(C), [C]);
-  const dc       = DomainColors[project.domain as DomainKey] ?? DomainColors.work;
-  const total    = project.tasks?.length ?? 0;
-  const done     = project.tasks?.filter((t: any) => t.completed).length ?? 0;
-  const pct      = total > 0 ? done / total : 0;
-  const daysLeft = (() => {
-    if (!project.deadline) return null;
-    try {
-      const d = parseISO(project.deadline);
-      return isNaN(d.getTime()) ? null : differenceInDays(d, new Date());
-    } catch { return null; }
-  })();
+  const dc = DomainColors[project.domain as DomainKey] ?? DomainColors.work;
+  // CP1.5: daysLeft dropped with its badge.
+  // CP1.6: total/done/pct removed with the progress bar. A row at rest
+  // is a coloured accent + the project title + a chevron. Progress
+  // surfaces inside ProjectDetail.
 
   return (
     <TouchableOpacity style={styles.projectRow} onPress={onPress} activeOpacity={0.78}>
       <View style={[styles.projectAccent, { backgroundColor: dc.text }]} />
       <View style={styles.projectBody}>
         <Text style={styles.projectTitle} numberOfLines={1}>{project.title}</Text>
-        {total > 0 && (
-          <View style={styles.progressRow}>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, {
-                width: `${Math.round(pct * 100)}%` as any,
-                backgroundColor: dc.text,
-              }]} />
-            </View>
-            <Text style={styles.progressLabel}>{done}/{total}</Text>
-          </View>
-        )}
       </View>
-      {daysLeft !== null && (
-        <Text style={[styles.daysLeft, daysLeft < 7 && { color: C.error }]}>
-          {daysLeft < 0 ? 'overdue' : daysLeft === 0 ? 'today' : `${daysLeft}d`}
-        </Text>
-      )}
       <Text style={styles.projectChevron}>›</Text>
     </TouchableOpacity>
   );
@@ -447,95 +403,10 @@ function parseEventColor(type: TimeBlockType): string {
   return BLOCK_COLORS[type] || '#3B82F6';
 }
 
-// ── Next Event Countdown Component ────────────────────────────────────────────
-
-function NextEventCountdown({ calEvents }: { calEvents: TodayEvent[] }) {
-  const C = useColors();
-
-  const [countdown, setCountdown] = useState<{
-    minutesUntil: number;
-    eventTitle: string;
-  } | null>(null);
-
-  // ── ALL hooks must live before any early return ───────────────────────────
-  const opacityAnim = useRef(new Animated.Value(1)).current;
-
-  // Countdown interval — updates every 30 s
-  useEffect(() => {
-    const updateCountdown = () => {
-      const now = new Date();
-      const nowMins = now.getHours() * 60 + now.getMinutes();
-      let nextEvent: TodayEvent | null = null;
-      let minMinutesAway = 240; // look ahead max 4 hours
-      for (const ev of calEvents) {
-        const startM = parseEventTime(ev.start);
-        if (startM < 0) continue;
-        const minutesAway = startM - nowMins;
-        if (minutesAway > 0 && minutesAway < minMinutesAway) {
-          minMinutesAway = minutesAway;
-          nextEvent = ev;
-        }
-      }
-      setCountdown(nextEvent ? { minutesUntil: minMinutesAway, eventTitle: nextEvent.title } : null);
-    };
-    updateCountdown();
-    const timer = setInterval(updateCountdown, 30000);
-    return () => clearInterval(timer);
-  }, [calEvents]);
-
-  // Pulse animation when event is < 30 min away — derived from countdown state
-  const isUrgent = countdown !== null && countdown.minutesUntil < 30;
-  useEffect(() => {
-    if (isUrgent) {
-      const anim = Animated.loop(
-        Animated.sequence([
-          Animated.timing(opacityAnim, { toValue: 0.7, duration: 750, useNativeDriver: true }),
-          Animated.timing(opacityAnim, { toValue: 1.0, duration: 750, useNativeDriver: true }),
-        ]),
-      );
-      anim.start();
-      return () => anim.stop();
-    } else {
-      opacityAnim.setValue(1);
-    }
-  }, [isUrgent, opacityAnim]);
-
-  // ── Early return AFTER all hooks ──────────────────────────────────────────
-  if (!countdown) return null;
-
-  const { minutesUntil, eventTitle } = countdown;
-  let displayText: string;
-  let statusColor: string;
-
-  if (minutesUntil > 60) {
-    const h = Math.floor(minutesUntil / 60);
-    const m = minutesUntil % 60;
-    displayText = `${h}h ${m}min until ${eventTitle}`;
-    statusColor = C.success;
-  } else if (minutesUntil >= 30) {
-    displayText = `${minutesUntil} min until ${eventTitle}`;
-    statusColor = '#F59E0B';
-  } else {
-    displayText = `⚠ ${minutesUntil} min until ${eventTitle}`;
-    statusColor = '#EF4444';
-  }
-
-  return (
-    <Animated.View style={[{
-      borderRadius: Radius.full,
-      paddingVertical: 7,
-      paddingHorizontal: 14,
-      backgroundColor: statusColor + '22',
-      alignSelf: 'flex-start',
-      marginHorizontal: Spacing.lg,
-      marginBottom: 8,
-    }, isUrgent ? { opacity: opacityAnim } : {}]}>
-      <Text style={{ fontSize: 13, fontWeight: '600', color: statusColor }}>
-        {displayText}
-      </Text>
-    </Animated.View>
-  );
-}
+// CP1.5: NextEventCountdown component removed — a pulsing red ⚠ badge
+// counting down to the next meeting is exactly the ambient pressure we're
+// trying to strip. Calendar events still appear on the timeline; they just
+// don't ambient-haunt the user from the header.
 
 // ── Momentum Celebration Component ────────────────────────────────────────────
 
@@ -915,11 +786,16 @@ function TodayTimelinePage({
     : undefined;
   const momentumGoal = goals.find(g => g.horizon === '1year');
 
-  // Primary MIT for hero block + drift nudge — first incomplete MIT today
-  const primaryMIT = useMemo(
-    () => tasks.find(t => t.date === today && t.isMIT && !t.completed) ?? null,
-    [tasks, today],
-  );
+  // The single focal task for today ("the one"). Falls back to the first
+  // legacy MIT so existing data keeps working while we migrate.
+  const theOne = useMemo(() => {
+    const byFlag = tasks.find(t => t.isTheOne && !t.completed && (t.isToday || t.date === today));
+    if (byFlag) return byFlag;
+    return tasks.find(t => t.date === today && t.isMIT && !t.completed) ?? null;
+  }, [tasks, today]);
+  // Keep the old name around locally so downstream references don't all need
+  // to be renamed in one pass — typography-level refactors come later.
+  const primaryMIT = theOne;
 
   // Today's tasks
   const todayTasks = useMemo(
@@ -983,13 +859,18 @@ function TodayTimelinePage({
     return `${label} before ${title}`;
   }, [calEvents, now]);
 
-  // Handle MIT input submission
+  // Handle "the one" input submission — flags the new task as isTheOne
+  // and clears any other the-one flags so only one can hold it.
+  const setTheOne = useStore(st => st.setTheOne);
   const handleMITSubmit = () => {
     const text = mitInputText.trim();
     if (!text) return;
+    // Clear any existing the-one first, then add the new task as the one.
+    setTheOne(null);
     addTask({
       text,
-      isMIT: true,
+      isMIT: false,
+      isTheOne: true,
       date: today,
       isToday: true,
       isInbox: false,
@@ -1052,7 +933,10 @@ function TodayTimelinePage({
           <Text style={tl.pageTitle}>{timeOfDay}</Text>
           <Text style={tl.pageSubtitle}>
             {format(now, 'EEEE, d MMMM')}
-            {focusWindowSubtitle ? `  ·  ${focusWindowSubtitle}` : completedCount > 0 ? `  ·  ${completedCount} done` : ''}
+            {/* CP1.6: "{completedCount} done" subtitle removed. Ambient
+                tally at rest — even a friendly one — sets up the next
+                day's failure to match it. */}
+            {focusWindowSubtitle ? `  ·  ${focusWindowSubtitle}` : ''}
           </Text>
         </View>
         <TouchableOpacity style={tl.datePlusBtn} onPress={onQuickAdd} activeOpacity={0.8}>
@@ -1073,40 +957,46 @@ function TodayTimelinePage({
           <View style={{ flex: 1 }}>
             <Text style={tl.overwhelmTitle}>
               {overwhelmReason === 'too-many-mits'
-                ? `${activeMITCount} "must do" tasks today`
-                : `${overdueCount} tasks past their due date`}
+                ? `A lot marked for today`
+                : `The list is getting long`}
             </Text>
             <Text style={tl.overwhelmSub}>
               {overwhelmReason === 'too-many-mits'
-                ? 'Only one can actually be the MIT. Let me help you choose.'
-                : 'Your Aiteall task list is piling up. Let me help triage — pick one, defer the rest.'}
+                ? "Only one can actually be the one. Want to pick together?"
+                : "Let's look at it together and see what's still alive."}
             </Text>
           </View>
           <Text style={tl.overwhelmArrow}>→</Text>
         </TouchableOpacity>
       )}
 
-      {/* ── MIT Hero Block — primary task, front and centre ─────────────── */}
-      {primaryMIT && (
-        <MITHeroBlock
-          task={primaryMIT}
-          calEvents={calEvents}
+      {/* ── The One — the single focal task for today ─────────────────── */}
+      {theOne && (
+        <TheOneBlock
+          task={theOne}
           goals={goals}
           profile={profile}
-          onStart={(isQuick) => setWorkingTask(primaryMIT, isQuick)}
-          onComplete={() => handleToggleTask(primaryMIT.id)}
+          onStartFifteen={() => {
+            // Kick off the 15-min session — the floating FifteenBanner
+            // (mounted in App.tsx) will show the countdown across screens.
+            useFifteen.getState().start({
+              taskId: theOne.id,
+              taskText: theOne.text,
+            });
+          }}
+          onComplete={() => handleToggleTask(theOne.id)}
         />
       )}
 
-      {/* ── MIT Empty State — when no MIT is set yet ──────────────────────── */}
-      {!primaryMIT && (
+      {/* ── The One — empty state. Calm prompt, no shame. ──────────────── */}
+      {!theOne && (
         <View style={[tl.mitEmptyCard, { borderColor: C.border, backgroundColor: C.surface }]}>
           {!showMITInput ? (
             <>
               <View style={tl.mitEmptyTop}>
-                <Text style={[tl.mitEmptyTitle, { color: C.textPrimary }]}>No MIT set yet</Text>
+                <Text style={[tl.mitEmptyTitle, { color: C.textPrimary }]}>Nothing set for today</Text>
                 <Text style={[tl.mitEmptySubtext, { color: C.textSecondary }]}>
-                  What's the one thing that would make today count?
+                  If one thing mattered today — what would it be?
                 </Text>
               </View>
               <TouchableOpacity
@@ -1114,17 +1004,17 @@ function TodayTimelinePage({
                 onPress={() => setShowMITInput(true)}
                 activeOpacity={0.7}
               >
-                <Text style={[tl.mitEmptyRowText, { color: C.primary }]}>Set my MIT →</Text>
+                <Text style={[tl.mitEmptyRowText, { color: C.primary }]}>Name it →</Text>
               </TouchableOpacity>
             </>
           ) : (
             <>
               <Text style={[tl.mitEmptyTitle, { color: C.textPrimary, marginBottom: Spacing.md }]}>
-                What's your MIT?
+                The one thing
               </Text>
               <TextInput
                 style={[tl.mitEmptyInput, { borderColor: C.border, color: C.textPrimary }]}
-                placeholder="Enter your one main thing..."
+                placeholder="The one thing for today…"
                 placeholderTextColor={C.textTertiary}
                 value={mitInputText}
                 onChangeText={setMitInputText}
@@ -1141,14 +1031,14 @@ function TodayTimelinePage({
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={[tl.mitEmptyButtonText, { color: C.textSecondary }]}>Cancel</Text>
+                  <Text style={[tl.mitEmptyButtonText, { color: C.textSecondary }]}>Not now</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[tl.mitEmptyButton, { backgroundColor: C.primary }]}
                   onPress={handleMITSubmit}
                   activeOpacity={0.7}
                 >
-                  <Text style={[tl.mitEmptyButtonText, { color: C.textInverse }]}>Add MIT</Text>
+                  <Text style={[tl.mitEmptyButtonText, { color: C.textInverse }]}>Set it</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -1165,17 +1055,9 @@ function TodayTimelinePage({
         />
       )}
 
-      {/* ── Drift Nudge — time-blindness protection ───────────────────────── */}
-      <DriftNudge
-        mitTask={primaryMIT}
-        calEvents={calEvents}
-        isWorking={workingTask !== null}
-        onStart={() => primaryMIT && setWorkingTask(primaryMIT, false)}
-        onReschedule={() => navigation.navigate('Chat', { mode: 'dump' })}
-      />
-
-      {/* ── Next event countdown ─────────────────────────────────────────── */}
-      <NextEventCountdown calEvents={calEvents} />
+      {/* CP1.5: DriftNudge + NextEventCountdown removed.
+          Both were ambient time-pressure surfaces (⚠ you're behind, N min
+          until next event). Peace-first app doesn't shout at the user. */}
 
       {/* ── Brain-full tile — surfaces when there are many competing tasks ── */}
       {(() => {
@@ -1192,7 +1074,10 @@ function TodayTimelinePage({
               <View style={{ flex: 1 }}>
                 <Text style={tl.fatigueTitle}>Brain full?</Text>
                 <Text style={tl.fatigueSub}>
-                  {activeTodayCount} tasks waiting — let me pick one for you
+                  {/* CP1.6: dropped the raw count — the number is what
+                      caused the fatigue in the first place. The tile's
+                      existence is already the signal. */}
+                  Let's pick one thing together.
                 </Text>
               </View>
               <Text style={tl.fatigueArrow}>→</Text>
@@ -1423,12 +1308,17 @@ function TodayTimelinePage({
       {/* ── Today's tasks — time-sequenced when day plan exists ─────────── */}
       <View style={{ marginBottom: Spacing.base }}>
         <Text style={[tl.sectionLabel, { paddingHorizontal: Spacing.lg }]}>
-          Today{todayTasks.length > 0 ? ` — ${todayTasks.length - completedCount} left` : ''}
+          {/* CP1.6: "N left" removed. Counts at rest surface shame. The
+              section header is just "Today". Users can see the list. */}
+          Today
         </Text>
 
         {todayTasks.length === 0 ? (
           <View style={[tl.tasksCard, { padding: Spacing.lg, alignItems: 'center' }]}>
-            <Text style={{ color: C.textTertiary, fontSize: 14 }}>Nothing planned yet — use + to add tasks</Text>
+            {/* CP1.7: empty-state rewrite — "nothing planned yet" was
+                neutral but the trailing CTA "use + to add tasks" read
+                like a directive. Softer framing: a blank day is allowed. */}
+            <Text style={{ color: C.textTertiary, fontSize: 14 }}>Clear today. If something comes up, tap +.</Text>
           </View>
         ) : (() => {
           // ── When a day plan exists: group tasks by slot, sorted by time ──────
@@ -1961,8 +1851,10 @@ function InboxTriageModal({ visible, tasks, onClose }: InboxTriageModalProps) {
         {isComplete ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg }}>
             <Ionicons name="checkmark-circle" size={72} color={C.primary} />
-            <Text style={{ fontSize: 26, fontWeight: '700', color: C.textPrimary }}>Inbox clear.</Text>
-            <Text style={{ fontSize: 15, color: C.textTertiary }}>Nice work.</Text>
+            {/* CP1.7: dropped the "Nice work" line. The banned-words list
+                excludes performance praise on completion — the fact of
+                it being clear is enough. */}
+            <Text style={{ fontSize: 26, fontWeight: '700', color: C.textPrimary }}>Clear.</Text>
             <TouchableOpacity
               onPress={onClose}
               style={{ marginTop: Spacing.md, paddingHorizontal: 32, paddingVertical: Spacing.base, backgroundColor: C.primary, borderRadius: Radius.full }}
@@ -2239,7 +2131,7 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
         <Text style={{ fontSize: 11, fontWeight: '700', color: C.textTertiary, letterSpacing: 1, marginBottom: 8 }}>ON YOUR LIST</Text>
         {inboxTasks.length === 0 ? (
           <View style={{ padding: Spacing.xl, backgroundColor: C.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: C.border, alignItems: 'center' }}>
-            <Text style={{ fontSize: 14, color: C.textTertiary }}>Clear — well done.</Text>
+            <Text style={{ fontSize: 14, color: C.textTertiary }}>Clear.</Text>
           </View>
         ) : (
           <View style={{ backgroundColor: C.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
@@ -2423,8 +2315,10 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
           onPress={() => navigation.navigate('SkeletonBuilder')}
           activeOpacity={0.82}
         >
-          <Text style={ds.emptyBlocksTitle}>No structure yet</Text>
-          <Text style={ds.emptyBlocksSub}>Build your weekly skeleton and your day structure will appear here →</Text>
+          {/* CP1.7: "No structure yet" rewritten. The old copy implied
+              a missing thing; the new copy frames a choice. */}
+          <Text style={ds.emptyBlocksTitle}>Shape of the week</Text>
+          <Text style={ds.emptyBlocksSub}>Some people like to block out their week in advance. If that's you — tap here.</Text>
         </TouchableOpacity>
       )}
 
@@ -2437,7 +2331,9 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
           onPress={() => navigation.navigate('Chat', { mode: 'dump' })}
           activeOpacity={0.82}
         >
-          <Text style={ds.emptyTasksText}>No tasks planned yet →</Text>
+          {/* CP1.7: was "No tasks planned yet →" (a passive-aggressive
+              pointer). Open-handed version: offer the chat door. */}
+          <Text style={ds.emptyTasksText}>Nothing on the list. Want to talk through the day?</Text>
         </TouchableOpacity>
       ) : (
         <View style={ds.tasksCard}>
@@ -2873,7 +2769,7 @@ export default function DashboardScreen({ navigation }: any) {
   async function handleCalendarSync() {
     const withDeadlines = projects.filter(p => p.deadline && p.status === 'active');
     if (!withDeadlines.length) {
-      Alert.alert('Nothing to sync', 'Add deadlines to your active projects first.\n\nOpen a project and set a deadline to get started.');
+      Alert.alert('Nothing to sync', 'Your active projects don\'t have target dates yet. Open one and set a date when you\'re ready.');
       return;
     }
     if (!profile.synapseCalendarId) {
@@ -2894,9 +2790,9 @@ export default function DashboardScreen({ navigation }: any) {
         updateProject(projectId, { calendarEventId: eventId }),
       );
       if (result.synced === 0) {
-        Alert.alert('Nothing new to sync', `All ${withDeadlines.length} project deadline${withDeadlines.length !== 1 ? 's' : ''} are already in your calendar.`);
+        Alert.alert('Already in sync', `All ${withDeadlines.length} project date${withDeadlines.length !== 1 ? 's' : ''} are already on your calendar.`);
       } else {
-        Alert.alert('Calendar synced ✓', `${result.synced} project deadline${result.synced !== 1 ? 's' : ''} added to "${profile.selectedCalendarName ?? 'your calendar'}".${result.failed > 0 ? `\n\n${result.failed} failed — check the project has a valid date.` : ''}`);
+        Alert.alert('Calendar synced', `${result.synced} project date${result.synced !== 1 ? 's' : ''} added to "${profile.selectedCalendarName ?? 'your calendar'}".${result.failed > 0 ? `\n\n${result.failed} couldn\'t sync — check the project has a valid date.` : ''}`);
       }
     } catch (e: any) {
       Alert.alert('Sync failed', `${e.message ?? 'Unknown error'}\n\nCheck that Aiteall has calendar access in iPhone Settings → Privacy → Calendars.`);
@@ -3245,19 +3141,7 @@ function makeStyles(C: any) { return StyleSheet.create({
   },
   inboxMoreText: { fontSize: 13, color: C.primary, fontWeight: '600' },
 
-  // Overdue banner
-  overdueBanner: {
-    marginHorizontal: Spacing.lg, marginTop: Spacing.base,
-    borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: C.border,
-    backgroundColor: C.warningLight,
-    paddingVertical: 12, paddingHorizontal: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-  },
-  overdueLeft:   { flex: 1, gap: 2 },
-  overdueTitle:  { fontSize: 14, fontWeight: '700', color: C.warning },
-  overdueSub:    { fontSize: 12, color: C.textTertiary },
-  overdueAction: { fontSize: 13, fontWeight: '600', color: C.warning },
+  // CP1.5: overdueBanner styles removed with the component.
 
   // Projects
   projectsCard: {
@@ -3280,7 +3164,7 @@ function makeStyles(C: any) { return StyleSheet.create({
   progressTrack: { flex: 1, height: 3, backgroundColor: C.borderLight, borderRadius: 2, overflow: 'hidden' },
   progressFill:  { height: 3, borderRadius: 2 },
   progressLabel: { fontSize: 11, color: C.textTertiary, width: 28, textAlign: 'right' },
-  daysLeft:      { fontSize: 12, color: C.textTertiary, fontWeight: '500' },
+  // CP1.5: daysLeft style removed with its badge.
   projectChevron:{ fontSize: 18, color: C.textTertiary },
 
   emptyCard: {

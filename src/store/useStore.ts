@@ -98,7 +98,18 @@ export interface Task extends EntityProvenance {
   completed: boolean;
   date: string;           // '' = inbox (no date assigned yet)
   isToday: boolean;
+  /**
+   * Legacy "most important task" flag (max 3/day). Kept for migration of
+   * old persisted data but no longer surfaced in the UI — superseded by
+   * `isTheOne`, a single daily focus. Do not use in new code.
+   */
   isMIT: boolean;
+  /**
+   * The one thing worth doing today. At most one task carries this flag
+   * at a time (see setTheOne). Drives the narrow-state "Next" card and
+   * the 15-minute opener on Home.
+   */
+  isTheOne?: boolean;
   isInbox?: boolean;      // true = captured but not yet scheduled
   estimatedMinutes?: number;
   reason?: string;        // AI-generated one-liner: why this task, why now
@@ -380,6 +391,14 @@ interface SolasState {
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
   setMIT: (id: string, isMIT: boolean) => void;
+  /**
+   * Mark a task as *the one* for today. Clears isTheOne from every other
+   * task belonging to today (or inbox) so only one can hold the flag at
+   * a time. Pass `null` to clear the current the-one.
+   */
+  setTheOne: (id: string | null) => void;
+  /** The task currently flagged as the one for today (if any). */
+  theOneForToday: () => Task | null;
   dedupeTasks: () => number;
   todaysTasks: () => Task[];
   todaysMITs: () => Task[];
@@ -728,6 +747,7 @@ export const useStore = create<SolasState>()(
               createdAt: new Date().toISOString(),
               reminderId: undefined,
               isMIT: false,
+              isTheOne: false,
             };
             set((s) => ({ tasks: [...s.tasks, nextTask] }));
             syncIfAuthed(s => s.pushTask(nextTask), get().session);
@@ -791,6 +811,31 @@ export const useStore = create<SolasState>()(
         set((s) => ({ tasks: s.tasks.map(t => t.id === id ? { ...t, isMIT } : t) }));
         const updated = get().tasks.find(t => t.id === id);
         if (updated) syncIfAuthed(s => s.pushTask(updated), get().session);
+      },
+      setTheOne: (id) => {
+        // Clear isTheOne everywhere, then set on the chosen task. This keeps
+        // the invariant "at most one task is the one for today" — we never
+        // allow multiple to collide.
+        set((s) => ({
+          tasks: s.tasks.map(t => {
+            if (id && t.id === id) return { ...t, isTheOne: true };
+            if (t.isTheOne) return { ...t, isTheOne: false };
+            return t;
+          }),
+        }));
+        // Fire a sync for everyone whose isTheOne actually changed.
+        const session = get().session;
+        get().tasks.forEach(t => {
+          if (t.isTheOne || (id && t.id === id)) {
+            syncIfAuthed(s => s.pushTask(t), session);
+          }
+        });
+      },
+      theOneForToday: () => {
+        const today = format(new Date(), 'yyyy-MM-dd');
+        return get().tasks.find(
+          t => t.isTheOne && !t.completed && (t.isToday || t.date === today)
+        ) ?? null;
       },
       todaysTasks: () => {
         const today = format(new Date(), 'yyyy-MM-dd');
