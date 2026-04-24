@@ -15,9 +15,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  Alert, AppState, AppStateStatus, Linking, Vibration, ScrollView,
+  Alert, AppState, AppStateStatus, Linking, ScrollView,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { soft, done as hapticDone } from '../services/haptics';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useColors, Spacing, Radius } from '../theme';
@@ -228,8 +229,8 @@ export default function DeepWorkScreen({ navigation }: any) {
         setElapsed(e => {
           const next = e + 1;
           if (next >= selectedMins * 60) {
-            // Time's up — vibrate and end
-            Vibration.vibrate([0, 400, 200, 400]);
+            // Time's up — one "done" tick, not an alarm pattern.
+            hapticDone();
             clearInterval(timerRef.current!);
             setPhase('capture');
           }
@@ -252,7 +253,8 @@ export default function DeepWorkScreen({ navigation }: any) {
         const away = bgTimeRef.current ? Math.round((Date.now() - bgTimeRef.current) / 1000) : 0;
         if (away > 5) {
           setInterruptions(i => i + 1);
-          Vibration.vibrate(200);
+          // "Welcome back" — soft, not scolding. CP3.0.
+          soft();
         }
         // Recalculate elapsed from startTimeRef so the timer stays accurate
         // even when iOS pauses the JS thread while the app is backgrounded
@@ -295,16 +297,12 @@ export default function DeepWorkScreen({ navigation }: any) {
   }, []);
 
   const confirmEnd = useCallback(() => {
-    const focusedTime = formatTime(elapsed);
-    Alert.alert(
-      'End session?',
-      `You've been focused for ${focusedTime}. Ready to wrap up?`,
-      [
-        { text: 'Keep going', style: 'cancel' },
-        { text: 'End session', onPress: endSession },
-      ]
-    );
-  }, [elapsed, endSession]);
+    // CP3.4 — no "are you sure?" for ending a session. If the user tapped End,
+    // they meant End. We go straight to the capture phase (the data isn't
+    // destroyed — it's still in state, and the capture flow has its own
+    // "keep going" affordance if they want to resume.)
+    endSession();
+  }, [endSession]);
 
   const saveAndExit = useCallback(() => {
     const durationMinutes = Math.max(1, Math.round(elapsed / 60));

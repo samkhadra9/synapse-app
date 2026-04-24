@@ -22,7 +22,7 @@
  */
 
 import { create } from 'zustand';
-import { Vibration } from 'react-native';
+import { soft, gentle, done as hapticDone } from './haptics';
 
 const DEFAULT_DURATION_MIN = 15;
 /** When to buzz during a session, measured from start. */
@@ -52,11 +52,9 @@ interface FifteenState {
 let tickInterval: ReturnType<typeof setInterval> | null = null;
 const hapticTimers: ReturnType<typeof setTimeout>[] = [];
 
-function buzz(intensityMs = 40) {
-  // RN Vibration has no "soft" option — keep it short so it reads as
-  // a gentle tick, not an alert. expo-haptics upgrade lives in CP3.
-  try { Vibration.vibrate(intensityMs); } catch { /* noop on web */ }
-}
+// CP3.0: swapped from raw Vibration.vibrate (ms durations) to expo-haptics
+// so the vocabulary matches the rest of the app. No more "length of buzz"
+// — the haptic type carries the meaning.
 
 function clearAllTimers() {
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
@@ -90,8 +88,8 @@ export const useFifteen = create<FifteenState>((set, get) => ({
       tick: 0,
     });
 
-    // Opening buzz — confirms the tap.
-    buzz(30);
+    // Opening tick — confirms the tap.
+    soft();
 
     // One-second tick so any <FifteenBanner /> countdown stays accurate.
     tickInterval = setInterval(() => {
@@ -109,10 +107,10 @@ export const useFifteen = create<FifteenState>((set, get) => ({
     // Schedule the 5 / 10 / 15 min haptics.
     HAPTIC_MARKS_MIN.forEach(min => {
       const ms = min * 60_000;
-      // The last mark is a slightly stronger "session complete" tick; the
-      // earlier ones are gentle "still with you" pulses.
-      const strength = min === HAPTIC_MARKS_MIN[HAPTIC_MARKS_MIN.length - 1] ? 60 : 30;
-      hapticTimers.push(setTimeout(() => buzz(strength), ms));
+      // The last mark is the "session complete" tick; earlier ones are
+      // "still with you" pulses.
+      const isFinal = min === HAPTIC_MARKS_MIN[HAPTIC_MARKS_MIN.length - 1];
+      hapticTimers.push(setTimeout(() => (isFinal ? hapticDone() : gentle()), ms));
     });
   },
 

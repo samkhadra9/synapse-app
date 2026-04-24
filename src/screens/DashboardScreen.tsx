@@ -29,6 +29,7 @@ import WorkingModeModal from '../components/WorkingModeModal';
 import TheOneBlock from '../components/TheOneBlock';
 import { useFifteen } from '../services/fifteen';
 import AmbientChatStrip from '../components/AmbientChatStrip';
+import { done as hapticDone } from '../services/haptics';
 // CP1.5: DriftNudge import dropped — no longer rendered.
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -408,118 +409,11 @@ function parseEventColor(type: TimeBlockType): string {
 // trying to strip. Calendar events still appear on the timeline; they just
 // don't ambient-haunt the user from the header.
 
-// ── Momentum Celebration Component ────────────────────────────────────────────
-
-function MomentumCelebration({
-  task,
-  projectTitle,
-  goalText,
-  onDismiss,
-}: {
-  task: Task | null;
-  projectTitle?: string;
-  goalText?: string;
-  onDismiss: () => void;
-}) {
-  const C = useColors();
-
-  useEffect(() => {
-    if (task) {
-      const timer = setTimeout(onDismiss, 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [task, onDismiss]);
-
-  if (!task) return null;
-
-  return (
-    <Modal
-      visible={task !== null}
-      animationType="fade"
-      transparent={true}
-      onRequestClose={onDismiss}
-    >
-      <TouchableOpacity
-        style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.6)',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-        onPress={onDismiss}
-        activeOpacity={1}
-      >
-        <TouchableOpacity
-          style={{
-            backgroundColor: C.surface,
-            borderRadius: Radius.xl,
-            padding: Spacing.xl,
-            alignItems: 'center',
-            maxWidth: '80%',
-          }}
-          onPress={() => {}} // Prevent dismissal when tapping the card
-          activeOpacity={1}
-        >
-          {/* Checkmark circle */}
-          <View
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 32,
-              backgroundColor: C.primary,
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: Spacing.lg,
-            }}
-          >
-            <Ionicons name="checkmark" size={40} color="#fff" />
-          </View>
-
-          {/* Task text */}
-          <Text
-            style={{
-              fontSize: 18,
-              fontWeight: '700',
-              color: C.textPrimary,
-              textAlign: 'center',
-              marginBottom: projectTitle || goalText ? Spacing.md : 0,
-            }}
-          >
-            {task.text}
-          </Text>
-
-          {/* Project title */}
-          {projectTitle && (
-            <Text
-              style={{
-                fontSize: 13,
-                color: C.textTertiary,
-                textAlign: 'center',
-                marginBottom: goalText ? Spacing.sm : 0,
-              }}
-            >
-              → {projectTitle}
-            </Text>
-          )}
-
-          {/* Goal text */}
-          {goalText && (
-            <Text
-              style={{
-                fontSize: 13,
-                color: C.primary,
-                fontStyle: 'italic',
-                textAlign: 'center',
-              }}
-            >
-              Moves you toward: {goalText}
-            </Text>
-          )}
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
-  );
-}
+// CP3.0 — MomentumCelebration modal removed. A big checkmark, the task
+// text, the project, and "Moves you toward: <goal>" read on paper as
+// encouragement; in practice it's performance praise. Completion is
+// acknowledged with a single soft haptic tick (see handleToggleTask)
+// and the item quietly moves down the list. Done is done.
 
 function PlanningPromptCard({
   onPlanPress,
@@ -656,7 +550,7 @@ function TodayTimelinePage({
   const C = useColors();
   const tl = useMemo(() => makeTl(C), [C]);
 
-  const [momentumTask, setMomentumTask] = useState<Task | null>(null);
+  // CP3.0 — momentumTask state removed with MomentumCelebration.
   const [showMITInput, setShowMITInput] = useState(false);
   const [mitInputText, setMitInputText] = useState('');
   const [showPlanningPrompt, setShowPlanningPrompt] = useState(true);
@@ -769,22 +663,15 @@ function TodayTimelinePage({
     return map;
   }, [todayPlan]);
 
-  // Handle task toggle with momentum celebration for MIT completion
+  // CP3.0 — completion is a haptic tick, not a modal. The `task` / `project`
+  // / `goal` threading is kept minimal: fetch the task to decide whether
+  // this toggle is a completion (not an un-check), fire `done()` if so.
   function handleToggleTask(taskId: string) {
     const task = tasks.find(t => t.id === taskId);
     const wasIncomplete = task && !task.completed;
-    const isMIT = task?.isMIT;
     toggleTask(taskId);
-    if (wasIncomplete && isMIT) {
-      setMomentumTask(task);
-    }
+    if (wasIncomplete) hapticDone();
   }
-
-  // Resolve project and goal for momentum display
-  const momentumProject = momentumTask?.projectId
-    ? projects.find(p => p.id === momentumTask.projectId)
-    : undefined;
-  const momentumGoal = goals.find(g => g.horizon === '1year');
 
   // The single focal task for today ("the one"). Falls back to the first
   // legacy MIT so existing data keeps working while we migrate.
@@ -1481,13 +1368,8 @@ function TodayTimelinePage({
         }}
       />
 
-      {/* ── Momentum Celebration Modal ──────────────────────────────────── */}
-      <MomentumCelebration
-        task={momentumTask}
-        projectTitle={momentumProject?.title}
-        goalText={momentumGoal?.text}
-        onDismiss={() => setMomentumTask(null)}
-      />
+      {/* CP3.0 — MomentumCelebration render removed; completion is a
+          soft haptic tick (handleToggleTask → hapticDone). */}
     </ScrollView>
   );
 }

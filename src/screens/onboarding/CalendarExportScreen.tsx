@@ -290,34 +290,48 @@ export default function CalendarExportScreen({ navigation }: any) {
             </View>
           )}
 
-          {/* Sync button */}
+          {/* CP3.6 — pre-sync, Skip is the primary (loudest) button and Sync
+              is the outlined secondary. Post-sync, the forward action ("Get
+              started →") takes over as primary since the user has already
+              opted in. */}
           {!synced && (
             <TouchableOpacity
-              style={[s.syncBtn, (syncing || blocks.length === 0) && s.syncBtnOff]}
+              style={s.skipPrimary}
+              onPress={finishOnboarding}
+              activeOpacity={0.85}
+            >
+              <Text style={s.skipPrimaryText}>Skip for now</Text>
+            </TouchableOpacity>
+          )}
+
+          {!synced && (
+            <TouchableOpacity
+              style={[s.syncSecondary, (syncing || blocks.length === 0) && s.syncBtnOff]}
               onPress={handleSync}
               disabled={syncing || blocks.length === 0}
               activeOpacity={0.85}
             >
               {syncing ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={WARM.amber} />
               ) : (
-                <Text style={s.syncBtnText}>
+                <Text style={s.syncSecondaryText}>
                   {blocks.length === 0 ? 'No blocks to sync' : 'Sync to my calendar →'}
                 </Text>
               )}
             </TouchableOpacity>
           )}
 
-          {/* CTA button */}
-          <TouchableOpacity
-            style={[s.enterBtn, synced && s.enterBtnHighlight]}
-            onPress={finishOnboarding}
-            activeOpacity={0.85}
-          >
-            <Text style={[s.enterBtnText, synced && s.enterBtnTextHighlight]}>
-              {synced ? 'Get started →' : 'Skip for now'}
-            </Text>
-          </TouchableOpacity>
+          {/* Post-sync — Get started is the only remaining action, so it
+              becomes primary. */}
+          {synced && (
+            <TouchableOpacity
+              style={s.enterBtnHighlightSolo}
+              onPress={finishOnboarding}
+              activeOpacity={0.85}
+            >
+              <Text style={s.enterBtnTextHighlight}>Get started →</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -385,18 +399,38 @@ const s = StyleSheet.create({
   },
   errorText: { fontSize: 14, color: '#B42318', lineHeight: 22 },
 
+  // CP3.6 — pre-sync skip is the primary (loudest) button, sync is secondary.
+  skipPrimary: {
+    backgroundColor: WARM.text, borderRadius: 100,
+    paddingVertical: 18, alignItems: 'center', marginBottom: 12,
+  },
+  skipPrimaryText: { fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: -0.2 },
+
+  syncSecondary: {
+    borderWidth: 1.5, borderColor: WARM.amberMid,
+    backgroundColor: WARM.amberLight, borderRadius: 100,
+    paddingVertical: 16, alignItems: 'center', marginBottom: 12,
+  },
+  syncSecondaryText: { fontSize: 15, fontWeight: '600', color: WARM.amber, letterSpacing: -0.1 },
+  syncBtnOff:  { opacity: 0.4 },
+
+  // Post-sync — the forward action stands alone and takes full visual weight.
+  enterBtnHighlightSolo: {
+    backgroundColor: WARM.text, borderRadius: 100,
+    paddingVertical: 18, alignItems: 'center',
+  },
+  enterBtnTextHighlight: { color: '#fff', fontWeight: '700', fontSize: 17, letterSpacing: -0.2 },
+
+  // Legacy — retained briefly to avoid stale style references.
   syncBtn: {
     backgroundColor: WARM.amber, borderRadius: 100,
     paddingVertical: 18, alignItems: 'center', marginBottom: 12,
   },
-  syncBtnOff:  { opacity: 0.4 },
   syncBtnText: { fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: -0.2 },
-
   enterBtn: {
     borderWidth: 1.5, borderColor: WARM.border,
     borderRadius: 100, paddingVertical: 16, alignItems: 'center',
   },
   enterBtnHighlight:     { backgroundColor: WARM.text, borderColor: WARM.text },
   enterBtnText:          { fontSize: 16, color: WARM.textDim, fontWeight: '500' },
-  enterBtnTextHighlight: { color: '#fff', fontWeight: '700' },
 });

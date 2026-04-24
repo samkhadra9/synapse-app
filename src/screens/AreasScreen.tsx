@@ -30,6 +30,7 @@ import { useRoute } from '@react-navigation/native';
 import { format } from 'date-fns';
 import { useColors, Spacing, Radius, DomainColors } from '../theme';
 import { useStore, Area, DomainKey, ALL_DOMAINS } from '../store/useStore';
+import { enqueueUndo } from '../services/undo';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -116,8 +117,11 @@ function AreaModal({ visible, existing, onClose, onSave }: AreaModalProps) {
   }, [visible, existing]);
 
   function handleSave() {
-    if (!name.trim()) { Alert.alert('Name required', 'Give this area a name.'); return; }
-    onSave(name.trim(), domain, desc.trim());
+    // CP3.5: no blocking validation. An area without a name saves as
+    // "(untitled area)" — the user can rename later, and the bounce
+    // from an Alert.alert is worse than a placeholder.
+    const finalName = name.trim() || '(untitled area)';
+    onSave(finalName, domain, desc.trim());
     onClose();
   }
 
@@ -439,14 +443,17 @@ export default function AreasScreen({ navigation }: any) {
   }
 
   function handleArchive(area: Area) {
-    Alert.alert(
-      'Archive Area',
-      `Archive "${area.name}"? It'll be hidden but you can restore it later.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Archive', style: 'destructive', onPress: () => archiveArea(area.id) },
-      ]
-    );
+    // CP3.4: no confirm. Archive immediately; undo restores the prior flags.
+    const prior = { isActive: area.isActive, isArchived: area.isArchived };
+    archiveArea(area.id);
+    enqueueUndo({
+      label: `Archived "${area.name}"`,
+      undo: () => {
+        useStore.setState(st => ({
+          areas: st.areas.map(a => a.id === area.id ? { ...a, ...prior } : a),
+        }));
+      },
+    });
   }
 
   function handleAddTaskClick(areaId: string) {

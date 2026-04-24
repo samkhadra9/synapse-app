@@ -24,6 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColors, Spacing, Radius, Shadow, DomainColors, DomainIcons } from '../theme';
 import { useStore, Task, DomainKey } from '../store/useStore';
 import { RootStackParams } from '../navigation';
+import { enqueueUndo } from '../services/undo';
 
 type AreaDetailRoute = RouteProp<RootStackParams, 'AreaDetail'>;
 
@@ -215,14 +216,16 @@ export default function AreaDetailScreen() {
   );
 
   const handleAddTask = useCallback(() => {
-    if (!quickAddText.trim()) {
-      Alert.alert('Please enter a task name');
-      return;
-    }
+    // CP3.5 — no required fields. If the field is empty, treat it as a silent
+    // no-op (no shame popup). The user either meant to type something and
+    // didn't, or they tapped the button exploratorily — either way, blocking
+    // with an alert is worse than doing nothing.
+    const text = quickAddText.trim();
+    if (!text) return;
     const today = format(new Date(), 'yyyy-MM-dd');
     const groupId = quickAddFreq ? uid() : undefined;
     addTask({
-      text: quickAddText.trim(),
+      text,
       areaId: area.id,
       date: today,
       isToday: true,
@@ -250,6 +253,10 @@ export default function AreaDetailScreen() {
         <TouchableOpacity
           style={styles.moreBtn}
           onPress={() => {
+            // CP3.4 — action sheet is now a single tier. No nested "are you sure?"
+            // chains. Archive and delete fire immediately and surface an Undo
+            // pill for 10s. The decision was already made; a second confirm
+            // just taxes executive function.
             Alert.alert('Area options', undefined, [
               {
                 text: 'Edit',
@@ -261,42 +268,36 @@ export default function AreaDetailScreen() {
                 text: 'Archive',
                 style: 'destructive',
                 onPress: () => {
-                  Alert.alert(
-                    'Archive Area',
-                    `Archive "${area.name}"? It'll be hidden but can be restored later.`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Archive',
-                        style: 'destructive',
-                        onPress: () => {
-                          archiveArea(area.id);
-                          navigation.goBack();
-                        },
-                      },
-                    ],
-                  );
+                  const snapshot = { isActive: area.isActive, isArchived: area.isArchived };
+                  archiveArea(area.id);
+                  navigation.goBack();
+                  enqueueUndo({
+                    label: `Archived "${area.name}"`,
+                    undo: () => {
+                      useStore.setState(st => ({
+                        areas: st.areas.map(a =>
+                          a.id === area.id
+                            ? { ...a, isActive: snapshot.isActive, isArchived: snapshot.isArchived }
+                            : a,
+                        ),
+                      }));
+                    },
+                  });
                 },
               },
               {
                 text: 'Delete permanently',
                 style: 'destructive',
                 onPress: () => {
-                  Alert.alert(
-                    'Delete Area?',
-                    `Delete "${area.name}" permanently? This cannot be undone. Tasks and projects linked to this area will no longer have an area.`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: () => {
-                          deleteArea(area.id);
-                          navigation.goBack();
-                        },
-                      },
-                    ],
-                  );
+                  const snapshot = area;
+                  deleteArea(area.id);
+                  navigation.goBack();
+                  enqueueUndo({
+                    label: `Deleted "${area.name}"`,
+                    undo: () => {
+                      useStore.setState(st => ({ areas: [...st.areas, snapshot] }));
+                    },
+                  });
                 },
               },
               { text: 'Cancel', style: 'cancel' },

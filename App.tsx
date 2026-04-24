@@ -2,9 +2,11 @@ import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { RootNavigator } from './src/navigation';
 import FifteenBanner from './src/components/FifteenBanner';
+import UndoSnackbar from './src/components/UndoSnackbar';
 // NotificationHandler is wired inside RootNavigator (needs NavigationContainer context)
 
 /**
@@ -32,13 +34,20 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar style="auto" />
-      <View style={{ flex: 1 }}>
-        <RootNavigator />
-        {/* Floats above the active screen while a 15-min session is live.
-            Renders nothing when inactive. */}
-        <FifteenBanner />
-      </View>
+      <SafeAreaProvider>
+        <StatusBar style="auto" />
+        <View style={{ flex: 1 }}>
+          <RootNavigator />
+          {/* Floats above the active screen while a 15-min session is live.
+              Renders nothing when inactive. */}
+          <FifteenBanner />
+          {/* CP3.4 — 10-second undo window for destructive actions. Renders
+              nothing when the queue is empty. Wrapped inside SafeAreaProvider
+              so it can pull correct bottom-inset padding on devices with
+              home indicators. */}
+          <UndoSnackbar />
+        </View>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

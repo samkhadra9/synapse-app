@@ -20,6 +20,8 @@ import { Colors, Spacing, Radius, Shadow, DomainColors } from '../theme';
 import { useColors } from '../theme';
 import { useStore, ProjectTask } from '../store/useStore';
 import { decomposeProject } from '../services/openai';
+import { enqueueUndo } from '../services/undo';
+import { soft } from '../services/haptics';
 
 // RFC-4122 v4 UUID — matches the guard in useStore sync
 const uid = (): string =>
@@ -174,6 +176,9 @@ export default function ProjectDetailScreen() {
   // ── Today / edit helpers ────────────────────────────────────────────────────
 
   const addToToday = (taskText: string, minutes?: number) => {
+    // CP3.0 / CP3.4 — no popup to announce a successful tap. The user tapped,
+    // it happened. A soft haptic confirms. The task's visual state (now
+    // present on today's list) is the receipt.
     addTodo({
       text:             taskText,
       date:             format(new Date(), 'yyyy-MM-dd'),
@@ -184,7 +189,7 @@ export default function ProjectDetailScreen() {
       isMIT:            false,
       priority:         'medium',
     });
-    Alert.alert('Added to today', `"${taskText}" is now on your today list.`);
+    soft();
   };
 
   const saveManualTask = () => {
@@ -425,17 +430,14 @@ export default function ProjectDetailScreen() {
                     style={styles.deleteBtn}
                     accessibilityLabel="Delete task"
                     onPress={() => {
-                      Alert.alert(
-                        'Delete task?',
-                        `"${task.text}" will be permanently removed.`,
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Delete', style: 'destructive', onPress: () => {
-                            setEditingTaskId(null);
-                            setProjectTasks(project.id, project.tasks.filter(t => t.id !== task.id));
-                          }},
-                        ],
-                      );
+                      // CP3.4: no confirm. Remove immediately, offer undo.
+                      const prevTasks = project.tasks;
+                      setEditingTaskId(null);
+                      setProjectTasks(project.id, project.tasks.filter(t => t.id !== task.id));
+                      enqueueUndo({
+                        label: `Removed "${task.text.length > 30 ? task.text.slice(0, 30) + '…' : task.text}"`,
+                        undo: () => setProjectTasks(project.id, prevTasks),
+                      });
                     }}
                   >
                     <Text style={styles.deleteBtnText}>✕</Text>
@@ -474,26 +476,25 @@ export default function ProjectDetailScreen() {
           )}
         </View>
 
-        {/* Delete project */}
+        {/* Delete project — CP3.4: no confirm dialog; go straight to delete
+            with a 10-second undo snackbar. If the user actually wanted to
+            keep it, one tap restores everything. */}
         <TouchableOpacity
           style={styles.deleteProjectBtn}
-          onPress={() =>
-            Alert.alert(
-              'Delete project?',
-              `"${project.title}" and all its tasks will be permanently removed. This cannot be undone.`,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete',
-                  style: 'destructive',
-                  onPress: () => {
-                    deleteProject(project.id);
-                    navigation.goBack();
-                  },
-                },
-              ]
-            )
-          }
+          onPress={() => {
+            const snapshot = project;
+            deleteProject(project.id);
+            navigation.goBack();
+            enqueueUndo({
+              label: `Removed "${project.title}"`,
+              undo: () => {
+                // Re-insert the whole project object via setState. addProject
+                // would regenerate ids; we want the exact original back so
+                // any references (task.projectId etc) keep working.
+                useStore.setState(st => ({ projects: [...st.projects, snapshot] }));
+              },
+            });
+          }}
         >
           <Text style={styles.deleteProjectText}>Delete project</Text>
         </TouchableOpacity>

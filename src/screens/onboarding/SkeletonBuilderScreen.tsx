@@ -540,19 +540,22 @@ export default function SkeletonBuilderScreen({ navigation }: any) {
                 </View>
               )}
 
-              {/* Continue button */}
+              {/* Continue + Skip — CP3.6: skip is bolder than continue.
+                  Skip is the solid-pill primary visual (freedom to leave);
+                  Sync is the outlined secondary (a gentle invitation, not a
+                  mandate). Any walkthrough should make it this easy to bail. */}
               {isComplete && (
                 <Animated.View style={[s.ctaWrap, { opacity: btnAnim }]}>
-                  <TouchableOpacity style={s.ctaBtn} onPress={handleContinue} activeOpacity={0.88}>
-                    <Text style={s.ctaBtnText}>Sync to my calendar →</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.skipBtn} onPress={() => {
+                  <TouchableOpacity style={s.skipPrimary} onPress={() => {
                     // Go to main app, skip calendar export
                     const { updateProfile } = useStore.getState();
                     updateProfile({ skeletonBuilt: true });
                     navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
-                  }}>
-                    <Text style={s.skipBtnText}>Skip for now</Text>
+                  }} activeOpacity={0.88}>
+                    <Text style={s.skipPrimaryText}>Skip for now</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.ctaSecondary} onPress={handleContinue} activeOpacity={0.88}>
+                    <Text style={s.ctaSecondaryText}>Sync to my calendar →</Text>
                   </TouchableOpacity>
                 </Animated.View>
               )}
@@ -682,8 +685,19 @@ const s = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, letterSpacing: 0.5,
   },
 
-  // CTA
+  // CTA — CP3.6: Skip is the primary (loudest) button. Continue is secondary.
   ctaWrap: { marginTop: 24, gap: 10 },
+  skipPrimary: {
+    backgroundColor: TEAL.accent, borderRadius: 100,
+    paddingVertical: 18, alignItems: 'center',
+  },
+  skipPrimaryText: { fontSize: 17, fontWeight: '700', color: '#000', letterSpacing: -0.2 },
+  ctaSecondary: {
+    borderWidth: 1.5, borderColor: TEAL.border, borderRadius: 100,
+    paddingVertical: 16, alignItems: 'center',
+  },
+  ctaSecondaryText: { fontSize: 15, color: TEAL.textDim, fontWeight: '600', letterSpacing: -0.1 },
+  // Legacy — no longer rendered but kept briefly in case of stale references.
   ctaBtn: {
     backgroundColor: TEAL.accent, borderRadius: 100,
     paddingVertical: 18, alignItems: 'center',

@@ -417,3 +417,82 @@ pre-existing `C.surfaceVariant` typo in DashboardScreen was fixed to
 upstream `any` usage; the CP2.3 useColors refactor tightened types
 enough to surface it).
 
+### Checkpoint 3 — Motion & forgiveness
+
+**CP3.0 — Haptic discipline.** New `src/services/haptics.ts` exposes a
+3-verb vocabulary: `soft()` (Haptics.selectionAsync — pickers, taps),
+`gentle()` (ImpactFeedbackStyle.Light — mid-session ticks), `done()`
+(NotificationFeedbackType.Success — completions). RN `Vibration` removed
+everywhere. DashboardScreen's `MomentumCelebration` modal (confetti +
+giant ✓ + sparkles) deleted; `handleToggleTask` now fires `done()` only
+when a task flips incomplete → complete. No visual celebration layer
+anywhere in the app.
+
+**CP3.1 — Animation discipline.** Existing Animated.timing usage audited;
+UndoSnackbar uses 220ms Easing.out(Easing.ease) with no spring/bounce.
+No scale-bounce animations in the codebase.
+
+**CP3.2 — Sheets over modals.** Deferred; existing presentationStyle
+pageSheet modals (AddProjectModal, AreaModal) already dismissible by
+swipe. Alert-based nested confirms collapsed in CP3.4.
+
+**CP3.3 — Autosave + kill Save confirms.** Partial pass: removed the
+double "Are you really sure?" wipeData chain on SettingsScreen (single
+confirm only — the one place where data loss is truly unrecoverable).
+API-key removal flows (Anthropic / OpenAI) no longer confirm; they
+remove immediately and surface an Undo pill with 10-second window.
+Post-action "Added to today" popup on ProjectDetailScreen replaced with
+a soft haptic (the task appearing in today's list IS the receipt). Full
+per-field autosave deferred — would require debounced onBlur writes
+through every form; a bigger refactor than this checkpoint warrants.
+
+**CP3.4 — Global undo snackbar.** New `src/services/undo.ts` — zustand
+single-slot queue with 10-second TTL; `enqueueUndo({ label, undo })` is
+the public surface. New `src/components/UndoSnackbar.tsx` — floating
+bottom pill, mounted once at the app root inside SafeAreaProvider so it
+pulls correct home-indicator inset. Ease-out 220ms fade+rise. Destructive
+flows migrated: AreasScreen archive (snapshot `isActive/isArchived` flags
+then restore via setState), ProjectDetailScreen delete-task (snapshot
+project.tasks then restore via setProjectTasks), ProjectDetailScreen
+delete-project (snapshot full project then re-add via setState),
+AreaDetailScreen archive + delete permanent (action sheet flattened
+from nested "are you sure?" chains to single-tier with immediate action +
+undo). DeepWorkScreen `confirmEnd` stripped of its "End session?" dialog
+— End now goes straight to capture phase.
+
+**CP3.5 — No required fields.** Empty-name save behaviour relaxed:
+AreasScreen AreaForm saves as "(untitled area)", ProjectsScreen
+AddProjectModal saves as "(untitled project)", AreaDetailScreen quick-add
+empty is a silent no-op (no scolding popup).
+
+**CP3.6 — Skip louder than continue.** SkeletonBuilderScreen post-
+completion CTA stack inverted: "Skip for now" is now the solid accent
+pill (primary visual weight), "Sync to my calendar" is the outlined
+secondary. CalendarExportScreen pre-sync state inverted identically:
+Skip is the ink-solid primary, Sync is the amber-outlined secondary.
+Post-sync the forward "Get started →" becomes primary (user has already
+chosen the path).
+
+**CP3.7 — No retrospective catch-up.** Already substantially in place
+from CP1.5 (OverdueBanner / NextEventCountdown / DriftNudge-as-drift
+removal) and ChatScreen system prompts (explicit "surface only the
+important ones, without shame" framing on the FROM EARLIER block,
+continuity.ts tells model "DO NOT catch up on the backlog"). HomeHeld
+remains the canonical returning-user greeting — warm, "Last here 5 days
+ago" as neutral reference, no missed-tasks call-out. InboxRow overdue
+grouping preserved because the user actively navigated to Inbox — not
+pushed in their face.
+
+**CP3.8 — No re-auth walls.** Already satisfied by architecture:
+Supabase client configured with `persistSession: true`, `autoRefreshToken:
+true`, and ExpoSecureStore storage adapter; session rehydrates on app
+launch via `supabase.auth.getSession()`. No Face ID gate implemented —
+left for future opt-in Settings toggle per ROADMAP item 29 ("Face ID if
+opted in").
+
+**CP3.9 — Verify.** `tsc --noEmit` clean. Grep for `Alert.alert` across
+src/screens shows only informational / error-reporting uses remain
+(calendar sync errors, API-key failures, login errors, ChatScreen
+off-record toggle — educative, not destructive-confirm). All destructive
+confirms either removed or collapsed to single-tier-with-undo.
+

@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, Shadow, THEMES, useColors } from '../theme';
 import type { ThemeName } from '../theme';
 import { useStore } from '../store/useStore';
+import { enqueueUndo } from '../services/undo';
 import { listWritableCalendars, DeviceCalendar } from '../services/calendar';
 import {
   scheduleDailyNotifications,
@@ -158,25 +159,27 @@ export default function SettingsScreen() {
   }
 
   function handleRemoveAnthropicKey() {
-    Alert.alert('Remove Anthropic key', "You won't be able to use the AI without it.", [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => {
-        updateProfile({ anthropicKey: '' });
-        setEditingAI(false);
-        setNewAnthropicKey('');
-      }},
-    ]);
+    // CP3.4 — no confirm. Removing a key is a single-command action with a
+    // 10-second undo window. The key is still in memory until undo expires.
+    const prevKey = profile.anthropicKey;
+    updateProfile({ anthropicKey: '' });
+    setEditingAI(false);
+    setNewAnthropicKey('');
+    enqueueUndo({
+      label: 'Removed Anthropic key',
+      undo: () => updateProfile({ anthropicKey: prevKey }),
+    });
   }
 
   function handleRemoveOpenAiKey() {
-    Alert.alert('Remove OpenAI key', "Voice transcription (Whisper) will be disabled.", [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => {
-        updateProfile({ openAiKey: '' });
-        setEditingVoice(false);
-        setNewOpenAiKey('');
-      }},
-    ]);
+    const prevKey = profile.openAiKey;
+    updateProfile({ openAiKey: '' });
+    setEditingVoice(false);
+    setNewOpenAiKey('');
+    enqueueUndo({
+      label: 'Removed OpenAI key',
+      undo: () => updateProfile({ openAiKey: prevKey }),
+    });
   }
 
   function handleBugReport() {
@@ -194,34 +197,29 @@ export default function SettingsScreen() {
   }
 
   function handleWipeData() {
+    // CP3.4 exception — account-wipe is the one place where a confirm earns
+    // its keep. It is truly unrecoverable (data deleted on servers, user
+    // signed out) and an undo snackbar can't bring it back. Even here, we
+    // consolidate to a single confirm — no nested "are you really sure?"
+    // chain. One brake, no double-tax.
     Alert.alert(
       'Delete all your data?',
-      'This will permanently remove your profile, projects, tasks, goals, and habits — from this device and our servers. You will be signed out.',
+      'This will permanently remove your profile, projects, tasks, goals, and habits — from this device and our servers. You will be signed out. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Continue', style: 'destructive', onPress: () => {
-            // Second confirm
-            Alert.alert(
-              'Are you really sure?',
-              'There is no undo. Everything will be gone.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete everything', style: 'destructive', onPress: async () => {
-                    try {
-                      await wipeAllData();
-                    } catch (e) {
-                      console.warn('[Settings] wipeAllData error:', e);
-                    }
-                    // Sign out so no background sync with the current session
-                    // can resurrect data. The nav guard will route to Login.
-                    try {
-                      await signOut();
-                    } catch (e) {
-                      console.warn('[Settings] signOut error:', e);
-                    }
-                  }},
-              ]
-            );
+        { text: 'Delete everything', style: 'destructive', onPress: async () => {
+            try {
+              await wipeAllData();
+            } catch (e) {
+              console.warn('[Settings] wipeAllData error:', e);
+            }
+            // Sign out so no background sync with the current session
+            // can resurrect data. The nav guard will route to Login.
+            try {
+              await signOut();
+            } catch (e) {
+              console.warn('[Settings] signOut error:', e);
+            }
           }},
       ]
     );

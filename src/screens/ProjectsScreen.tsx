@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  FlatList, TextInput, Modal, Alert, KeyboardAvoidingView,
+  FlatList, TextInput, Modal, KeyboardAvoidingView,
   Platform, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -55,8 +55,11 @@ function AddProjectModal({ visible, onClose }: { visible: boolean; onClose: () =
   const styles = useMemo(() => makeStyles_modal(C), [C]);
 
   function save() {
-    if (!title.trim()) { Alert.alert('Give your project a name'); return; }
-    addProject({ title: title.trim(), description: description.trim(), domain: 'work', deadline: deadline || undefined, status: 'active', areaId: selectedAreaId });
+    // CP3.5 — no required fields. An empty title saves as "(untitled project)"
+    // so the user can rename later when the thought is clearer. Nothing is
+    // "required" at creation time; the only sin is preventing forward motion.
+    const name = title.trim() || '(untitled project)';
+    addProject({ title: name, description: description.trim(), domain: 'work', deadline: deadline || undefined, status: 'active', areaId: selectedAreaId });
     setTitle(''); setDescription(''); setDeadline(''); setSelectedAreaId(undefined);
     onClose();
   }
