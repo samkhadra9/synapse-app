@@ -733,7 +733,8 @@ function PlanReviewSheet({ parsed, onApply, onDiscard }: {
           <View style={rv.headerRow}>
             <Text style={rv.title}>Review plan</Text>
             <Text style={rv.meta}>
-              {mitCount > 0 ? `★ ${mitCount} MIT${mitCount > 1 ? 's' : ''}  ` : ''}{taskCount} task{taskCount !== 1 ? 's' : ''}{projectCount > 0 ? `  +${projectCount} project${projectCount !== 1 ? 's' : ''}` : ''}
+              {/* CP2.1: stars instead of "MIT" — the symbol is the language now. */}
+              {mitCount > 0 ? `${'★'.repeat(mitCount)}  ` : ''}{taskCount} task{taskCount !== 1 ? 's' : ''}{projectCount > 0 ? `  +${projectCount} project${projectCount !== 1 ? 's' : ''}` : ''}
             </Text>
           </View>
 
@@ -743,7 +744,8 @@ function PlanReviewSheet({ parsed, onApply, onDiscard }: {
 
           {mitCount >= 3 && (
             <View style={rv.mitWarning}>
-              <Text style={rv.mitWarningText}>★ MIT cap reached — tap ★ to unmark a task before adding more</Text>
+              {/* CP2.1: keep the limit, lose the jargon. */}
+              <Text style={rv.mitWarningText}>★ Three starred already — tap a ★ to unstar before adding more</Text>
             </View>
           )}
 

@@ -10,7 +10,11 @@
  *  - Description
  *  - Linked habits count
  *  - Linked tasks today count
- *  - Health score dot (green/amber/red based on recent activity)
+ *
+ * CP2: dropped the green/amber/red "health score" dot. Alarm-colour status
+ * indicators violate the color-discipline rule — the stats row already
+ * communicates engagement (empty stats = quiet area; the user can see that
+ * without the app shouting about it).
  *
  * Tab: "Areas"
  */
@@ -23,7 +27,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
-import { format, subDays, parseISO, isWithinInterval } from 'date-fns';
+import { format } from 'date-fns';
 import { useColors, Spacing, Radius, DomainColors } from '../theme';
 import { useStore, Area, DomainKey, ALL_DOMAINS } from '../store/useStore';
 
@@ -51,58 +55,9 @@ const DOMAIN_DESCRIPTIONS: Record<DomainKey, string> = {
   community:     'Giving back, volunteering, social impact',
 };
 
-// ── Health score helper ────────────────────────────────────────────────────────
-
-function getHealthScore(area: Area, tasks: any[], habits: any[]): 'green' | 'amber' | 'red' {
-  const now = new Date();
-  const sevenDaysAgo = subDays(now, 7);
-  const fourteenDaysAgo = subDays(now, 14);
-
-  // Check for task completion in last 7 days
-  const taskCompletion = tasks
-    .filter(t => t.areaId === area.id && t.completed && t.date)
-    .some(t => {
-      try {
-        const d = parseISO(t.date + 'T00:00:00');
-        return isWithinInterval(d, { start: sevenDaysAgo, end: now });
-      } catch { return false; }
-    });
-
-  if (taskCompletion) return 'green';
-
-  // Check for habit completion in last 7 days
-  const habitCompletion = habits
-    .filter(h => h.domain === area.domain && h.completedDates && Array.isArray(h.completedDates))
-    .some(h => h.completedDates.some((d: string) => {
-      try {
-        const date = parseISO(d + 'T00:00:00');
-        return isWithinInterval(date, { start: sevenDaysAgo, end: now });
-      } catch { return false; }
-    }));
-
-  if (habitCompletion) return 'green';
-
-  // Check for activity in 4-14 days range
-  const midRangeActivity = tasks
-    .filter(t => t.areaId === area.id && t.completed && t.date)
-    .some(t => {
-      try {
-        const d = parseISO(t.date + 'T00:00:00');
-        return isWithinInterval(d, { start: fourteenDaysAgo, end: sevenDaysAgo });
-      } catch { return false; }
-    }) || habits
-    .filter(h => h.domain === area.domain && h.completedDates && Array.isArray(h.completedDates))
-    .some(h => h.completedDates.some((d: string) => {
-      try {
-        const date = parseISO(d + 'T00:00:00');
-        return isWithinInterval(date, { start: fourteenDaysAgo, end: sevenDaysAgo });
-      } catch { return false; }
-    }));
-
-  if (midRangeActivity) return 'amber';
-
-  return 'red';
-}
+// CP2: getHealthScore() and its green/amber/red output removed — alarm hues
+// are banned as status coding. Areas signal health through the stats row,
+// which is already visible below the name.
 
 // ── Add / Edit Modal ───────────────────────────────────────────────────────────
 
@@ -260,9 +215,6 @@ function AreaCard({
   const linkedHabits  = habits.filter(h => h.domain === area.domain);
   const todayTasks    = tasks.filter(t => t.areaId === area.id && t.date === today && !t.completed);
   const dc            = DomainColors[area.domain] ?? DomainColors.work;
-  const healthScore   = getHealthScore(area, tasks, habits);
-
-  const healthColor = healthScore === 'green' ? '#4ade80' : healthScore === 'amber' ? '#fbbf24' : '#ef4444';
 
   return (
     <TouchableOpacity
@@ -275,7 +227,7 @@ function AreaCard({
       <View style={[styles.cardBar, { backgroundColor: dc.text }]} />
 
       <View style={styles.cardBody}>
-        {/* Top row */}
+        {/* Top row — CP2: dropped the alarm-coloured health dot. */}
         <View style={styles.cardTop}>
           <View style={{ flex: 1 }}>
             <Text style={styles.areaName}>{area.name}</Text>
@@ -283,11 +235,6 @@ function AreaCard({
               <Text style={styles.areaDesc} numberOfLines={1}>{area.description}</Text>
             ) : null}
           </View>
-
-          {/* Health dot */}
-          <View
-            style={[styles.healthDot, { backgroundColor: healthColor }]}
-          />
         </View>
 
         {/* Stats row */}
@@ -359,11 +306,6 @@ function makeStyles(C: any) {
     cardTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
     areaName: { fontSize: 17, fontWeight: '700', color: C.textPrimary },
     areaDesc: { fontSize: 13, color: C.textSecondary, marginTop: 2 },
-
-    healthDot: {
-      width: 10, height: 10, borderRadius: 5,
-      marginTop: 2,
-    },
 
     statsRow: { flexDirection: 'row', gap: 8, marginTop: 2 },
     statChip: {

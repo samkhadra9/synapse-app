@@ -1024,7 +1024,7 @@ function TodayTimelinePage({
               />
               <View style={tl.mitEmptyButtonRow}>
                 <TouchableOpacity
-                  style={[tl.mitEmptyButton, { backgroundColor: C.surfaceVariant }]}
+                  style={[tl.mitEmptyButton, { backgroundColor: C.surfaceSecondary }]}
                   onPress={() => {
                     setShowMITInput(false);
                     setMitInputText('');
@@ -1406,9 +1406,7 @@ function TodayTimelinePage({
                                 </TouchableOpacity>
                               )}
                               {t.isMIT && (
-                                <View style={tl.mitBadge}>
-                                  <Text style={tl.mitBadgeText}>MIT</Text>
-                                </View>
+                                <Text style={tl.mitBadgeText}>★</Text>
                               )}
                             </TouchableOpacity>
                           </View>
@@ -1454,9 +1452,7 @@ function TodayTimelinePage({
                         </TouchableOpacity>
                       )}
                       {t.isMIT && (
-                        <View style={tl.mitBadge}>
-                          <Text style={tl.mitBadgeText}>MIT</Text>
-                        </View>
+                        <Text style={tl.mitBadgeText}>★</Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -1499,7 +1495,7 @@ function TodayTimelinePage({
 // Styles for TodayTimelinePage — defined outside component to avoid re-creation
 // (uses a function so C theme tokens work; called once per theme change in useMemo)
 function makeTl(C: any) { return StyleSheet.create({
-  header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: 4 },
+  header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.md }, // CP2.5: more room below the big day/date heading
   dayLabel:      { fontSize: 34, fontWeight: '800', color: C.textPrimary, letterSpacing: -1.5, lineHeight: 38 },
   dateLabel:     { fontSize: 14, color: C.textTertiary, fontWeight: '500', marginTop: 2 },
   headerRight:   { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 4 },
@@ -1679,8 +1675,9 @@ function makeTl(C: any) { return StyleSheet.create({
 
   nowLine: { position: 'absolute', right: 0, flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   nowRow:  { position: 'absolute', right: 0, flexDirection: 'row', alignItems: 'center', zIndex: 20 },
-  nowDot:  { width: 9, height: 9, borderRadius: 4.5, backgroundColor: '#EF4444' },
-  nowBar:  { flex: 1, height: 1.5, backgroundColor: '#EF4444' },
+  // CP2.2: "now" marker — the present moment isn't an alarm. Use primary so the line reads as a calm wayfinding cue.
+  nowDot:  { width: 9, height: 9, borderRadius: 4.5, backgroundColor: C.primary },
+  nowBar:  { flex: 1, height: 1.5, backgroundColor: C.primary },
 
   sectionLabel:      { fontSize: 11, fontWeight: '700', color: C.textTertiary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
   tasksSection:      { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
@@ -1698,8 +1695,8 @@ function makeTl(C: any) { return StyleSheet.create({
   taskMeta:          { fontSize: 12, color: C.textTertiary, marginTop: 2 },
   reason:            { fontSize: 12, color: C.textTertiary, marginTop: 2, fontStyle: 'italic' },
   focusButton:       { width: 28, height: 28, borderRadius: 14, backgroundColor: C.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
-  mitBadge:          { backgroundColor: C.primaryLight, borderRadius: Radius.full, paddingHorizontal: 7, paddingVertical: 3 },
-  mitBadgeText:      { fontSize: 10, color: C.primary, fontWeight: '700', letterSpacing: 0.4 },
+  mitBadge:          { paddingHorizontal: 7, paddingVertical: 3 }, // CP2: pill dropped, star only
+  mitBadgeText:      { fontSize: 15, color: C.primary, fontWeight: '600' },
   planCTA:           { margin: Spacing.lg, padding: 16, backgroundColor: C.accentLight, borderRadius: Radius.lg, borderWidth: 1, borderColor: C.accentMid },
   planCTAText:       { fontSize: 15, color: C.accent, fontWeight: '600' },
   mitEmptyCard:      { marginHorizontal: Spacing.lg, marginVertical: Spacing.base, borderWidth: 1, borderRadius: Radius.xl, padding: Spacing.lg, gap: Spacing.base },
@@ -1984,8 +1981,9 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
     const setPriority        = useStore(s => (s as any).setPriority);
     const today_             = format(new Date(), 'yyyy-MM-dd');
 
+    // CP2.2: no alarm hue for priority. Contrast (weight of the dot) carries the signal, not orange.
     const priorityColors: Record<string, string> = {
-      low: '#9CA3AF', medium: C.primary, high: '#D97706',
+      low: '#9CA3AF', medium: C.primary, high: C.textPrimary,
     };
 
     function renderLeft(progress: any, drag: any) {
@@ -2005,7 +2003,8 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
 
     function renderRight(progress: any, drag: any) {
       const nextPriority = t.priority === 'low' ? 'medium' : t.priority === 'medium' ? 'high' : 'low';
-      const bgColor = nextPriority === 'high' ? '#D97706' : nextPriority === 'medium' ? C.primary : '#9CA3AF';
+      // CP2.2: swipe feedback uses weight/contrast, not alarm orange.
+      const bgColor = nextPriority === 'high' ? C.ink : nextPriority === 'medium' ? C.primary : '#9CA3AF';
       return (
         <TouchableOpacity
           style={{
@@ -2036,15 +2035,14 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 15, color: C.textPrimary, lineHeight: 20 }}>{t.text}</Text>
           {t.date && t.date < today
-            ? <Text style={{ fontSize: 12, color: '#E07B45', marginTop: 2 }}>from {t.date}</Text>
+            ? <Text style={{ fontSize: 12, color: C.textSecondary, fontWeight: '600', marginTop: 2 }}>from {t.date}</Text>
             : t.date
             ? <Text style={{ fontSize: 12, color: C.textTertiary, marginTop: 2 }}>due {t.date}</Text>
             : null}
         </View>
         {t.isMIT && (
-          <View style={{ backgroundColor: C.primaryLight, borderRadius: Radius.full, paddingHorizontal: 7, paddingVertical: 2 }}>
-            <Text style={{ fontSize: 10, color: C.primary, fontWeight: '700' }}>MIT</Text>
-          </View>
+          // CP2.1: "MIT" pill → star. Internal `isMIT` stays; the word leaves.
+          <Text style={{ fontSize: 15, color: C.primary, fontWeight: '600', paddingHorizontal: 4 }}>★</Text>
         )}
       </View>
     );
@@ -2111,15 +2109,15 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
         </View>
       )}
 
-      {/* From earlier (overdue — warm tone, not alarming red) */}
+      {/* From earlier (overdue) — CP2.2: no alarm hue; emphasis via typography + grouping, not color */}
       {overdueTasks.length > 0 && (
         <View style={{ marginHorizontal: Spacing.lg, marginTop: Spacing.base }}>
-          <Text style={{ fontSize: 11, fontWeight: '700', color: '#E07B45', letterSpacing: 1, marginBottom: 8 }}>FROM EARLIER</Text>
-          <View style={{ backgroundColor: C.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: C.accentMid, overflow: 'hidden' }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.textTertiary, letterSpacing: 1.2, marginBottom: 8 }}>FROM EARLIER</Text>
+          <View style={{ backgroundColor: C.surface, borderRadius: Radius.xl, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
             {overdueTasks.map((t, i) => (
               <View key={t.id}>
                 {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: C.borderLight, marginLeft: 48 }} />}
-                <InboxRow t={t} accent="#E07B45" />
+                <InboxRow t={t} accent={C.primary} />
               </View>
             ))}
           </View>
@@ -2174,12 +2172,14 @@ function InboxPage({ navigation, onQuickAdd }: { navigation: any; onQuickAdd: ()
 
 // ── Daily Structure Page ──────────────────────────────────────────────────────
 
+// CP2.2: Category decoration, not state coding. "Protected" was red (alarm) — now a committed slate:
+// weight reads "locked in" without signalling danger.
 const BLOCK_COLORS: Record<TimeBlockType, string> = {
   deep_work: '#2EC4A9',
   area_work: '#D4821A',
   social:    '#8B5CF6',
   admin:     '#64748B',
-  protected: '#EF4444',
+  protected: '#1F2937',
   personal:  '#3B82F6',
 };
 
@@ -2248,13 +2248,7 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
           <Text style={ds.dayLabel}>{format(new Date(), 'EEEE')}</Text>
           <Text style={ds.dateLabel}>{format(new Date(), 'd MMMM')}</Text>
         </View>
-        <View style={ds.headerRight}>
-          {doneTasks.length > 0 && (
-            <View style={ds.doneBadge}>
-              <Text style={ds.doneBadgeText}>✓ {doneTasks.length} done</Text>
-            </View>
-          )}
-        </View>
+        {/* CP2: "N done" pill removed — the done log itself is the acknowledgement; a count at rest is a benchmark. */}
       </View>
 
       {/* ── Time blocks ── */}
@@ -2348,9 +2342,7 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
                     <Text style={ds.taskMeta}>~{t.estimatedMinutes} min</Text>
                   ) : null}
                 </View>
-                <View style={ds.mitBadge}>
-                  <Text style={ds.mitBadgeText}>MIT</Text>
-                </View>
+                <Text style={ds.mitBadgeText}>★</Text>
               </View>
             </View>
           ))}
@@ -2404,7 +2396,7 @@ function DailyStructurePage({ navigation }: { navigation: any }) {
               <View key={i}>
                 {i > 0 && <View style={ds.taskDivider} />}
                 <View style={ds.calRow}>
-                  <View style={[ds.calDot, { backgroundColor: '#FF9500' }]} />
+                  <View style={[ds.calDot, { backgroundColor: C.textTertiary }]} />
                   <View style={{ flex: 1 }}>
                     <Text style={ds.taskText} numberOfLines={1}>{r.title}</Text>
                     {r.dueDate && <Text style={ds.taskMeta}>Due {r.dueDate}</Text>}
@@ -2514,8 +2506,8 @@ function makeDs(C: any) { return StyleSheet.create({
   calRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   calDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary, flexShrink: 0 },
 
-  mitBadge:     { backgroundColor: C.primaryLight, borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3 },
-  mitBadgeText: { fontSize: 10, color: C.primary, fontWeight: '700', letterSpacing: 0.5 },
+  mitBadge:     { paddingHorizontal: 8, paddingVertical: 3 }, // CP2: pill dropped, star only
+  mitBadgeText: { fontSize: 15, color: C.primary, fontWeight: '600' },
 
   emptyTasks: {
     marginHorizontal: Spacing.lg,

@@ -5,17 +5,31 @@
 // ── Theme-aware hook ─────────────────────────────────────────────────────────
 // Usage: const C = useColors();  — returns the active theme's colour tokens.
 // Falls back to the static Colors export for screens that haven't migrated yet.
+import { useColorScheme } from 'react-native';
 import { THEMES, DEFAULT_THEME } from './themes';
 export type { ThemeName } from './themes';
 export { THEMES, DEFAULT_THEME } from './themes';
 
-/** Returns active theme colour tokens — reactive to theme changes in store. */
+/**
+ * Returns active theme colour tokens — reactive to theme changes in store.
+ *
+ * CP2.3: when `autoDark` is on in the store, the hook flips to the `ink` (dark)
+ * palette whenever the OS reports dark mode. The OS already handles sunset /
+ * schedule / "always dark" preferences, so we don't guess from the clock — we
+ * trust whatever the user has told their phone to do.
+ */
 export function useColors() {
   // Lazy import to avoid circular deps with store
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const useStore = require('../store/useStore').useStore;
   const themeName = useStore((s: { appTheme: import('./themes').ThemeName }) => s.appTheme) ?? DEFAULT_THEME;
-  return THEMES[themeName]?.tokens ?? THEMES[DEFAULT_THEME].tokens;
+  const autoDark  = useStore((s: { autoDark?: boolean }) => s.autoDark) ?? false;
+  const systemScheme = useColorScheme(); // 'light' | 'dark' | null — reactive via Appearance
+
+  const resolved: import('./themes').ThemeName =
+    autoDark && systemScheme === 'dark' ? 'ink' : themeName;
+
+  return THEMES[resolved]?.tokens ?? THEMES[DEFAULT_THEME].tokens;
 }
 
 export const Colors = {

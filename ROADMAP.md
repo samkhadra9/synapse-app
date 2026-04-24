@@ -309,3 +309,111 @@ not user-facing, and stay. `structureMorningText` in `openai.ts` has
 an old MIT-heavy prompt but the function is dead code (no callers);
 left untouched. `tsc --noEmit` passes.
 
+## Checkpoint 2 — Peace at rest (visible work)
+
+**Direction.** CP1 was mostly invisible: vocabulary swaps, a prompt
+rewrite, a singleton invariant under the hood. Sam flagged this after
+reviewing the build — "feels like it's very similar." CP2 is the
+opposite: every change should register within the first three seconds
+of opening the app. Splash dies, streaks die, alarm colors die, chrome
+recedes when the user is holding one thing, the app can go dark with
+the phone.
+
+**CP2.0 — Kill the splash logo.** `assets/splash.png` replaced with a
+69-byte 1×1 transparent PNG (built in Python via the minimal PNG byte
+sequence — no external tools needed). `app.json` splash config already
+uses `cover` resize mode on white/#1C1C1E backgrounds, so the effect
+is: the app opens to a flat background wash and transitions straight
+into the navigator. No wordmark, no logo, no "moment of brand" — the
+app is somewhere you go to think, not a product that introduces itself.
+
+**CP2.1 — Streaks and flame emoji.** `WorkingModeModal.tsx` "In the
+zone 🔥" → "In the zone". `DayEndReflection.tsx` `flame-outline` icon
+for deep-work entries swapped to `time-outline` — the session itself
+was the reward, a fire emoji is performance praise. `DashboardScreen`
+had three "MIT" badge pills (timeline grouped, timeline flat, dashboard
+primary list); each replaced with a single `★` glyph. The "✓ N done"
+pill in the inbox header was removed entirely with an inline CP2 note:
+"the done log itself is the acknowledgement; a count at rest is a
+benchmark." One residual "MIT" pill in the overdue inbox row and the
+review-plan confirm sheet ("★ 2 MITs") both swept to the star glyph
+in CP2.7.
+
+**CP2.2 — Color discipline: kill alarm colors.** The principle: status
+is typography weight, never hue; category decoration can use color,
+state coding cannot. `AreasScreen.tsx` green/amber/red `healthDot`
+(with its `getHealthScore()` helper) removed entirely — the stats
+chips already communicate engagement without a traffic-light dot; a
+"red" area doesn't need alarm-coding. `DashboardScreen.tsx` swept:
+the orange `#E07B45` "FROM EARLIER" section header → neutral
+textTertiary with heavier letterSpacing (emphasis via weight); the
+orange overdue-date hint inside InboxRow → textSecondary with
+`fontWeight: 600`; `priorityColors.high: '#D97706'` (orange) →
+`C.textPrimary` (contrast carries priority, not hue); swipe-to-change-
+priority `bgColor` for "high" → `C.ink` (darkest, not loudest); the
+current-time marker `nowDot`/`nowBar` from `#EF4444` (red) → `C.primary`
+(the present moment is wayfinding, not alarm); the calendar reminders
+dot `#FF9500` (orange) → `C.textTertiary`. The `protected` time-block
+category (`BLOCK_COLORS` in three places: DashboardScreen, Skeleton-
+BuilderScreen, CalendarExportScreen) from `#EF4444` red to `#1F2937`
+slate — category decoration stays, but "protected" should read as
+"locked in," not "danger." Theme-level `warning` / `error` tokens
+left in place; they're legitimate for genuinely destructive actions
+(delete data, unsaved work) and are still used there.
+
+**CP2.3 — Adaptive theme.** Added `autoDark: boolean` (default `false`)
++ `setAutoDark` to the store. `useColors()` now pulls `useColorScheme()`
+from react-native; when `autoDark` is on and the system reports dark,
+the hook returns the `ink` tokens regardless of which day theme the user
+picked. This leans on iOS/Android's own sunset automation — the phone
+already knows the user's location and time — rather than hard-coding a
+clock threshold. Added a Switch in SettingsScreen under the theme picker:
+"Match system dark mode" with a hint line. Because `useColors` is the
+single entry point for theme tokens, every screen picks this up with
+zero refactoring.
+
+**CP2.4 — Strip chrome in narrow/held.** Added transient `uiState`
++ `setUIState` to the store (not persisted — classifier result is
+ephemeral). `HomeAdaptive` publishes the decision after classifying on
+focus. `CustomTabBar` reads it: when we're on the Dashboard tab AND the
+state is `narrow` or `held`, the tab bar collapses to just the sparkles
+orb centered on a transparent background. Full chrome restores the
+moment the next classification returns `open` (task completed, session
+tally, etc.). Rationale: the point of `narrow` is "one thing, held in
+space" — a tab bar with unread counts and alternative destinations
+competes with that. Keep sparkles so the chat affordance is never more
+than one tap away.
+
+**CP2.5 — Whitespace pass.** Bumped the key focal surfaces: HomeNarrow
+and HomeHeld ScrollView `paddingTop` from `Spacing.lg` (28) to
+`Spacing.xl` (40); focusCard / chatCard inner padding from
+`Spacing.base` (20) to `Spacing.lg` (28); HomeHeld footer reassurance
+line `marginTop` from base to xl so it sits on its own island. Dashboard
+timeline header `paddingBottom` from 4 to `Spacing.md` so the big
+day/date heading breathes. Held deliberately: the Dashboard "open"
+state is denser because the user is actively scanning — generous
+whitespace there would feel sparse, not peaceful.
+
+**CP2.6 — No badge dots.** Notification permission request already had
+`shouldSetBadge: false` in the foreground handler; CP2.6 extends that to
+the OS prompt itself by passing `ios: { allowBadge: false, allowAlert:
+true, allowSound: true }` to `requestPermissionsAsync`, so iOS doesn't
+even offer the capability. Added a `clearBadge()` helper that calls
+`setBadgeCountAsync(0)` (swallows errors for platforms that don't
+support it). `AppNavigator` calls `clearBadge()` on mount and subscribes
+to `AppState` changes — every time the app returns to the foreground,
+any lingering count goes to zero. Philosophy: the app is somewhere you
+go *to*, not something that pings the home screen.
+
+**CP2.7 — Verify.** `tsc --noEmit` clean. Grep for `#EF4444|#E07B45|
+#D97706|#FF9500|flame-|🔥` returns only the two theme-token definitions
+for `warning: '#D97706'` (left intentionally — used for genuine
+destructive action warnings). Additional residuals cleaned: DashboardScreen
+overdue inbox-row "MIT" pill → star glyph; ChatScreen review-plan meta
+line "★ 2 MITs" → "★★"; ChatScreen cap warning "MIT cap reached" →
+"Three starred already — tap a ★ to unstar before adding more." A
+pre-existing `C.surfaceVariant` typo in DashboardScreen was fixed to
+`C.surfaceSecondary` (tsc had been silently passing on this because of
+upstream `any` usage; the CP2.3 useColors refactor tightened types
+enough to surface it).
+

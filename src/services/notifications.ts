@@ -37,7 +37,16 @@ export async function requestPermissions(): Promise<boolean> {
   let finalStatus = existing;
 
   if (existing !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
+    // CP2.6 — explicitly decline the iOS "badge" capability at the OS prompt.
+    // We never want a red dot competing with the in-app log; notifications
+    // are for gentle reminders, not for nagging from the home screen.
+    const { status } = await Notifications.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowSound: true,
+        allowBadge: false,
+      },
+    });
     finalStatus = status;
   }
 
@@ -54,7 +63,28 @@ export async function requestPermissions(): Promise<boolean> {
     });
   }
 
+  // CP2.6: belt and braces — if a legacy install already had badge permission,
+  // wipe whatever count it was carrying so we start at zero.
+  await clearBadge();
+
   return true;
+}
+
+/**
+ * CP2.6 — clear any app-icon badge count.
+ *
+ * The app's philosophy is that the app is somewhere you go *to*, not something
+ * that nags you back. Badge dots are counts-at-rest, which violates CP1.6 as
+ * loudly as any on-screen "14 incomplete" pill. We clear on every foreground
+ * and after permission grant.
+ */
+export async function clearBadge(): Promise<void> {
+  try {
+    await Notifications.setBadgeCountAsync(0);
+  } catch (e) {
+    // setBadgeCount can throw on platforms that don't support it (e.g. web);
+    // swallow silently — not having a badge is the goal anyway.
+  }
 }
 
 // ── Stable IDs for recurring daily notifications ──────────────────────────────

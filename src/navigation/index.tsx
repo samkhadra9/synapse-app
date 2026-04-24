@@ -29,7 +29,9 @@ import {
   scheduleDailyNotifications,
   scheduleWeeklyReview,
   addNotificationResponseListener,
+  clearBadge,
 } from '../services/notifications';
+import { AppState } from 'react-native';
 
 // Screens
 import LoginScreen              from '../screens/auth/LoginScreen';
@@ -117,10 +119,40 @@ const TAB_LABELS: Record<string, string> = {
 function CustomTabBar({ state, navigation }: any) {
   const C = useColors();
   const tabStyles = useMemo(() => makeTabStyles(C), [C]);
+  const uiState = useStore(s => s.uiState);
   const tabs = ['Dashboard', 'Portrait', 'More'];
 
   // Split point: Sparkles sits between Portrait (i=1) and More (i=2).
   const SPARKLES_AFTER = 1;
+
+  // CP2.4 — when the classifier says the user is focused (narrow) or being
+  // held gently (held), the tab bar should get out of the way. We keep just
+  // the sparkles orb so chat is always one tap away — on completion the
+  // next focus will re-classify to 'open' and full chrome returns.
+  // Only applies on the Dashboard tab (index 0); on Portrait/More the user
+  // has explicitly navigated and deserves the full bar.
+  const strippedChrome =
+    state.index === 0 && (uiState === 'narrow' || uiState === 'held');
+
+  if (strippedChrome) {
+    const dow = new Date().getDay();
+    const mode: ChatModeV2 = dow === 0 ? 'ritual' : 'dump';
+    return (
+      <View style={tabStyles.strippedContainer}>
+        <TouchableOpacity
+          style={tabStyles.centerWrap}
+          onPress={() => navigation.navigate('Chat', { mode })}
+          activeOpacity={0.82}
+        >
+          <View style={tabStyles.centerRing}>
+            <View style={tabStyles.centerBtn}>
+              <Ionicons name="sparkles" size={18} color="#fff" />
+            </View>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={tabStyles.container}>
@@ -185,6 +217,18 @@ function makeTabStyles(C: any) {
       paddingBottom: 26,
       paddingTop: 8,
       paddingHorizontal: 4,
+    },
+
+    // CP2.4: stripped-chrome variant — no divider, no background, just the
+    // sparkles orb so nothing loud is competing with whatever the user is
+    // holding on screen. The orb stays because chat is the one affordance
+    // that's always welcome.
+    strippedContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingBottom: 22,
+      paddingTop: 6,
+      backgroundColor: 'transparent',
     },
 
     // Regular tab
@@ -453,6 +497,17 @@ function AppNavigator() {
     );
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // CP2.6 — clear any lingering app-icon badge on mount and whenever the app
+  // returns to the foreground. The badge count is a "you owe me" signal and
+  // we explicitly refuse to carry one.
+  useEffect(() => {
+    clearBadge();
+    const sub = AppState.addEventListener('change', s => {
+      if (s === 'active') clearBadge();
+    });
+    return () => sub.remove();
   }, []);
 
   // Zero-config entry: the moment we have a session, schedule notifications and

@@ -47,7 +47,7 @@ const BLOCK_COLORS: Record<TimeBlockType, string> = {
   area_work: '#D4821A',
   social:    '#8B5CF6',
   admin:     '#64748B',
-  protected: '#EF4444',
+  protected: '#1F2937',
   personal:  '#3B82F6',
 };
 

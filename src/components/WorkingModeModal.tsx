@@ -530,7 +530,7 @@ function CheckInCard({
                 onPress={() => onResponse('fire')}
                 activeOpacity={0.7}
               >
-                <Text style={[s.checkInOptionText, { color: C.primary }]}>In the zone 🔥</Text>
+                <Text style={[s.checkInOptionText, { color: C.primary }]}>In the zone</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[s.checkInOption, { borderColor: C.primary }]}

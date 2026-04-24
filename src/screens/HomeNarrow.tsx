@@ -66,7 +66,9 @@ export default function HomeNarrow() {
         contentContainerStyle={{
           paddingBottom: insets.bottom + 120,
           paddingHorizontal: Spacing.base,
-          paddingTop: Spacing.lg,
+          // CP2.5: more breathing room above the single focal card — the whole
+          // point of narrow is "one thing, held in space."
+          paddingTop: Spacing.xl,
         }}
       >
         {/* Day-end reflection (evening only, if completions exist) */}
@@ -210,12 +212,14 @@ function makeStyles(C: any) {
     },
 
     focusCard: {
-      padding: Spacing.base,
+      // CP2.5: extra inner padding — the focal card is the only element on
+      // screen in narrow; it deserves space around its one instruction.
+      padding: Spacing.lg,
       backgroundColor: C.surface,
       borderRadius: Radius.xl,
       borderWidth: 1,
       borderColor: C.border,
-      marginBottom: Spacing.base,
+      marginBottom: Spacing.lg,
     },
     focusLabel: {
       fontSize: 11,

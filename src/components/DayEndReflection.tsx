@@ -116,7 +116,7 @@ export default function DayEndReflection() {
             <Ionicons
               name={
                 c.source === 'task'     ? 'checkmark-circle-outline'
-                : c.source === 'deepwork' ? 'flame-outline'
+                : c.source === 'deepwork' ? 'time-outline'
                 : 'chatbubble-outline'
               }
               size={14}

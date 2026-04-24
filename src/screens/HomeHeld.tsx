@@ -64,7 +64,9 @@ export default function HomeHeld() {
         contentContainerStyle={{
           paddingBottom: insets.bottom + 120,
           paddingHorizontal: Spacing.base,
-          paddingTop: Spacing.lg,
+          // CP2.5: the welcome greeting gets more sky above it — this is the
+          // first screen a returning-after-48h user sees.
+          paddingTop: Spacing.xl,
         }}
       >
         {/* Day-end reflection — shows in the evening when there are completions */}
@@ -174,12 +176,13 @@ function makeStyles(C: any) {
     },
 
     chatCard: {
-      padding: Spacing.base,
+      // CP2.5: more breathing room inside the hero chat card.
+      padding: Spacing.lg,
       backgroundColor: C.surfaceWarm,
       borderRadius: Radius.xl,
       borderWidth: 1,
       borderColor: C.accent + '33',
-      marginBottom: Spacing.base,
+      marginBottom: Spacing.lg,
     },
     chatIconWrap: {
       width: 34, height: 34, borderRadius: 17,
@@ -241,7 +244,8 @@ function makeStyles(C: any) {
       fontSize: 12,
       color: C.textTertiary,
       textAlign: 'center',
-      marginTop: Spacing.base,
+      // CP2.5: let the reassurance line sit on its own island.
+      marginTop: Spacing.xl,
     },
   });
 }

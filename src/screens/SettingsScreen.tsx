@@ -48,7 +48,7 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
-  const { profile, updateProfile, wipeAllData, signOut, appTheme, setTheme } = useStore();
+  const { profile, updateProfile, wipeAllData, signOut, appTheme, setTheme, autoDark, setAutoDark } = useStore();
   const C = useColors();
   const styles = useMemo(() => makeStyles(C), [C]);
 
@@ -374,6 +374,21 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               );
             })}
+          </View>
+
+          {/* CP2.3 — adaptive theme: lets the OS handle sunset. */}
+          <View style={styles.card}>
+            <SettingRow label="Match system dark mode">
+              <Switch
+                value={!!autoDark}
+                onValueChange={setAutoDark}
+                trackColor={{ false: C.borderLight, true: C.primary }}
+                thumbColor="#fff"
+              />
+            </SettingRow>
+            <Text style={styles.keyHint}>
+              When your phone goes dark, the app goes dark too. Your colour theme returns in the morning.
+            </Text>
           </View>
 
           {/* Reminders */}

@@ -56,6 +56,8 @@ export default function HomeAdaptive() {
         lastActiveDate: s.profile.lastActiveDate,
       });
       setDecision(d);
+      // CP2.4: publish to the store so the tab bar can recede in narrow/held.
+      s.setUIState(d.state);
 
       // Stamp an 'open' event so the next classification sees us.
       s.logSession({ kind: 'open', note: d.state });

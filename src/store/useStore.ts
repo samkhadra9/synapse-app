@@ -497,6 +497,27 @@ interface SolasState {
   appTheme: import('../theme/themes').ThemeName;
   setTheme: (theme: import('../theme/themes').ThemeName) => void;
 
+  /**
+   * CP2.3 — adaptive theme.
+   * When true, the app follows the OS dark-mode setting: ink palette when the
+   * system is in dark mode, user's selected `appTheme` when light. This leans
+   * on the phone's own sunset automation rather than guessing from a clock —
+   * iOS/Android already know sunrise/sunset for the user's location and flip
+   * the system scheme accordingly. Off by default so existing users keep the
+   * theme they chose explicitly.
+   */
+  autoDark: boolean;
+  setAutoDark: (v: boolean) => void;
+
+  /**
+   * CP2.4 — stripped-chrome signal.
+   * HomeAdaptive writes the current classifier decision here so the tab bar
+   * can recede when the user is in a focused state ('narrow') or being held
+   * ('held'). Transient — not persisted.
+   */
+  uiState: 'open' | 'narrow' | 'held' | null;
+  setUIState: (state: 'open' | 'narrow' | 'held' | null) => void;
+
   wipeAllData: () => Promise<void>;
 }
 
@@ -1122,6 +1143,15 @@ export const useStore = create<SolasState>()(
       // ── App Theme ────────────────────────────────────────────────────────────
       appTheme: 'forest',
       setTheme: (theme) => set({ appTheme: theme }),
+
+      // CP2.3: off by default — honours any theme already picked on upgrade.
+      autoDark: false,
+      setAutoDark: (v) => set({ autoDark: v }),
+
+      // CP2.4: transient signal for chrome-stripping; defaults to null until
+      // HomeAdaptive classifies on first focus.
+      uiState: null,
+      setUIState: (state) => set({ uiState: state }),
 
       // ── Dev / Reset ───────────────────────────────────────────────────────────
       wipeAllData: async () => {
