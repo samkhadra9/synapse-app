@@ -125,34 +125,13 @@ function CustomTabBar({ state, navigation }: any) {
   // Split point: Sparkles sits between Portrait (i=1) and More (i=2).
   const SPARKLES_AFTER = 1;
 
-  // CP2.4 — when the classifier says the user is focused (narrow) or being
-  // held gently (held), the tab bar should get out of the way. We keep just
-  // the sparkles orb so chat is always one tap away — on completion the
-  // next focus will re-classify to 'open' and full chrome returns.
-  // Only applies on the Dashboard tab (index 0); on Portrait/More the user
-  // has explicitly navigated and deserves the full bar.
-  const strippedChrome =
+  // CP2.4 (softened post-regression) — in narrow/held we dim the non-focal
+  // tabs visually but keep them tappable. The v1 "strip to just sparkles"
+  // implementation locked the user out of Settings when they most needed
+  // it (brand-new 'held' state → no way to reach the More tab). We keep
+  // all affordances present; the chrome just gets quieter.
+  const quietChrome =
     state.index === 0 && (uiState === 'narrow' || uiState === 'held');
-
-  if (strippedChrome) {
-    const dow = new Date().getDay();
-    const mode: ChatModeV2 = dow === 0 ? 'ritual' : 'dump';
-    return (
-      <View style={tabStyles.strippedContainer}>
-        <TouchableOpacity
-          style={tabStyles.centerWrap}
-          onPress={() => navigation.navigate('Chat', { mode })}
-          activeOpacity={0.82}
-        >
-          <View style={tabStyles.centerRing}>
-            <View style={tabStyles.centerBtn}>
-              <Ionicons name="sparkles" size={18} color="#fff" />
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View>
-    );
-  }
 
   return (
     <View style={tabStyles.container}>
@@ -163,7 +142,7 @@ function CustomTabBar({ state, navigation }: any) {
         return (
           <React.Fragment key={name}>
             <TouchableOpacity
-              style={tabStyles.tab}
+              style={[tabStyles.tab, quietChrome && !focused && tabStyles.tabQuiet]}
               onPress={() => navigation.navigate(name)}
               activeOpacity={0.65}
             >
@@ -219,17 +198,10 @@ function makeTabStyles(C: any) {
       paddingHorizontal: 4,
     },
 
-    // CP2.4: stripped-chrome variant — no divider, no background, just the
-    // sparkles orb so nothing loud is competing with whatever the user is
-    // holding on screen. The orb stays because chat is the one affordance
-    // that's always welcome.
-    strippedContainer: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingBottom: 22,
-      paddingTop: 6,
-      backgroundColor: 'transparent',
-    },
+    // CP2.4 (softened) — non-focused tabs recede in narrow/held. Same
+    // hitbox, same layout, just lower opacity so they don't compete with
+    // whatever the user is holding. Tappable at all times.
+    tabQuiet: { opacity: 0.35 },
 
     // Regular tab
     tab:         { flex: 1, alignItems: 'center', gap: 3 },

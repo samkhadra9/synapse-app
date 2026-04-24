@@ -25,6 +25,7 @@
     "expo-keep-awake": "^15.0.8",
     "expo-notifications": "^0.32.16",
     "expo-secure-store": "^15.0.8",
+    "expo-splash-screen": "^31.0.13",
     "expo-status-bar": "^3.0.9",
     "openai": "^6.33.0",
     "react": "19.1.0",
