@@ -17,6 +17,7 @@ import type { ThemeName } from '../theme';
 import { useStore } from '../store/useStore';
 import { enqueueUndo } from '../services/undo';
 import { listWritableCalendars, DeviceCalendar } from '../services/calendar';
+import { CAPTURE_SURFACES } from '../data/captureSurfaces';
 import {
   scheduleDailyNotifications,
   scheduleWeeklyReview,
@@ -422,6 +423,29 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* CP5.2 — Proactive note opt-out */}
+          <SectionLabel label="PROACTIVE NOTES" />
+          <View style={styles.card}>
+            <SettingRow label="Quiet check-in (max once a day)">
+              <Switch
+                value={profile.proactivePushEnabled !== false}
+                onValueChange={(v) => {
+                  updateProfile({ proactivePushEnabled: v });
+                  if (!v) {
+                    import('../services/proactivePush')
+                      .then(m => m.cancelProactivePush())
+                      .catch(() => {});
+                  }
+                }}
+                trackColor={{ false: C.borderLight, true: C.primary }}
+                thumbColor="#fff"
+              />
+            </SettingRow>
+            <Text style={styles.keyHint}>
+              At most one short note a day, written by your assistant. Skips itself when there's nothing real to say. Turn off any time.
+            </Text>
+          </View>
+
           {/* Weekly Review */}
           <SectionLabel label="WEEKLY REVIEW" />
           <View style={styles.card}>
@@ -503,6 +527,45 @@ export default function SettingsScreen() {
               </>
             )}
           </View>
+
+          {/* CP6.5 — Capture surfaces. iOS won't tell us whether the user
+              has actually added the widget / configured the Siri shortcut
+              etc. — so we don't fake a status. We list the five paths,
+              each tappable to re-open that card from the tour, plus a
+              full-walkthrough button at the bottom. */}
+          <SectionLabel label="CAPTURE SURFACES" />
+          <View style={styles.card}>
+            {CAPTURE_SURFACES.map((surface, i) => {
+              const isLast = i === CAPTURE_SURFACES.length - 1;
+              return (
+                <React.Fragment key={surface.id}>
+                  <TouchableOpacity
+                    style={styles.captureRow}
+                    onPress={() => navigation.navigate('CaptureTour', { initialIndex: i })}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.captureIconWrap}>
+                      <Ionicons name={surface.icon} size={20} color={C.primary} />
+                    </View>
+                    <View style={styles.captureBody}>
+                      <Text style={styles.captureTitle}>{surface.title}</Text>
+                      <Text style={styles.captureHowTo} numberOfLines={2}>{surface.howTo}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={C.textTertiary} />
+                  </TouchableOpacity>
+                  {!isLast && <View style={styles.divider} />}
+                </React.Fragment>
+              );
+            })}
+          </View>
+          <TouchableOpacity
+            style={styles.captureWalkthroughBtn}
+            onPress={() => navigation.navigate('CaptureTour', { initialIndex: 0 })}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="compass-outline" size={16} color={C.textSecondary} />
+            <Text style={styles.captureWalkthroughBtnText}>Walk me through these again</Text>
+          </TouchableOpacity>
 
           {/* Save */}
           <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
@@ -849,6 +912,32 @@ function makeStyles(C: any) {
     calEmpty:    { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
     calEmptyText: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 10 },
     calEmptySub:  { fontSize: 14, color: C.textSecondary, textAlign: 'center', lineHeight: 22 },
+
+    // CP6.5 — capture surfaces panel
+    captureRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      paddingHorizontal: Spacing.base, paddingVertical: 14,
+    },
+    captureIconWrap: {
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: C.primaryLight ?? C.surfaceSecondary,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    captureBody:  { flex: 1, gap: 2 },
+    captureTitle: { fontSize: 15, fontWeight: '600', color: C.textPrimary },
+    captureHowTo: { fontSize: 12, color: C.textTertiary, lineHeight: 17 },
+
+    captureWalkthroughBtn: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+      marginTop: 10,
+      paddingVertical: 13, paddingHorizontal: Spacing.base,
+      backgroundColor: C.surfaceSecondary,
+      borderRadius: Radius.full,
+      borderWidth: 1, borderColor: C.border,
+    },
+    captureWalkthroughBtnText: {
+      fontSize: 14, fontWeight: '600', color: C.textSecondary,
+    },
 
     // Theme picker
     themeRow: { flexDirection: 'row', gap: 12 },

@@ -147,11 +147,38 @@ export interface LifeGoal extends EntityProvenance {
 
 export type Goal = LifeGoal;
 
+/**
+ * CP6.1 — message attachments (PDF/image).
+ *
+ * `b64` is the raw base64 payload sent up to Anthropic as a `document` or
+ * `image` content block. It is HEAVY (often megabytes), so we strip it
+ * before persisting to AsyncStorage — see `appendChatSessionMessage`.
+ * Once a turn has been sent and answered, we don't need to resend the
+ * attachment on subsequent turns; the conversation continues in text.
+ */
+export interface ChatAttachment {
+  /** Discriminator — what kind of file this is. */
+  kind: 'pdf' | 'image';
+  /** User-visible filename (e.g. "fluxx-deck.pdf"). */
+  name: string;
+  /** MIME type — e.g. "application/pdf", "image/jpeg". */
+  mediaType: string;
+  /** Approximate size for the UI chip ("142 KB"). */
+  sizeKB: number;
+  /**
+   * Base64 payload. Present on the live in-memory message; stripped
+   * before persistence so chat history stays small.
+   */
+  b64?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  /** CP6.1 — optional attachment (PDF, image). */
+  attachment?: ChatAttachment;
 }
 
 export type TimeBlockType =
@@ -333,6 +360,13 @@ export interface UserProfile {
   weeklyReviewTime?: string;   // 'HH:MM' 24h
   /** User said "off record" — pause entity extraction until next app open */
   offRecordUntil?: string;     // ISO timestamp
+  /** CP5.2 — proactive push opt-out. Default = enabled. Explicit `false` disables. */
+  proactivePushEnabled?: boolean;
+  /**
+   * CP6.4 — capture-surfaces onboarding tour seen marker. ISO timestamp.
+   * Null/undefined = never seen → eligible for the tour after first chat.
+   */
+  captureTourSeenAt?: string;
 }
 
 /** Empty-state portrait — used for new accounts and after wipe */
@@ -1008,7 +1042,13 @@ export const useStore = create<SolasState>()(
       })),
       appendChatSessionMessage: (key, msg) => set((s) => {
         const prev = s.chatSessions[key] ?? [];
-        return { chatSessions: { ...s.chatSessions, [key]: [...prev, msg] } };
+        // CP6.1 — strip heavy attachment payload before persistence.
+        // Keep the metadata so the UI can still render the chip on
+        // session resume; drop `b64` so AsyncStorage doesn't bloat.
+        const persisted: ChatMessage = msg.attachment?.b64
+          ? { ...msg, attachment: { ...msg.attachment, b64: undefined } }
+          : msg;
+        return { chatSessions: { ...s.chatSessions, [key]: [...prev, persisted] } };
       }),
       clearChatSession: (key) => set((s) => {
         const next = { ...s.chatSessions };

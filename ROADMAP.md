@@ -607,3 +607,177 @@ WIDGET_SETUP.md for:
     when the app is fully backgrounded for >8hrs — not needed for 15min
     sessions.
 
+### Checkpoint 5 — Proactive push + completion without ticking
+
+Items 5 and 8 from the original list. Two threads — both close the
+"the model is doing real work in the background" loop.
+
+**CP5.1 — Completion-without-ticking.** Extended the existing
+`[SYNAPSE_ACTIONS]` chat protocol with a new `complete` action type
+rather than building a parallel post-message extractor. Six surgical
+edits to `src/screens/ChatScreen.tsx`:
+  1. Added `{"type":"complete","taskText":"..."}` to the `outputFormat`
+     schema the model sees.
+  2. Added a COMPLETION-WITHOUT-TICKING block to `sharedRules`: when the
+     user mentions in passing that they've already done something
+     ("nailed that call", "sent it", "ok done the email") and it
+     matches one of today's open tasks, emit a `complete` action and
+     keep the conversational reply minimal ("Done." / "Noted."). Don't
+     lecture, don't ask "how did it go", don't celebrate. Skip if the
+     match is ambiguous and ask a clarifying question instead.
+  3. New branch in `applyActions`: case-insensitive exact-match, then
+     fuzzy-match (substring both directions, len ≥ 3), then
+     today-only-or-any-open fallback. Calls existing
+     `useStore.toggleTask(target.id)` so all the cascading work
+     (completion log, recurrence clone, paired iOS Reminder, sync) is
+     reused. Logs and skips silently on no-match.
+  4. `applyResult` state shape gained a `completed?: number` field so
+     the bottom-sheet summary can show "✓ N marked done".
+  5. `handleReviewApply` derives `completedCount` and feeds the summary.
+  6. Summary card renders the count.
+  7. Action-dispatch path: if all parsed actions are `complete` /
+     `focus` (passive types), skip the review sheet entirely and
+     apply silently — completion-without-ticking should be invisible,
+     not a confirm-dialog detour.
+
+**CP5.2 — Proactive Haiku-authored push.** New
+`src/services/proactivePush.ts` runs at most one decision per ~6h of
+JS lifetime + at most one scheduled notification per local day
+(stable identifier `synapse-proactive-<YYYY-MM-DD>`). The decision
+call hands Haiku: portrait (4 sections), last 3 days of completion
+log, today's the-one, and the next 4 open tasks. The system prompt
+is strict on voice — banned words, no exclaim marks, no "Great job",
+no fake urgency, max 18 words, lower-case casual fine. Output is a
+JSON object `{shouldPing, message}`; defensive parse + a banned-word
+audit drop messages that snuck through. If passing, schedules a
+local notification (date trigger) for today's 9-11am window if
+we're inside it (90s delay), otherwise tomorrow 9:30. Tap path:
+the notification handler in `src/navigation/index.tsx` reads the
+seed off the notification's `data.proactiveSeed`, computes today's
+dump-mode `chatSessionKey`, and `appendChatSessionMessage`s a
+fresh `assistant` turn (id `proactive:<YYYY-MM-DD>` for
+de-dupability) BEFORE navigating to `Chat`. ChatScreen mounts,
+loads the session, and renders the assistant message in its
+left-aligned bubble — the user lands inside a conversation
+already in flight, framed correctly, rather than seeing the
+seed as their own pending input.
+
+  - `requestPermissions` post-grant effect now calls
+    `runProactiveDecision()` once on first permission grant.
+  - `AppState 'active'` handler in `RootNavigator` calls it on every
+    foreground; cheap when already-decided-today.
+  - Settings → "PROACTIVE NOTES" section with an opt-out switch.
+    Default = enabled. Toggling off cancels today's pending push
+    immediately via `cancelProactivePush()`.
+  - New profile field `proactivePushEnabled?: boolean` (optional, no
+    migration needed — default treated as enabled).
+  - New helper `extractProactiveSeed(data)` so the
+    `NotificationHandler` in `src/navigation/index.tsx` can identify
+    proactive-push taps and pull the seed line out of the
+    notification's `data` payload.
+
+**CP5.3 — Verify.** `npx tsc --noEmit` clean after CP5.1 and after
+CP5.2. Both the chat-action `complete` path and the proactive push
+service compile against the existing `Task`, `Portrait`,
+`CompletionEntry`, and `RootStackParams` types with no surface
+changes to the public store API. Manual walk-through pending on
+Sam's device.
+
+**CP5 deferred / future:**
+  - Background-fetch trigger so the decision can run without the
+    user opening the app — current implementation needs a foreground.
+    `app.json` already declares `fetch` + `remote-notification`
+    UIBackgroundModes, so adding `expo-background-fetch` later is a
+    small follow-up.
+  - Per-portrait push frequency tuning — some users will want once
+    every other day, not daily. Extend `proactivePushEnabled` to a
+    cadence enum (`'off' | 'daily' | 'rare'`).
+  - Telemetry on which proactive pushes get tapped vs ignored —
+    drives a feedback loop on the model's decision quality. Wait
+    until D7 retention shape is clear before instrumenting.
+  - User-authored "send a test ping now" button in Settings — the
+    `runProactiveDecision({force:true})` plumbing supports it but
+    UI is deferred until first real-user friction shows up.
+
+### Checkpoint 6 — Capture completeness
+
+The premise: the app already had five fast-capture paths (widget, share
+sheet, Siri, app-icon long-press, paperclip), but discoverability and
+coverage were uneven — and PDFs / images / clipboard text could not
+actually land *inside* the app. CP6 closes that input-surface gap before
+we move on to the brain upgrade. Six surgical edits across attachments,
+clipboard, picker, tour, and Settings.
+
+**CP6.1 — PDF picker → Chat as attachment.** New
+`src/services/attachments.ts` encapsulates the three-step flow:
+`expo-document-picker` selection → SDK 54 class-based
+`new File(uri).base64()` read → Anthropic `document` content-block
+builder. The `MAX_BYTES = 7 * 1024 * 1024` cap is set by the Supabase
+Edge Function proxy's ~10MB body limit, not the Anthropic 32MB ceiling
+— a 7MB raw file becomes ~9.5MB after base64 inflation, leaving
+headroom for the JSON envelope. `pickPdfAttachment()` returns a
+discriminated union (`ok | cancelled | too_large | error`) so
+`ChatScreen` can map every branch to the right user-facing message
+without `try/catch` plumbing.
+
+**CP6.2 — Paste-from-clipboard one-tap on Dump.** `expo-clipboard`'s
+`hasStringAsync()` peeks silently (no iOS pasteboard banner — that's
+the gotcha; `getStringAsync()` triggers the banner every time).
+ChatScreen runs the peek on `mode === 'dump'` mount and on each
+AppState `'active'` transition. If clipboard has text and the user
+hasn't dismissed the prompt, a small "Paste" pill appears above the
+composer; tapping it calls `getStringAsync()` (the banner here is
+expected — the user explicitly asked) and appends to the existing
+input with `\n\n`. Dismissed pills don't reappear until clipboard
+content actually changes.
+
+**CP6.3 — Image capture from camera roll → Chat.**
+`expo-image-picker` with `launchImageLibraryAsync({base64: true})`,
+permission gate via `requestMediaLibraryPermissionsAsync`. Reuses the
+same `ChatAttachment` schema and Supabase 7MB ceiling. iOS
+`ActionSheetIOS.showActionSheetWithOptions` provides the native
+"PDF / Photo / Cancel" picker triggered by the paperclip;
+`Alert.alert` is the Android fallback. `Info.plist` gained
+`NSPhotoLibraryUsageDescription` and `NSDocumentsFolderUsageDescription`.
+
+The persistence design for attachments is the part most likely to bite
+later if forgotten: `useStore.appendChatSessionMessage` strips the
+heavy `b64` field at the persist boundary
+(`{ ...msg, attachment: { ...msg.attachment, b64: undefined } }`) so
+chat history stays small in AsyncStorage but the metadata (kind, name,
+mediaType, sizeKB) is kept — enough for the user-bubble chip to render
+correctly on cold-start. `buildAnthropicContent(msg)` returns either a
+plain string or a content-block array depending on whether `b64` is
+still present — meaning a re-sent historical turn falls back to a text
+description gracefully rather than breaking the API call.
+
+**CP6.4 — Onboarding tour for capture surfaces.** New
+`src/screens/CaptureToursScreen.tsx` is a five-card modal —
+widget → share → Siri → long-press → paperclip — with skip in the top
+bar (CP3.6 "skip louder than continue"), pagination dots, and a single
+"Got it / Done" CTA. Trigger lives inside `HomeAdaptive`'s existing
+`useFocusEffect`: `!profile.captureTourSeenAt && state !== 'narrow' &&
+hasChattedAtLeastOnce`, deferred 600ms so the modal animates after
+the tab transition completes. `markSeenAndClose` writes
+`profile.captureTourSeenAt = new Date().toISOString()` so it shows
+once per profile. Card data lives in `src/data/captureSurfaces.ts` —
+single source of truth shared with CP6.5.
+
+**CP6.5 — Settings → "Capture surfaces" status panel.** A new
+section after CALENDAR SYNC lists the same five surfaces, each row
+tappable to deep-link into the tour at that specific card via the new
+`CaptureTour: { initialIndex?: number } | undefined` route param, plus
+a "Walk me through these again" pill at the bottom that re-launches
+the tour from card 1. iOS doesn't expose whether the user has actually
+added the widget / configured Siri, so the panel doesn't pretend to —
+it's a discoverability + re-trigger surface, not a status checker.
+Re-using `CAPTURE_SURFACES` from CP6.4's data file means the copy will
+never drift between the tour and the Settings rows.
+
+**CP6.6 — TestFlight build #1.** iOS `buildNumber` bumped, `tsc`
+clean, `expo prebuild` regenerated `ios/`, `eas build --profile
+production --platform ios --auto-submit` kicked. First TestFlight wave
+gets to test the full capture surface (PDF + image + paste +
+widget + Siri + share + paperclip) before we move on to CP7's brain
+upgrade.
+

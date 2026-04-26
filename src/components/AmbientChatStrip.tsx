@@ -109,7 +109,7 @@ function getStaticContextualMessage(
     if (nextEvent) {
       return `You've got ${nextEvent.label} until "${nextEvent.title}". Enough time to move "${primaryMIT.text.slice(0, 40)}" forward. Ready when you are.`;
     } else {
-      return `The one thing: "${primaryMIT.text.slice(0, 40)}${primaryMIT.text.length > 40 ? '…' : ''}". Ready when you are.`;
+      return `Today's focus: "${primaryMIT.text.slice(0, 40)}${primaryMIT.text.length > 40 ? '…' : ''}". Ready when you are.`;
     }
   }
 
@@ -154,7 +154,7 @@ Context:
 
 Rules:
 1. Be specific about time if you have it: "You're clear until X" or "You've got Yh before Z"
-2. Reference the actual task name if available — call it "the one thing" or just the task name, never "MIT"
+2. Reference the actual task name if available — call it "today's focus" or just the task name, never "MIT" or "the one thing"
 3. End with a warm, forward-leaning prompt: "Ready when you are." / "Where do you want to start?"
 4. 1-2 sentences MAX. Tight and warm. No lists. No questions except the final invite.
 5. Do NOT start with "Hi" or "Hello" — just say the thing.
@@ -162,7 +162,7 @@ Rules:
 
 Examples of good messages:
 - "You're clear until 10am — 1h 20min. Enough to get the draft intro done. Ready when you are."
-- "8:15am and the one thing hasn't started yet. Open the doc and just read your last sentence."
+- "8:15am and today's focus hasn't started yet. Open the doc and just read your last sentence."
 - "You've done 2 tasks already. Momentum's good. What's next?"`.trim();
 }
 
@@ -196,7 +196,7 @@ ${topGoal ? `- 1-year goal: "${topGoal.text}"` : ''}
 Your rules:
 1. Reply in 1-3 sentences MAX. Shorter is better.
 2. Give ONE specific, actionable next step. Not options. Not lists.
-3. Use the user's actual task names when referencing them. Call the focal task "the one thing" — never "MIT".
+3. Use the user's actual task names when referencing them. Call the focal task "today's focus" or just the task name — never "MIT" or "the one thing".
 4. Be warm, direct, slightly energising. No corporate tone.
 5. If stuck or overwhelmed: name the feeling, then give the one door to walk through.
 6. Never ask clarifying questions. Just respond.
@@ -345,7 +345,7 @@ export default function AmbientChatStrip({
             ) : (
               <Text style={s.proactiveText}>
                 {proactiveMsg ?? (hasMIT
-                  ? `The one: "${primaryMIT!.text.slice(0, 40)}${primaryMIT!.text.length > 40 ? '…' : ''}". Ready when you are.`
+                  ? `Today: "${primaryMIT!.text.slice(0, 40)}${primaryMIT!.text.length > 40 ? '…' : ''}". Ready when you are.`
                   : "What would make today a win?"
                 )}
               </Text>

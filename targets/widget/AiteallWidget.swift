@@ -127,7 +127,6 @@ struct TheOneSmallView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(14)
-        .containerBackground(for: .widget) { WidgetBackground() }
         .widgetURL(URL(string: "aiteall://chat/dump"))
     }
 }
@@ -173,7 +172,6 @@ struct TheOneMediumView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(14)
-        .containerBackground(for: .widget) { WidgetBackground() }
     }
 }
 
@@ -205,17 +203,29 @@ struct TheOneWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: TheOneProvider()) { entry in
-            if #available(iOS 17, *) {
-                TheOneWidgetEntryView(entry: entry)
-            } else {
-                TheOneWidgetEntryView(entry: entry)
-                    .padding()
-                    .background(WidgetBackground())
-            }
+            TheOneWidgetEntryView(entry: entry)
+                .widgetBackgroundCompat { WidgetBackground() }
         }
         .configurationDisplayName("The one")
         .description("Your single most important thing, one tap to chat.")
         .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+// MARK: - iOS 16/17 background compat
+//
+// iOS 17 introduced `.containerBackground(for: .widget) { ... }` as the
+// official way to paint widget backgrounds — older `.background()` gets
+// cropped in StandBy / tinted modes. But the modifier and the `.widget`
+// case are iOS 17 only, so we have to gate them with #available.
+extension View {
+    @ViewBuilder
+    func widgetBackgroundCompat<B: View>(@ViewBuilder _ background: () -> B) -> some View {
+        if #available(iOS 17.0, *) {
+            self.containerBackground(for: .widget) { background() }
+        } else {
+            self.background(background())
+        }
     }
 }
 

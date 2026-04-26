@@ -300,7 +300,7 @@ export async function scheduleMorningBrief(
 
   const title = mitText ? '☀️ Morning' : '☀️ Good morning';
   const body = mitText
-    ? `The one thing: ${mitText}. ${taskCount ?? 0} tasks + ${calendarEventCount ?? 0} events today.`
+    ? `Today's focus: ${mitText}. ${taskCount ?? 0} tasks + ${calendarEventCount ?? 0} events today.`
     : `${taskCount ?? 0} tasks waiting. Tap to plan your day.`;
 
   await Notifications.scheduleNotificationAsync({

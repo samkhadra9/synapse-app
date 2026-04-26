@@ -23,7 +23,8 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.synapseadhd.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
+      "appleTeamId": "3XUT32U7BT",
       "entitlements": {
         "com.apple.security.application-groups": [
           "group.com.synapseadhd.app"
@@ -37,26 +38,12 @@
         "NSMicrophoneUsageDescription": "Aiteall uses your microphone so you can voice-record your brain dumps and planning sessions.",
         "UISpeechRecognitionUsageDescription": "Aiteall transcribes your voice notes to help you capture ideas hands-free.",
         "NSRemindersUsageDescription": "Aiteall reads your due-today reminders to include them in your morning planning context.",
+        "NSPhotoLibraryUsageDescription": "Aiteall lets you attach a photo to a chat message — for example a whiteboard sketch, a screenshot, or a printed schedule — so the AI can read it and help you plan.",
+        "NSDocumentsFolderUsageDescription": "Aiteall lets you attach a PDF (a brief, a deck, a school doc) to a chat so the AI can read it and help you act on it.",
         "NSUserActivityTypes": [
           "TellAiteallIntent"
         ],
-        "UIApplicationShortcutItems": [
-          {
-            "UIApplicationShortcutItemType": "dump",
-            "UIApplicationShortcutItemTitle": "Dump something quick",
-            "UIApplicationShortcutItemIconType": "UIApplicationShortcutIconTypeCompose"
-          },
-          {
-            "UIApplicationShortcutItemType": "the-one-done",
-            "UIApplicationShortcutItemTitle": "Mark the one done",
-            "UIApplicationShortcutItemIconType": "UIApplicationShortcutIconTypeAccept"
-          },
-          {
-            "UIApplicationShortcutItemType": "stuck",
-            "UIApplicationShortcutItemTitle": "I'm stuck",
-            "UIApplicationShortcutItemIconType": "UIApplicationShortcutIconTypeMessage"
-          }
-        ],
+        "_comment_quickActions": "Quick Actions are registered DYNAMICALLY via expo-quick-actions in src/services/quickActions.ts. Do not re-add UIApplicationShortcutItems here — having both static (Info.plist) and dynamic (runtime setItems) declared simultaneously caused duplicate entries in the long-press menu on iOS 17 (CP-Bug #57).",
         "UIBackgroundModes": [
           "fetch",
           "remote-notification"
@@ -66,7 +53,7 @@
     },
     "android": {
       "package": "com.synapseadhd.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#12121B"

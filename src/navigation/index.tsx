@@ -32,6 +32,8 @@ import {
   addNotificationResponseListener,
   clearBadge,
 } from '../services/notifications';
+import * as Notifications from 'expo-notifications';
+import { runProactiveDecision, extractProactiveSeed } from '../services/proactivePush';
 import { AppState } from 'react-native';
 
 // Screens
@@ -47,6 +49,7 @@ import AreasScreen            from '../screens/AreasScreen';
 import AreaDetailScreen       from '../screens/AreaDetailScreen';
 import SettingsScreen         from '../screens/SettingsScreen';
 import DeepWorkScreen         from '../screens/DeepWorkScreen';
+import CaptureToursScreen     from '../screens/CaptureToursScreen';
 
 // ── Param types ───────────────────────────────────────────────────────────────
 
@@ -76,6 +79,11 @@ export type RootStackParams = {
   DeepWork:         undefined;
   ProjectDetail:    { projectId: string };
   AreaDetail:       { areaId: string };
+  /**
+   * CP6.4 — capture-surfaces onboarding tour. Modal.
+   * `initialIndex` lets Settings (CP6.5) deep-link to a specific card.
+   */
+  CaptureTour:      { initialIndex?: number } | undefined;
 };
 
 export type TabParams = {
@@ -310,6 +318,7 @@ function NotificationHandler() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParams>>();
 
   useEffect(() => {
+    // Existing screen-based router (morning/evening/weekly etc.)
     const cleanup = addNotificationResponseListener((screen) => {
       // All morning/evening/fatigue/quick notifications now land in the
       // same 'dump' chat — the system prompt reads the clock and adjusts.
@@ -328,7 +337,44 @@ function NotificationHandler() {
           break;
       }
     });
-    return cleanup;
+
+    // CP5.2 — proactive push tap: deep-link into Chat 'dump' with the
+    // exact line from the notification pre-seeded as the assistant's
+    // first turn (NOT as the user's pending input). This lands the user
+    // inside a conversation already in flight, framed correctly.
+    const proactiveSub = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const data = response?.notification?.request?.content?.data;
+      const seed = extractProactiveSeed(data);
+      if (!seed) return;
+      try {
+        const { chatSessionKey } = await import('../lib/chatSessionKey');
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const seedId = `proactive:${today}`;
+        const sessionKey = chatSessionKey('dump', new Date());
+        const { getChatSession, appendChatSessionMessage } = useStore.getState();
+        const existing = getChatSession(sessionKey) ?? [];
+        // De-dupe: don't double-append if the same proactive line is
+        // already in today's session (notification re-tapped, etc.)
+        if (!existing.some(m => m.id === seedId)) {
+          appendChatSessionMessage(sessionKey, {
+            id: seedId,
+            role: 'assistant',
+            content: seed,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // If anything in the seed-append fails, still navigate — the
+        // user gets dump mode without the seed message, which is
+        // strictly better than a black hole on tap.
+      }
+      navigation.navigate('Chat', { mode: 'dump' });
+    });
+
+    return () => {
+      cleanup();
+      proactiveSub.remove();
+    };
   }, [navigation]);
 
   return null;
@@ -506,13 +552,23 @@ function AppNavigator() {
   // CP2.6 — clear any lingering app-icon badge on mount and whenever the app
   // returns to the foreground. The badge count is a "you owe me" signal and
   // we explicitly refuse to carry one.
+  //
+  // CP5.2 — also piggy-back on the foreground transition to run the
+  // proactive-push decision pass. It's cheap when already-decided-today
+  // (short-circuits inside runProactiveDecision); only hits Haiku at most
+  // once per ~6h of JS-lifetime per device.
   useEffect(() => {
     clearBadge();
     const sub = AppState.addEventListener('change', s => {
-      if (s === 'active') clearBadge();
+      if (s === 'active') {
+        clearBadge();
+        if (session) {
+          runProactiveDecision().catch(() => { /* silent */ });
+        }
+      }
     });
     return () => sub.remove();
-  }, []);
+  }, [session]);
 
   // Zero-config entry: the moment we have a session, schedule notifications and
   // pull iOS Reminders. No onboarding gate — the user landed in the app and
@@ -526,6 +582,9 @@ function AppNavigator() {
         // Weekly strategic reset — defaults to Sunday 10:00 until user picks
         // their own day/time in Settings.
         scheduleWeeklyReview(profile.weeklyReviewDay, profile.weeklyReviewTime);
+        // CP5.2 — first proactive-push decision once permission is granted.
+        // Cheap if already-decided-today; runs at most once per ~6h.
+        runProactiveDecision().catch(() => { /* silent */ });
       }
     });
 
@@ -658,6 +717,16 @@ function AppNavigator() {
           animation: 'slide_from_bottom',
           headerShown: false,
           gestureEnabled: false,   // must tap End Session — no swipe away
+        }}
+      />
+      {/* CP6.4 — capture-surfaces onboarding tour. Modal, gesture-dismissable. */}
+      <Stack.Screen
+        name="CaptureTour"
+        component={CaptureToursScreen}
+        options={{
+          presentation: 'modal',
+          animation: 'slide_from_bottom',
+          headerShown: false,
         }}
       />
     </Stack.Navigator>

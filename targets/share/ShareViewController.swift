@@ -101,9 +101,13 @@ class ShareViewController: SLComposeServiceViewController {
                 return
             }
             // Fallback for older iOS versions — openURL: on any responder
-            // that implements it.
-            if r.responds(to: Selector(("openURL:"))) {
-                _ = r.perform(Selector(("openURL:")), with: url)
+            // that implements it. NSSelectorFromString (vs Selector("...")
+            // string literal) silences the "use #selector" compiler warning,
+            // which doesn't apply here because we're probing for an ObjC
+            // method that isn't declared in Swift scope.
+            let openSel = NSSelectorFromString("openURL:")
+            if r.responds(to: openSel) {
+                _ = r.perform(openSel, with: url)
                 return
             }
             responder = r.next

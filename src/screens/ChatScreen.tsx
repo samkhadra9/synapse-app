@@ -19,6 +19,7 @@ import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
   StatusBar, Animated, Modal, ScrollView, Switch, Alert,
+  AppState, ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
@@ -28,6 +29,8 @@ import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile,
 import { buildTodayCalendarContext, buildSkeletonContext, writeDayPlanToCalendar, requestCalendarPermissions, findOrCreateSolasCalendar } from '../services/calendar';
 import { portraitToString } from '../services/portrait';
 import { fetchAnthropic } from '../lib/anthropic';
+// CP6.1 — PDF picker, CP6.3 — Image picker → Claude document/image content blocks
+import { pickPdfAttachment, pickImageAttachment, buildAnthropicContent } from '../services/attachments';
 import { supabase } from '../lib/supabase';
 import { chatSessionKey, CHAT_CONTEXT_CAP } from '../lib/chatSessionKey';
 import { computeContinuity, renderContinuityBlock } from '../services/continuity';
@@ -108,10 +111,11 @@ function buildContextBlock(store: {
       ).join('\n')
     : '  • none yet';
 
-  // CP1.8: task rendering uses "the one" vocabulary. `isTheOne` is the
-  // new single-task-of-focus flag; `isMIT` remains for legacy records.
+  // CP1.8 / CP-Polish #55: task rendering surfaces today's focus marker
+  // for the model's context. Internal label updated to "(today's focus)"
+  // so the model isn't tempted to echo "the one" back at the user.
   const todayList = todayTasks.length
-    ? todayTasks.map(t => `  • [${t.completed ? '✓' : ' '}] "${t.text}"${t.isTheOne ? ' ◉ (the one)' : t.isMIT ? ' ★' : ''}`).join('\n')
+    ? todayTasks.map(t => `  • [${t.completed ? '✓' : ' '}] "${t.text}"${t.isTheOne ? ' ◉ (today\'s focus)' : t.isMIT ? ' ★' : ''}`).join('\n')
     : '  • nothing planned yet';
 
   const overdueList = overdue.length
@@ -193,9 +197,26 @@ RULES:
   "missed". Do not add exclamation marks to praise or completion replies.
   Celebrating a task is allowed — but say it plain ("nice, that's handled")
   not performative ("Great job!!").
-- Vocabulary: "the one" / "the one thing" is the single-task-for-today
-  concept. Avoid the acronym MIT when speaking to ${firstName} — it's
-  internal. Past-dated tasks are "from earlier", not "overdue".
+- Vocabulary: refer to the single-task-for-today as "today's focus" or
+  just by the task's name when speaking to ${firstName}. Do NOT use "the
+  one" / "the one thing" / "MIT" in user-facing replies — those are
+  internal labels. The phrase "what's the thing today, if you did it,
+  would make today feel real" is fine because it's natural English, not
+  jargon. Past-dated tasks are "from earlier", not "overdue".
+
+COMPLETION-WITHOUT-TICKING (CP5.1): If ${firstName} mentions in passing
+that they have ALREADY DONE something — "ok done the email", "nailed
+that call", "sent it", "finished the doc", "finally did the grocery
+run" — and that thing matches one of TODAY'S open tasks above, emit a
+{"type":"complete","taskText":"<exact task text from today's list>"}
+action so the app marks it complete. Then keep your conversational
+reply minimal — "Nice. Done." or "Noted." or "Mm — that's handled."
+or just "Done." Do NOT lecture, do NOT ask "how did it go", do NOT
+celebrate. A completion is a quiet handoff, not a parade. If multiple
+tasks were finished, emit one complete action per task. Match
+whitespace and casing loosely — the app does fuzzy matching. If the
+match is ambiguous (two open tasks could fit), DO NOT emit complete;
+ask one clarifying question instead.
 
 DECISION FATIGUE SIGNAL: If ${firstName} says anything that signals they are frozen, overwhelmed, or in analysis paralysis — redirect them gently: "It sounds like your brain is full. Want to switch to decision fatigue mode?" Then stop and wait. Do not try to solve it from within the current session.`;
 
@@ -204,6 +225,7 @@ When you have enough to act, output exactly this — raw JSON, NO code fences, N
 [SYNAPSE_ACTIONS]
 {"actions":[
   {"type":"task","text":"task description","projectId":"project-id-or-null","isTheOne":false,"isMIT":true,"estimatedMinutes":60,"dueDate":"today|tomorrow|YYYY-MM-DD","time":"18:00","eventLabel":"Optional label","reason":"why this task, why now — one short sentence"},
+  {"type":"complete","taskText":"exact text of an existing open task ${firstName} just told you they finished"},
   {"type":"project","projectType":"sequential|recurring","title":"title","description":"desc","deadline":"YYYY-MM-DD or null","tasks":[{"text":"subtask","estimatedMinutes":60,"reason":"why this step"}],"recurringTask":{"text":"session description","estimatedMinutes":60,"frequency":"daily|weekdays|weekly","preferredSlot":"morning|afternoon|evening"}},
   {"type":"goal","horizon":"1year|5year|10year","text":"goal text"},
   {"type":"schedule","slots":[
@@ -310,7 +332,7 @@ HOW TO OPEN (pick ONE based on state, then stop and wait for their answer):
 MORNING FLOW (when it's morning and they're planning the day):
 1. Brain dump first, structure second. Let them talk before you organise.
 2. Cross-reference tasks from earlier, active project needs, 1-year goals, and today's calendar. Name what you notice — gently, without shame.
-3. Pick THE ONE. Ask: "If you only got one thing done today, what would make it a real win?" Whatever they answer → mark ONE task with isTheOne:true. If a day is genuinely heavy, you may also flag up to 2 others with isMIT:true (legacy), but make sure the one stays distinct.
+3. Pick today's focus. Ask: "If you only got one thing done today, what would make it a real win?" Whatever they answer → mark ONE task with isTheOne:true. If a day is genuinely heavy, you may also flag up to 2 others with isMIT:true (legacy), but make sure the focal task stays distinct.
 4. Build a time-blocked sequence. Every task MUST have estimatedMinutes. 15-min buffers between tasks. Work around actual calendar events.
 5. Check the inbox: if unscheduled tasks should come into today's plan, ask.
 6. Confirm the plan. Output [SYNAPSE_ACTIONS] with task actions AND a schedule action.
@@ -1080,6 +1102,8 @@ export default function ChatScreen({ navigation, route }: any) {
     projects: number;
     goals: number;
     scheduledSlots: number;
+    /** CP5.1 — number of open tasks the model just auto-completed via "done the email"-style mentions. */
+    completed?: number;
     calendarCreated?: number;
     calendarUpdated?: number;
     calendarFailed?: number;
@@ -1090,6 +1114,16 @@ export default function ChatScreen({ navigation, route }: any) {
   const [recording,       setRecording]       = useState<Audio.Recording | null>(null);
   const [isRecording,     setIsRecording]     = useState(false);
   const [transcribing,    setTranscribing]    = useState(false);
+  // CP6.1 — file the user has attached but not yet sent. Sits in a chip
+  // above the composer until they hit send (then it rides the next user
+  // turn as a Claude `document` content block).
+  const [pendingAttachment, setPendingAttachment] = useState<import('../store/useStore').ChatAttachment | null>(null);
+  const [attaching,         setAttaching]         = useState(false);
+  // CP6.2 — clipboard peek (silent — uses hasStringAsync so we don't
+  // trigger the "X pasted from Y" iOS banner unprompted). The actual
+  // contents only get pulled when the user taps the Paste pill.
+  const [hasClipboardText,  setHasClipboardText]  = useState(false);
+  const [clipboardDismissed, setClipboardDismissed] = useState(false);
   const [showCalendarExport, setShowCalendarExport] = useState(false);
   const pulseAnim    = useRef(new Animated.Value(1)).current;
   const listRef      = useRef<FlatList>(null);
@@ -1207,19 +1241,54 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   }, [isRecording]);
 
+  // CP6.2 — silent clipboard peek. Only runs on dump mode (other modes
+  // shouldn't be paste-targets — weekly reflection isn't where you dump
+  // a paragraph from somewhere else).
+  //
+  // We use `hasStringAsync` not `getStringAsync` so iOS doesn't show the
+  // pasteboard-access banner — that one only fires when content is
+  // actually read. The body of the clipboard is only fetched when the
+  // user taps the pill.
+  useEffect(() => {
+    if (mode !== 'dump') return;
+    let cancelled = false;
+    const peek = async () => {
+      try {
+        const Clipboard = await import('expo-clipboard');
+        const has = await Clipboard.hasStringAsync();
+        if (!cancelled) setHasClipboardText(has);
+      } catch {
+        if (!cancelled) setHasClipboardText(false);
+      }
+    };
+    peek();
+    // Re-peek when the app comes back to foreground (user copied
+    // something else in another app and switched back).
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') peek();
+    });
+    return () => { cancelled = true; sub.remove(); };
+  }, [mode]);
+
   async function startConversation() {
     await sendToLLM([]);
   }
 
-  function appendMessage(role: 'user' | 'assistant', content: string): ChatMessage {
+  function appendMessage(
+    role: 'user' | 'assistant',
+    content: string,
+    attachment?: import('../store/useStore').ChatAttachment,
+  ): ChatMessage {
     const msg: ChatMessage = {
       id: Math.random().toString(36).slice(2),
       role, content,
       timestamp: new Date().toISOString(),
+      ...(attachment ? { attachment } : {}),
     };
     setMessages(prev => [...prev, msg]);
     // Persist every turn so mid-conversation interruptions (phone call,
     // app backgrounded, crash) don't lose context.
+    // (For CP6.1: store strips heavy `attachment.b64` before persistence.)
     appendChatSessionMessage(sessionKey, msg);
     return msg;
   }
@@ -1239,9 +1308,15 @@ export default function ChatScreen({ navigation, route }: any) {
         system: systemPrompt,
         // Anthropic requires: (a) non-empty array, (b) first message must be user role.
         // We prepend a silent kickoff so the AI opens the conversation as the system prompt instructs.
+        // CP6.1 — when a turn carries an attachment (PDF/image), expand its
+        // `content` into a content-block array so Claude can read the file.
+        // Plain-text turns stay as strings.
         messages: [
           { role: 'user', content: 'Hello' },
-          ...capped.map(m => ({ role: m.role, content: m.content })),
+          ...capped.map(m => ({
+            role: m.role,
+            content: buildAnthropicContent(m),
+          })),
         ],
         temperature: 0.7,
       }, userAnthropicKey);
@@ -1274,8 +1349,20 @@ export default function ChatScreen({ navigation, route }: any) {
         const displayText = rawDisplay || "Here's what I've put together — review and tweak before it's applied.";
         appendMessage('assistant', displayText);
         if (parsed?.actions?.length > 0) {
-          // Show review sheet instead of immediately applying
-          setPendingActions(parsed);
+          // CP5.1 — if the model's actions are PURELY passes ('complete' or
+          // 'focus'), don't open the review sheet. The whole point of
+          // completion-without-ticking is that the user said "ok done the
+          // email" in passing — bouncing them to a confirm sheet for an
+          // already-done task would defeat the purpose. Apply silently and
+          // let the conversational reply do the acknowledgement.
+          const editableTypes = new Set(['task', 'project', 'goal', 'schedule']);
+          const hasEditable   = parsed.actions.some((a: any) => editableTypes.has(a?.type));
+          if (!hasEditable) {
+            handleReviewApply(parsed);
+          } else {
+            // Show review sheet instead of immediately applying
+            setPendingActions(parsed);
+          }
         } else {
           // No editable actions (e.g. just a session note) — apply immediately.
           // Mode is collapsed to `dump`, so we branch on the clock instead:
@@ -1418,6 +1505,50 @@ export default function ChatScreen({ navigation, route }: any) {
         }
       }
 
+      // CP5.1 — completion-without-ticking. Model emits this when the user
+      // mentions in passing that they've already done something matching an
+      // open task ("done the email"). We fuzzy-match against today's open
+      // tasks (then any open task as a fallback) and call toggleTask, which
+      // already handles syncing, recurrence, completion log, paired iOS
+      // Reminders, and haptics — so this is a one-line dispatch.
+      if (action.type === 'complete') {
+        const allTasks = useStore.getState().tasks;
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const rawText  = String(action.taskText ?? action.text ?? '').trim();
+        const key      = rawText.toLowerCase();
+        if (key.length >= 2) {
+          // Prefer an exact-text match on today's open tasks. Then a loose
+          // includes() match in either direction (so "email" hits "send the
+          // Cohen email"). Then any open task (some users dump completions
+          // for tasks not pinned to today). Skip already-completed.
+          let target =
+            allTasks.find(
+              t => !t.completed && t.date === todayStr &&
+                   t.text.trim().toLowerCase() === key,
+            )
+            ?? (key.length >= 3
+              ? allTasks.find(t => {
+                  if (t.completed || t.date !== todayStr) return false;
+                  const tt = t.text.trim().toLowerCase();
+                  return tt.includes(key) || key.includes(tt);
+                })
+              : undefined)
+            ?? allTasks.find(
+              t => !t.completed &&
+                   t.text.trim().toLowerCase() === key,
+            );
+          if (target) {
+            // toggleTask handles the incomplete → complete transition: store
+            // mutation, completion log entry, recurrence clone, paired Reminder,
+            // and Supabase sync. Re-firing on an already-completed task would
+            // un-complete it — guard above already filtered.
+            useStore.getState().toggleTask(target.id);
+          } else {
+            console.warn('[chat] complete action: no open task matched', rawText);
+          }
+        }
+      }
+
       // Standalone focus action — picks an existing task by id or text.
       // Normalise with trim + lowercase to match store dedup semantics; fall
       // back to a loose "includes" match (either direction) so fatigue-mode
@@ -1520,6 +1651,11 @@ export default function ChatScreen({ navigation, route }: any) {
     const taskCount    = (edited.actions ?? []).filter(a => a.type === 'task').length + projectSubtaskCount;
     const projectCount = projectActions.length;
     const goalCount    = (edited.actions ?? []).filter(a => a.type === 'goal').length;
+    // CP5.1 — count completion actions for the summary card. Note this is
+    // an emit-count, not a match-count: applyActions skips ones that didn't
+    // match an open task. Slight overcount in the rare unmatched case is
+    // preferable to the engineering of a return-channel just for this read-out.
+    const completedCount = (edited.actions ?? []).filter(a => a.type === 'complete').length;
     const scheduleAct  = (edited.actions ?? []).find(a => a.type === 'schedule');
     const slotCount    =
       (scheduleAct?.slots?.length ?? 0) +
@@ -1530,6 +1666,7 @@ export default function ChatScreen({ navigation, route }: any) {
       projects: projectCount,
       goals: goalCount,
       scheduledSlots: slotCount,
+      completed: completedCount,
       syncing: false,
     });
 
@@ -1717,11 +1854,103 @@ export default function ChatScreen({ navigation, route }: any) {
     } catch { return null; }
   }
 
-  async function handleSend() {
-    if (!input.trim() || loading) return;
-    const userMsg = appendMessage('user', input.trim());
+  async function handleSend(opts?: { overrideText?: string }) {
+    // CP6.1 — when an attachment is pending, allow send even if the
+    // text is empty (the file itself is the user's contribution).
+    if (loading) return;
+    const text = (opts?.overrideText ?? input).trim();
+    if (!text && !pendingAttachment) return;
+
+    const att = pendingAttachment ?? undefined;
+    // Composer reads "fluxx-deck.pdf" if no text was typed — keeps the
+    // user-side bubble informative.
+    const bubbleText = text || (att ? `attached: ${att.name}` : '');
+    const userMsg = appendMessage('user', bubbleText, att);
     setInput('');
+    setPendingAttachment(null);
     await sendToLLM([...messages, userMsg]);
+  }
+
+  // CP6.1 / 6.3 — common attachment runner. Each picker returns the same
+  // result shape, so we share error mapping and the pending-attachment
+  // hand-off between PDF and image flows.
+  async function runPicker(picker: () => ReturnType<typeof pickPdfAttachment>) {
+    if (attaching || loading) return;
+    setAttaching(true);
+    try {
+      const res = await picker();
+      if (res.kind === 'ok') {
+        setPendingAttachment(res.attachment);
+      } else if (res.kind === 'too_large') {
+        appendMessage(
+          'assistant',
+          `That file is ${(res.sizeKB / 1024).toFixed(1)} MB — a bit much for one go. Try a smaller one.`,
+        );
+      } else if (res.kind === 'error') {
+        const m = (res as { message: string }).message ?? '';
+        if (/permission/i.test(m)) {
+          appendMessage('assistant', "I need photo access for that. Enable it in iPhone Settings → Aiteall.");
+        } else {
+          appendMessage('assistant', "Couldn't open that file. Try again?");
+        }
+      }
+      // 'cancelled' → silent, user changed their mind
+    } finally {
+      setAttaching(false);
+    }
+  }
+
+  // CP6.3 — present an action sheet so the user picks between PDF and
+  // photo. Single attach button keeps the composer slim; the sheet adds
+  // future expansion room (camera, voice memo file, etc.) without
+  // re-laying out the input bar.
+  function handleAttachPress() {
+    if (attaching || loading) return;
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'PDF document', 'Photo from library'],
+          cancelButtonIndex: 0,
+          title: 'Attach to this chat',
+        },
+        (idx) => {
+          if (idx === 1) runPicker(pickPdfAttachment);
+          else if (idx === 2) runPicker(pickImageAttachment);
+        },
+      );
+    } else {
+      // Android / dev fallback — Alert with two buttons
+      Alert.alert('Attach', 'What kind of file?', [
+        { text: 'PDF',    onPress: () => runPicker(pickPdfAttachment) },
+        { text: 'Photo',  onPress: () => runPicker(pickImageAttachment) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }
+
+  function clearPendingAttachment() {
+    setPendingAttachment(null);
+  }
+
+  // CP6.2 — pull the clipboard contents and drop them into the composer.
+  // This is the one place we call `getStringAsync`, which IS what triggers
+  // the iOS pasteboard banner — that's intentional here, the user just
+  // tapped "Paste".
+  async function handlePasteFromClipboard() {
+    try {
+      const Clipboard = await import('expo-clipboard');
+      const text = await Clipboard.getStringAsync();
+      if (text && text.trim()) {
+        setInput(prev => (prev ? `${prev}\n\n${text}` : text));
+      }
+    } catch {
+      // Best-effort — silent fail is fine, the user can still type.
+    } finally {
+      // Hide the pill regardless of whether we found text — pressing it
+      // counts as "I've handled the clipboard offer."
+      setHasClipboardText(false);
+      setClipboardDismissed(true);
+    }
   }
 
   // ── Voice ──────────────────────────────────────────────────────────────────
@@ -1804,13 +2033,27 @@ export default function ChatScreen({ navigation, route }: any) {
           </View>
         )}
         <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
+          {/* CP6.1 — inline attachment indicator (user bubbles only). Persists
+              across cold-start since we keep the metadata even after stripping b64. */}
+          {isUser && item.attachment && (
+            <View style={styles.bubbleAttachment}>
+              <Ionicons
+                name={item.attachment.kind === 'pdf' ? 'document-text-outline' : 'image-outline'}
+                size={14}
+                color={C.textInverse}
+              />
+              <Text style={styles.bubbleAttachmentName} numberOfLines={1}>
+                {item.attachment.name}
+              </Text>
+            </View>
+          )}
           <Text style={[styles.bubbleText, isUser ? styles.bubbleTextUser : styles.bubbleTextAssistant]}>
             {item.content}
           </Text>
         </View>
       </View>
     );
-  }, [styles]);
+  }, [styles, C]);
 
   return (
     <KeyboardAvoidingView
@@ -1916,6 +2159,17 @@ export default function ChatScreen({ navigation, route }: any) {
                   </Text>
                 </View>
               )}
+              {/* CP5.1 — surface completion-without-ticking results so the user
+                  knows the chat just marked things done. Banned-word discipline:
+                  "marked done" is plain, not performative. */}
+              {(applyResult.completed ?? 0) > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryRowIcon}>✓</Text>
+                  <Text style={styles.summaryRowText}>
+                    {applyResult.completed} marked done
+                  </Text>
+                </View>
+              )}
               {applyResult.projects > 0 && (
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryRowIcon}>◩</Text>
@@ -2007,6 +2261,61 @@ export default function ChatScreen({ navigation, route }: any) {
 
       {/* Input bar — plain View + dynamic insets so KAV lifts it cleanly */}
       <View style={[styles.inputSafe, { paddingBottom: insets.bottom }]}>
+        {/* CP6.2 — paste-from-clipboard pill. Only shows on dump mode when
+            (a) clipboard reports text via the silent `hasStringAsync` peek,
+            (b) the composer is empty, (c) the user hasn't already dismissed
+            this pill in this session, and (d) there's no attachment in
+            flight. Tap actually reads the pasteboard and fills the composer. */}
+        {mode === 'dump'
+          && hasClipboardText
+          && !clipboardDismissed
+          && !input.trim()
+          && !pendingAttachment && (
+          <View style={styles.pasteRow}>
+            <TouchableOpacity
+              style={styles.pastePill}
+              onPress={handlePasteFromClipboard}
+              activeOpacity={0.85}
+              accessibilityLabel="Paste from clipboard"
+            >
+              <Ionicons name="clipboard-outline" size={14} color={C.textSecondary} />
+              <Text style={styles.pastePillText}>Paste</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { setHasClipboardText(false); setClipboardDismissed(true); }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Dismiss paste suggestion"
+            >
+              <Ionicons name="close" size={14} color={C.textTertiary} />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* CP6.1 — pending-attachment chip. Sits above the composer so the
+            user can review the file (and remove it) before sending. */}
+        {pendingAttachment && (
+          <View style={styles.attachChipRow}>
+            <View style={styles.attachChip}>
+              <Ionicons name="document-attach-outline" size={16} color={C.textSecondary} />
+              <Text style={styles.attachChipName} numberOfLines={1} ellipsizeMode="middle">
+                {pendingAttachment.name}
+              </Text>
+              <Text style={styles.attachChipMeta}>
+                {pendingAttachment.sizeKB > 1024
+                  ? `${(pendingAttachment.sizeKB / 1024).toFixed(1)} MB`
+                  : `${pendingAttachment.sizeKB} KB`}
+              </Text>
+              <TouchableOpacity
+                onPress={clearPendingAttachment}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Remove attachment"
+              >
+                <Ionicons name="close" size={16} color={C.textTertiary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         <View style={styles.inputRow}>
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
             <TouchableOpacity
@@ -2018,16 +2327,34 @@ export default function ChatScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </Animated.View>
 
+          {/* CP6.1 / 6.3 — paperclip → action sheet (PDF or photo) */}
+          <TouchableOpacity
+            style={[styles.attachBtn, (attaching || loading) && styles.attachBtnDisabled]}
+            onPress={handleAttachPress}
+            disabled={attaching || loading}
+            accessibilityLabel="Attach a PDF or photo"
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={attaching ? 'hourglass-outline' : 'attach-outline'}
+              size={22}
+              color={C.textSecondary}
+            />
+          </TouchableOpacity>
+
           <TextInput
             style={styles.input}
             value={input}
             onChangeText={(text) => {
               if (text.endsWith('\n')) {
                 const trimmed = text.replace(/\n+$/, '').trim();
-                if (trimmed && !loading) {
-                  const userMsg = appendMessage('user', trimmed);
+                // CP6.1 — route through handleSend so a pending attachment
+                // rides this turn even if the user hit return on empty text.
+                if ((trimmed || pendingAttachment) && !loading) {
                   setInput('');
-                  sendToLLM([...messages, userMsg]);
+                  handleSend({ overrideText: trimmed });
+                } else {
+                  setInput(trimmed);
                 }
               } else {
                 setInput(text);
@@ -2042,9 +2369,14 @@ export default function ChatScreen({ navigation, route }: any) {
           />
 
           <TouchableOpacity
-            style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
-            onPress={handleSend}
-            disabled={!input.trim() || loading}
+            style={[
+              styles.sendBtn,
+              (!input.trim() && !pendingAttachment) || loading
+                ? styles.sendBtnDisabled
+                : null,
+            ]}
+            onPress={() => handleSend()}
+            disabled={(!input.trim() && !pendingAttachment) || loading}
           >
             <Text style={styles.sendBtnText}>↑</Text>
           </TouchableOpacity>
@@ -2189,6 +2521,54 @@ function makeStyles(C: any) {
     micBtn:       { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surfaceSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
     micBtnActive: { backgroundColor: '#FEE2E2', borderColor: C.error },
     micLabel:     { fontSize: 11, fontWeight: '700', color: C.textSecondary, letterSpacing: 0.3 },
+
+    // CP6.1 — paperclip / attach button (mirrors mic dimensions)
+    attachBtn:         { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surfaceSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
+    attachBtnDisabled: { opacity: 0.5 },
+
+    // CP6.1 — inline attachment row inside a user bubble
+    bubbleAttachment: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      paddingBottom: 6, marginBottom: 6,
+      borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.25)',
+    },
+    bubbleAttachmentName: {
+      flex: 1, fontSize: 12, color: C.textInverse, opacity: 0.9, fontWeight: '500',
+    },
+
+    // CP6.2 — paste-from-clipboard pill row above the composer
+    pasteRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      paddingHorizontal: 12, paddingTop: 8,
+    },
+    pastePill: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      paddingHorizontal: 12, paddingVertical: 6,
+      borderRadius: Radius.full,
+      backgroundColor: C.surfaceSecondary,
+      borderWidth: 1, borderColor: C.border,
+    },
+    pastePillText: {
+      fontSize: 12, color: C.textSecondary, fontWeight: '600',
+    },
+
+    // CP6.1 — pending-attachment chip row above the composer
+    attachChipRow: {
+      paddingHorizontal: 12, paddingTop: 8,
+    },
+    attachChip: {
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      paddingHorizontal: 12, paddingVertical: 8,
+      borderRadius: Radius.full,
+      backgroundColor: C.surfaceSecondary,
+      borderWidth: 1, borderColor: C.border,
+    },
+    attachChipName: {
+      flex: 1, fontSize: 13, color: C.textPrimary, fontWeight: '500',
+    },
+    attachChipMeta: {
+      fontSize: 11, color: C.textTertiary,
+    },
 
     input: {
       flex: 1, backgroundColor: C.surfaceSecondary, borderRadius: Radius.xxl,

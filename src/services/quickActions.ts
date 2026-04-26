@@ -83,7 +83,7 @@ export function installQuickActions(): () => void {
   // a new TestFlight build.
   mod.setItems([
     { id: 'dump',         title: 'Dump something quick', icon: 'compose' },
-    { id: 'the-one-done', title: 'Mark the one done',    icon: 'accept' },
+    { id: 'the-one-done', title: "Done with today's focus", icon: 'accept' },
     { id: 'stuck',        title: "I'm stuck",            icon: 'message' },
   ]).catch(() => { /* ignore — Info.plist list is still active */ });
 

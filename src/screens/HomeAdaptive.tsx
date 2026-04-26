@@ -18,7 +18,9 @@
 
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParams } from '../navigation';
 import { useColors } from '../theme';
 import { useStore } from '../store/useStore';
 import { classifyUIState, UIState, UIStateDecision } from '../services/uiStateClassifier';
@@ -31,6 +33,7 @@ import HomeHeld        from './HomeHeld';
 
 export default function HomeAdaptive() {
   const C = useColors();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const [decision, setDecision] = useState<UIStateDecision>({ state: 'open', reason: 'init' });
 
   const [emergenceOpen, setEmergenceOpen] = useState(false);
@@ -81,6 +84,26 @@ export default function HomeAdaptive() {
             setEmergenceOpen(true);
           }
         });
+      }
+
+      // CP6.4 — surface the capture-surfaces tour the first time the
+      // user lands here with at least one real chat behind them. We
+      // gate on:
+      //   - tour never seen     (profile.captureTourSeenAt nullish)
+      //   - has chatted at all  (any session with a user message)
+      //   - NOT in 'narrow'     (focus state — don't break the cocoon)
+      //   - NOT showing emergence  (already a moment, don't stack)
+      const tourEligible =
+        !s.profile.captureTourSeenAt
+        && d.state !== 'narrow'
+        && Object.values(s.chatSessions).some(arr => arr.some(m => m.role === 'user'));
+      if (tourEligible) {
+        // Defer one tick so the focus effect commits before we navigate
+        // — otherwise the modal opens during the tab transition and
+        // animation looks crooked.
+        setTimeout(() => {
+          if (!cancelled) navigation.navigate('CaptureTour');
+        }, 600);
       }
 
       return () => { cancelled = true; };

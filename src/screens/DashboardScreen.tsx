@@ -849,7 +849,7 @@ function TodayTimelinePage({
             </Text>
             <Text style={tl.overwhelmSub}>
               {overwhelmReason === 'too-many-mits'
-                ? "Only one can actually be the one. Want to pick together?"
+                ? "Only one can be your focus today. Want to pick together?"
                 : "Let's look at it together and see what's still alive."}
             </Text>
           </View>
@@ -897,11 +897,11 @@ function TodayTimelinePage({
           ) : (
             <>
               <Text style={[tl.mitEmptyTitle, { color: C.textPrimary, marginBottom: Spacing.md }]}>
-                The one thing
+                Today's focus
               </Text>
               <TextInput
                 style={[tl.mitEmptyInput, { borderColor: C.border, color: C.textPrimary }]}
-                placeholder="The one thing for today…"
+                placeholder="What's the thing today, if you did it…"
                 placeholderTextColor={C.textTertiary}
                 value={mitInputText}
                 onChangeText={setMitInputText}
