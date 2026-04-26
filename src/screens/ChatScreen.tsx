@@ -31,9 +31,18 @@ import { portraitToString } from '../services/portrait';
 import { fetchAnthropic } from '../lib/anthropic';
 // CP6.1 — PDF picker, CP6.3 — Image picker → Claude document/image content blocks
 import { pickPdfAttachment, pickImageAttachment, buildAnthropicContent } from '../services/attachments';
+// CP7.1 — agentic tool-use loop
+import { TOOL_DEFINITIONS, executeTool, type ToolUseBlock } from '../services/chatTools';
 import { supabase } from '../lib/supabase';
 import { chatSessionKey, CHAT_CONTEXT_CAP } from '../lib/chatSessionKey';
 import { computeContinuity, renderContinuityBlock } from '../services/continuity';
+// CP7.2 + CP7.3 — running per-session memory + cross-session themes
+import {
+  renderRunningMemoryBlock,
+  renderThemesBlock,
+  summariseSession,
+  maybeRefreshThemes,
+} from '../services/sessionMemory';
 import { Ionicons } from '@expo/vector-icons';
 import type { ChatModeV2 } from '../navigation';
 
@@ -171,6 +180,10 @@ function getSystemPrompt(
   calendarContext = '',
   portrait = '',
   continuityBlock = '',
+  // CP7.2 — running per-session summaries (live + recent), already rendered.
+  runningMemoryBlock = '',
+  // CP7.3 — long-running cross-session themes, already rendered.
+  themesBlock = '',
 ): string {
   const firstName = name ? name.split(' ')[0] : 'there';
 
@@ -183,6 +196,8 @@ function getSystemPrompt(
   // in right above the time-of-day context so the model treats it as
   // high-priority framing.
   const continuitySection = continuityBlock ? `\n${continuityBlock}\n` : '';
+  const runningMemorySection = runningMemoryBlock ? `\n${runningMemoryBlock}\n` : '';
+  const themesSection        = themesBlock        ? `\n${themesBlock}\n`        : '';
 
   const sharedRules = `
 RULES:
@@ -217,6 +232,35 @@ tasks were finished, emit one complete action per task. Match
 whitespace and casing loosely — the app does fuzzy matching. If the
 match is ambiguous (two open tasks could fit), DO NOT emit complete;
 ask one clarifying question instead.
+
+TOOLS (CP7.1) — you have four tools available. Prefer tools over the legacy
+[SYNAPSE_ACTIONS] JSON for SURGICAL changes. Use [SYNAPSE_ACTIONS] when you
+are PROPOSING a batch of new things (new tasks, a project decomposition,
+a morning schedule) — that path opens a review sheet so the user can tweak
+before applying. Tools are for changes that don't need review.
+
+  - edit_task — for "mark X done", "push X to tomorrow", "delete X",
+    "rename X to Y". You have task ids in the context block above; use the
+    actual id, never invent one. PREFER edit_task over [SYNAPSE_ACTIONS]
+    {"type":"complete"} when you have a clear single-task match — it's
+    surgical and atomic.
+
+  - schedule_push — only when ${firstName} effectively asks for a one-off
+    nudge ("remind me to text mum at 6"). Compose the message yourself in
+    18 words or fewer, no exclaim marks, no "remember to", no fake urgency.
+    Never schedule a push as a passive nag.
+
+  - search_history — read-only lookup over the completion log, the session
+    log, or the current chat. Use BEFORE answering questions like "did I
+    do that already?" or "when did this come up last?" Don't guess.
+
+  - log_completion — record a "what I did" entry for things ${firstName}
+    mentions doing that weren't tracked as a task ("oh I sent that
+    already"). Do NOT use this to mark an existing task complete — use
+    edit_task with operation="complete" for that.
+
+When in doubt: tools first for one-off mutations, [SYNAPSE_ACTIONS] for
+multi-item proposals, conversation only when neither is needed.
 
 DECISION FATIGUE SIGNAL: If ${firstName} says anything that signals they are frozen, overwhelmed, or in analysis paralysis — redirect them gently: "It sounds like your brain is full. Want to switch to decision fatigue mode?" Then stop and wait. Do not try to solve it from within the current session.`;
 
@@ -313,6 +357,8 @@ Only output [SYNAPSE_ACTIONS] when you have enough context. Don't rush it.`;
     dump: `You are Aiteall — an ADHD-aware thinking partner for ${firstName}. This is the universal chat: whatever's in their head, right now.
 ${portraitSection}
 ${continuitySection}
+${runningMemorySection}
+${themesSection}
 ${contextBlock}
 
 ${calendarContext ? `LIVE DEVICE DATA (pulled from ${firstName}'s phone right now):\n${calendarContext}\n` : ''}
@@ -381,6 +427,8 @@ ${sharedRules}
     ritual: `You are Aiteall, running a ritual session with ${firstName}.
 ${portraitSection}
 ${continuitySection}
+${runningMemorySection}
+${themesSection}
 ${contextBlock}
 
 SCOPE DETECTION (read this first, silently — don't announce it):
@@ -443,6 +491,8 @@ ${sharedRules}`,
     project: `You are the Aiteall AI helping ${firstName} plan a new project.
 ${portraitSection}
 ${continuitySection}
+${runningMemorySection}
+${themesSection}
 ${contextBlock}
 
 STEP 1 — CLASSIFY the project (do this first, before asking anything else):
@@ -1059,6 +1109,20 @@ export default function ChatScreen({ navigation, route }: any) {
     [sessionKey],
   );
 
+  // CP7.2 — slot the running per-session memory into the prompt. Reactive
+  // to sessionMemories so the model sees the latest summary the moment a
+  // background pass writes one.
+  const sessionMemories = useStore(s => s.sessionMemories);
+  const runningMemoryBlock = useMemo(
+    () => renderRunningMemoryBlock(sessionMemories, sessionKey),
+    [sessionMemories, sessionKey],
+  );
+
+  // CP7.3 — long-running themes block. Same reactive pattern — themes is
+  // a single object, so the prompt picks up a refresh next render.
+  const themes = useStore(s => s.themes);
+  const themesBlock = useMemo(() => renderThemesBlock(themes), [themes]);
+
   const systemPrompt = useMemo(
     () => getSystemPrompt(
       mode,
@@ -1067,8 +1131,10 @@ export default function ChatScreen({ navigation, route }: any) {
       calendarContext,
       portraitToString(profile.portrait),
       continuityBlock,
+      runningMemoryBlock,
+      themesBlock,
     ),
-    [mode, contextBlock, profile.name, calendarContext, profile.portrait, continuityBlock],
+    [mode, contextBlock, profile.name, calendarContext, profile.portrait, continuityBlock, runningMemoryBlock, themesBlock],
   );
 
   // Fetch today's calendar + reminders + skeleton blocks for the universal
@@ -1205,6 +1271,40 @@ export default function ChatScreen({ navigation, route }: any) {
           ),
         )
         .catch(() => { /* silent — background work */ });
+
+      // 4) CP7.2 — refresh the running summary for THIS session.
+      //    Cheap pass: only re-runs Haiku if the new turn count exceeds
+      //    what the prior summary covered (so we don't burn tokens on no-op
+      //    summaries when the user just opens and closes chat).
+      const prior = s.sessionMemories[sessionKey];
+      if (!prior || userTurns > prior.userTurns) {
+        summariseSession(sessionKey, msgs, prior?.summary ?? null, userAnthropicKey)
+          .then(updated => {
+            if (updated) {
+              useStore.getState().setSessionMemory(sessionKey, updated);
+            }
+          })
+          .catch(() => { /* silent */ });
+      }
+
+      // 5) CP7.3 — refresh long-running themes if the throttle window has
+      //    passed (24h) and the session was substantial (≥4 user turns
+      //    means there's likely new signal worth re-extracting from). The
+      //    pruner runs first so stale memories don't bias the extractor.
+      if (userTurns >= 4) {
+        useStore.getState().pruneSessionMemoriesAction();
+        const fresh = useStore.getState();
+        maybeRefreshThemes({
+          completions:      fresh.completions,
+          sessionMemories:  fresh.sessionMemories,
+          prior:            fresh.themes,
+          userAnthropicKey,
+        })
+          .then(themes => {
+            if (themes) useStore.getState().setThemes(themes);
+          })
+          .catch(() => { /* silent */ });
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1302,41 +1402,128 @@ export default function ChatScreen({ navigation, route }: any) {
       const capped = history.length > CHAT_CONTEXT_CAP
         ? history.slice(-CHAT_CONTEXT_CAP)
         : history;
-      const res = await fetchAnthropic({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1800,
-        system: systemPrompt,
-        // Anthropic requires: (a) non-empty array, (b) first message must be user role.
-        // We prepend a silent kickoff so the AI opens the conversation as the system prompt instructs.
-        // CP6.1 — when a turn carries an attachment (PDF/image), expand its
-        // `content` into a content-block array so Claude can read the file.
-        // Plain-text turns stay as strings.
-        messages: [
-          { role: 'user', content: 'Hello' },
-          ...capped.map(m => ({
-            role: m.role,
-            content: buildAnthropicContent(m),
-          })),
-        ],
-        temperature: 0.7,
-      }, userAnthropicKey);
-      const data = await res.json();
-      if (!res.ok) {
-        if (res.status === 401) {
-          appendMessage('assistant', userAnthropicKey
-            ? "Your API key was rejected. Double-check it in Settings → API Key."
-            : "Session expired. Go to Settings and sign in again.");
-        } else if (res.status === 429) {
-          appendMessage('assistant', "Rate limit reached — wait a moment and try again.");
-        } else if (res.status >= 500) {
-          appendMessage('assistant', "The AI service is having issues right now. Try again in a minute.");
-        } else {
-          const errMsg = data?.error?.message ?? `Error ${res.status}`;
-          appendMessage('assistant', `Something went wrong: ${errMsg}`);
+
+      // Anthropic requires: (a) non-empty array, (b) first message must be
+      // user role. We prepend a silent kickoff so the AI opens the
+      // conversation as the system prompt instructs. CP6.1 — turns with
+      // attachments expand into content-block arrays via buildAnthropicContent.
+      const baseMessages: Array<{ role: string; content: any }> = [
+        { role: 'user', content: 'Hello' },
+        ...capped.map(m => ({
+          role: m.role,
+          content: buildAnthropicContent(m),
+        })),
+      ];
+
+      // ── CP7.1 — Agentic tool-use loop ─────────────────────────────────
+      // Up to MAX_ROUNDS round-trips. The model emits `tool_use` blocks →
+      // we run them locally → we send `tool_result` blocks back as a new
+      // user turn → the model either calls more tools or replies in text.
+      // A plain-text reply (stop_reason !== 'tool_use') breaks the loop
+      // and falls into the legacy [SYNAPSE_ACTIONS] parser path so existing
+      // bulk-propose UX keeps working.
+      const MAX_ROUNDS = 5;
+      let convo: Array<{ role: string; content: any }> = baseMessages;
+      let reply: string = "Something went wrong. Try again?";
+      let toolUseRounds = 0;
+
+      // CP7.4 — daily token-cap guardrail. Once today's combined tokens
+      // (input + output) exceed the cap, fall back to Haiku for the rest of
+      // the day. Personal-key users never hit this — they're paying their
+      // own bill, so we let them spend it. Pulled fresh each round so a
+      // long agentic session can degrade mid-flight if the cap is crossed.
+      const pickModel = (): string => {
+        if (userAnthropicKey) return 'claude-sonnet-4-5-20250929';
+        return useStore.getState().isOverDailyCap()
+          ? 'claude-haiku-4-5-20251001'
+          : 'claude-sonnet-4-5-20250929';
+      };
+
+      for (let round = 0; round < MAX_ROUNDS; round++) {
+        const res = await fetchAnthropic({
+          model: pickModel(),
+          max_tokens: 1800,
+          system: systemPrompt,
+          messages: convo,
+          tools: TOOL_DEFINITIONS,
+          temperature: 0.7,
+        }, userAnthropicKey);
+        const data = await res.json();
+        // Record usage for today's running counter (proxy users only — when
+        // the user supplies their own key the bill is theirs and we don't
+        // need to police it).
+        if (!userAnthropicKey && data?.usage) {
+          useStore.getState().recordTokenUsage(
+            Number(data.usage.input_tokens),
+            Number(data.usage.output_tokens),
+          );
         }
+        if (!res.ok) {
+          if (res.status === 401) {
+            appendMessage('assistant', userAnthropicKey
+              ? "Your API key was rejected. Double-check it in Settings → API Key."
+              : "Session expired. Go to Settings and sign in again.");
+          } else if (res.status === 429) {
+            appendMessage('assistant', "Rate limit reached — wait a moment and try again.");
+          } else if (res.status >= 500) {
+            appendMessage('assistant', "The AI service is having issues right now. Try again in a minute.");
+          } else {
+            const errMsg = data?.error?.message ?? `Error ${res.status}`;
+            appendMessage('assistant', `Something went wrong: ${errMsg}`);
+          }
+          return;
+        }
+
+        const assistantBlocks: any[] = Array.isArray(data?.content) ? data.content : [];
+        const stopReason: string = data?.stop_reason ?? 'end_turn';
+        const toolUses: ToolUseBlock[] = assistantBlocks.filter(
+          (b: any) => b?.type === 'tool_use'
+        ) as ToolUseBlock[];
+
+        if (stopReason === 'tool_use' && toolUses.length > 0) {
+          // Execute every tool_use block locally and assemble the
+          // matching tool_result blocks for the next user turn.
+          toolUseRounds++;
+          const toolResultBlocks: any[] = [];
+          for (const tu of toolUses) {
+            const result = await executeTool(tu.name, tu.input ?? {}, history);
+            toolResultBlocks.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              content: result.content,
+              ...(result.is_error ? { is_error: true } : {}),
+            });
+          }
+          // Append the assistant's full content array verbatim — Anthropic
+          // requires the tool_use blocks to round-trip exactly so the
+          // tool_use_id linkage stays valid.
+          convo = [
+            ...convo,
+            { role: 'assistant', content: assistantBlocks },
+            { role: 'user',      content: toolResultBlocks },
+          ];
+          continue; // next round
+        }
+
+        // Plain-text reply — stitch any text blocks together (usually one)
+        // and break out of the loop.
+        reply = assistantBlocks
+          .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+          .map((b: any) => b.text)
+          .join('')
+          .trim() || "Something went wrong. Try again?";
+        break;
+      }
+
+      if (toolUseRounds >= MAX_ROUNDS) {
+        // Defensive — if we somehow hit the cap without a final text reply,
+        // surface a graceful note rather than a stale fallback.
+        appendMessage(
+          'assistant',
+          "I went round in circles trying to handle that — let's try again with a fresh ask.",
+        );
         return;
       }
-      const reply: string = data.content?.[0]?.text ?? "Something went wrong. Try again?";
 
       if (reply.includes('[SYNAPSE_ACTIONS]')) {
         const parsed = parseActions(reply);

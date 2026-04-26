@@ -488,6 +488,38 @@ interface SolasState {
   recentSessions: (limit?: number) => SessionEvent[];
 
   /**
+   * CP7.2 — running per-session summaries. Keyed by chat session key
+   * (`${mode}:${windowKey}`). Each entry is a Haiku-distilled snapshot of
+   * the conversation so far, refreshed on chat unmount and aged out after
+   * SESSION_MEMORY_TTL_DAYS by `pruneSessionMemoriesAction()`.
+   */
+  sessionMemories: Record<string, import('../services/sessionMemory').SessionMemory>;
+  setSessionMemory: (
+    key: string,
+    memory: import('../services/sessionMemory').SessionMemory,
+  ) => void;
+  pruneSessionMemoriesAction: () => void;
+
+  /**
+   * CP7.3 — long-running themes. A single object refreshed at most once per
+   * 24h by `maybeRefreshThemes`. Read by the chat brain at the top of each
+   * conversation to keep continuity without dragging the whole history.
+   */
+  themes: import('../services/sessionMemory').ThemesEntry | null;
+  setThemes: (themes: import('../services/sessionMemory').ThemesEntry | null) => void;
+
+  /**
+   * CP7.4 — daily token-cap guardrail. Tracks Sonnet token usage rolling
+   * over each calendar day. Read by the chat call-site to fall back to
+   * Haiku once the cap is hit, so a runaway loop or a chatty test session
+   * can't burn the user's allowance unbounded.
+   */
+  dailyUsage: { day: string; inputTokens: number; outputTokens: number };
+  recordTokenUsage: (input: number, output: number) => void;
+  /** True if today's Sonnet usage exceeds the soft cap. */
+  isOverDailyCap: () => boolean;
+
+  /**
    * "What I did" passive log (Phase 6). Populated from three sources:
    *   - toggleTask() when a task flips to completed
    *   - completionExtractor() when chat mentions "I did / finished X"
@@ -563,6 +595,11 @@ interface SolasState {
 
   wipeAllData: () => Promise<void>;
 }
+
+// CP7.4 — daily token cap (sum of input + output across the day). Soft cap:
+// once exceeded, ChatScreen falls back to Haiku for the rest of the day.
+// Conservative on purpose — typical heavy use is ~60k tokens/day.
+const DAILY_TOKEN_CAP = 600_000;
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
@@ -1037,24 +1074,38 @@ export const useStore = create<SolasState>()(
       // ── Chat Sessions (per-mode, per-window) ─────────────────────────────
       chatSessions: {},
       getChatSession: (key) => get().chatSessions[key] ?? [],
-      setChatSession: (key, messages) => set((s) => ({
-        chatSessions: { ...s.chatSessions, [key]: messages },
-      })),
-      appendChatSessionMessage: (key, msg) => set((s) => {
-        const prev = s.chatSessions[key] ?? [];
-        // CP6.1 — strip heavy attachment payload before persistence.
-        // Keep the metadata so the UI can still render the chip on
-        // session resume; drop `b64` so AsyncStorage doesn't bloat.
-        const persisted: ChatMessage = msg.attachment?.b64
-          ? { ...msg, attachment: { ...msg.attachment, b64: undefined } }
-          : msg;
-        return { chatSessions: { ...s.chatSessions, [key]: [...prev, persisted] } };
-      }),
-      clearChatSession: (key) => set((s) => {
-        const next = { ...s.chatSessions };
-        delete next[key];
-        return { chatSessions: next };
-      }),
+      setChatSession: (key, messages) => {
+        set((s) => ({
+          chatSessions: { ...s.chatSessions, [key]: messages },
+        }));
+        // CP8.3 — push the whole session row up. last-write-wins on the server.
+        syncIfAuthed(s => s.pushChatSession(key, messages), get().session);
+      },
+      appendChatSessionMessage: (key, msg) => {
+        set((s) => {
+          const prev = s.chatSessions[key] ?? [];
+          // CP6.1 — strip heavy attachment payload before persistence.
+          // Keep the metadata so the UI can still render the chip on
+          // session resume; drop `b64` so AsyncStorage doesn't bloat.
+          const persisted: ChatMessage = msg.attachment?.b64
+            ? { ...msg, attachment: { ...msg.attachment, b64: undefined } }
+            : msg;
+          return { chatSessions: { ...s.chatSessions, [key]: [...prev, persisted] } };
+        });
+        // CP8.3 — push the freshly-extended array. ~10ms per write; cheap
+        // enough to do per-turn given chat sessions are the soul of the
+        // product and reinstall = no data loss is the whole point of CP8.
+        const updated = get().chatSessions[key] ?? [];
+        syncIfAuthed(s => s.pushChatSession(key, updated), get().session);
+      },
+      clearChatSession: (key) => {
+        set((s) => {
+          const next = { ...s.chatSessions };
+          delete next[key];
+          return { chatSessions: next };
+        });
+        syncIfAuthed(s => s.deleteChatSession(key), get().session);
+      },
 
       // ── Session Log ──────────────────────────────────────────────────────
       sessionLog: [],
@@ -1076,7 +1127,7 @@ export const useStore = create<SolasState>()(
 
       // ── Completion Log (Phase 6) ─────────────────────────────────────────
       completions: [],
-      logCompletion: (c) => set((s) => {
+      logCompletion: (c) => {
         const next: CompletionEntry = {
           id:     uid(),
           at:     c.at ?? new Date().toISOString(),
@@ -1084,12 +1135,73 @@ export const useStore = create<SolasState>()(
           text:   c.text,
           taskId: c.taskId,
         };
-        // 500 entries is roughly a year's worth for a heavy user.
-        const trimmed = [...s.completions, next].slice(-500);
-        return { completions: trimmed };
-      }),
+        set((s) => ({
+          // 500 entries is roughly a year's worth for a heavy user.
+          completions: [...s.completions, next].slice(-500),
+        }));
+        // CP8.3 — push the new entry. The completion log is core to portrait
+        // refresh and themes; reinstall must restore it.
+        syncIfAuthed(s => s.pushCompletion(next), get().session);
+      },
       completionsOn: (ymd) => {
         return get().completions.filter(c => c.at.slice(0, 10) === ymd);
+      },
+
+      // ── CP7.2 / CP7.3 — Brain memory ─────────────────────────────────────
+      sessionMemories: {},
+      setSessionMemory: (key, memory) => {
+        set((s) => ({
+          sessionMemories: { ...s.sessionMemories, [key]: memory },
+        }));
+        // CP8.3 — push the new/updated session memory. Cheap (one row).
+        syncIfAuthed(s => s.pushSessionMemory(memory), get().session);
+      },
+      pruneSessionMemoriesAction: () => {
+        // Lazy-import to avoid a circular dep (sessionMemory ← useStore).
+        // The pruner is a pure function so this is cheap.
+        import('../services/sessionMemory').then(({ pruneSessionMemories }) => {
+          set((s) => ({ sessionMemories: pruneSessionMemories(s.sessionMemories) }));
+        }).catch(() => { /* never throws */ });
+        // Note: we don't delete the server-side rows here. The server keeps
+        // them until the same 7-day window has passed there too — but since
+        // rendering is gated on local presence, stale server rows are inert.
+      },
+
+      themes: null,
+      setThemes: (themes) => {
+        set({ themes });
+        // CP8.3 — push themes singleton. null means "haven't computed yet" —
+        // never push a clear; the local in-memory null is just the
+        // pre-extracted state and we don't want to wipe the server copy.
+        if (themes) syncIfAuthed(s => s.pushThemes(themes), get().session);
+      },
+
+      // CP7.4 — daily token cap. Cheap rolling counter; resets at midnight
+      // local. Hard cap chosen at 600k combined tokens/day — well above what
+      // a heavy user produces and well below what a runaway loop could burn
+      // through silently before catching it.
+      dailyUsage: { day: '', inputTokens: 0, outputTokens: 0 },
+      recordTokenUsage: (input, output) => set((s) => {
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const u = s.dailyUsage;
+        const safe = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0);
+        if (u.day !== today) {
+          return { dailyUsage: { day: today, inputTokens: safe(input), outputTokens: safe(output) } };
+        }
+        return {
+          dailyUsage: {
+            day: today,
+            inputTokens:  u.inputTokens  + safe(input),
+            outputTokens: u.outputTokens + safe(output),
+          },
+        };
+      }),
+      isOverDailyCap: () => {
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const u = get().dailyUsage;
+        if (u.day !== today) return false; // counter resets at midnight
+        const total = u.inputTokens + u.outputTokens;
+        return total >= DAILY_TOKEN_CAP;
       },
 
       // ── Deep Work Sessions ────────────────────────────────────────────────────
@@ -1230,6 +1342,9 @@ export const useStore = create<SolasState>()(
           chatSessions:      {},
           sessionLog:        [],
           completions:       [],
+          sessionMemories:   {},
+          themes:            null,
+          dailyUsage:        { day: '', inputTokens: 0, outputTokens: 0 },
         } as any);
       },
     }),

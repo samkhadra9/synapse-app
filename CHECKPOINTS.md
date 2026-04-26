@@ -10,48 +10,54 @@
 - **CP3** Motion & forgiveness (snooze, defer, voice softening)
 - **CP4** Capture surfaces — widget, Siri, share sheet, Quick Actions, Live Activity
 - **CP5** Proactive push + completion-without-ticking (5.1 + 5.2 + 5.3)
+- **CP6** Capture completeness — PDF/paste/image inputs + onboarding tour + Settings status panel
+- **CP7** Brain upgrade — agentic tools, session-continuity memory, themes, token cap, eval harness
+- **CP8** Data layer (Supabase) — schema + sync for chat / completions / themes / memories, reinstall restore, account deletion
 - **#57** Quick Actions duplicate fix
 - **#55** Terminology pass — "today's focus"
 - **#61, #62** misc polish
 
 ---
 
-## 🟢 In flight: CP6 — Capture completeness
-
-Close the input-surface gap before brain work. Every fast-capture path must work and be discoverable.
+## ✅ CP6 — Capture completeness (shipped, build pending Sam's hands)
 
 - [x] **6.1** PDF picker via `expo-document-picker` → Chat as attachment
 - [x] **6.2** Paste-from-clipboard one-tap on Dump (`expo-clipboard`)
 - [x] **6.3** Image capture from camera roll → Chat
 - [x] **6.4** Onboarding tour (5 cards) for widget / share / Siri / Quick Actions / paperclip
 - [x] **6.5** Settings → "Capture surfaces" status panel (deep-links to tour cards + re-trigger)
-- [ ] **6.6** TestFlight build #1 — user-test capture coverage
+- [~] **6.6** TestFlight build #1 — code committed (`3049a88`), iOS buildNumber 3, tsc clean. **Sam: run `git push` then `eas build --profile production --platform ios --auto-submit` from Mac to fire the actual TestFlight build.**
 
 ---
 
-## CP7 — Brain upgrade *(confirmed by Sam)*
+## ✅ CP7 — Brain upgrade *(Sam's spec: tools, session memory, themes, Sonnet, cost guardrail)*
 
-> Sam's spec: **Tool use yes. Memory: session continuity for a period of time + background "themes" running. Needs context. Model: Sonnet — best AI interface we can have, strong early.**
-
-- [ ] **7.1** Tool-use scaffold in Edge Function — tools: `edit_task`, `schedule_push`, `search_history`, `log_completion`
-- [ ] **7.2** Session-continuity memory: running summary per session, persists for N days (e.g. 7) then ages out
-- [ ] **7.3** Background "themes" extractor — async pass that distills recurring patterns (avoidance topics, win patterns, snags) into a small themes file the model reads each turn
-- [ ] **7.4** Model switch to Sonnet for chat; cost guardrail (daily token cap per user, fallback to Haiku for ambient strip only)
-- [ ] **7.5** Extend `[SYNAPSE_ACTIONS]` JSON protocol to expose new tools to the model
-- [ ] **7.6** Eval harness — 10 fixed prompts × pre/post diff before TestFlight
+- [x] **7.1** Tool-use scaffold — `edit_task`, `schedule_push`, `search_history`, `log_completion` in `src/services/chatTools.ts`; agentic loop in ChatScreen.sendToLLM (max 5 rounds, plain-text reply still flows through `[SYNAPSE_ACTIONS]`).
+- [x] **7.2** Session-continuity memory — running per-session summaries written by Haiku on chat unmount; aged out at 7d (`pruneSessionMemories`); rendered into the system prompt via `renderRunningMemoryBlock`.
+- [x] **7.3** Background themes extractor — `maybeRefreshThemes()` distills avoidance / wins / snags + a paragraph from the completion log + recent session summaries; throttled to once per 24h.
+- [x] **7.4** Token-cap guardrail — `dailyUsage` rolling counter on the store + 600k/day soft cap; ChatScreen falls back to Haiku once exceeded (only on the proxy path; personal-key users uncapped).
+- [x] **7.5** System prompt teaches the four tools — `TOOLS (CP7.1)` block in `getSystemPrompt`; tools-first guidance for surgical changes, `[SYNAPSE_ACTIONS]` for batch proposes.
+- [x] **7.6** Eval harness — `scripts/eval-brain.mjs` runs 10 fixed prompts via Anthropic API directly, writes JSON to `eval-output/`, with `--diff a.json b.json` to compare runs.
 
 ---
 
-## CP8 — Data layer (Supabase)
+## ✅ CP8 — Data layer (Supabase) *(shipped, build pending Sam's hands)*
 
 D30 retention foundation. Reinstall = no data loss.
 
-- [ ] **8.1** Auth: confirm magic-link state, finish wiring
-- [ ] **8.2** Schema: profiles, tasks, completions, chat_sessions, push_log, themes
-- [ ] **8.3** RLS policies + sync engine (last-write-wins, conflict log)
-- [ ] **8.4** Reinstall restore flow — sign in → pull state → seed local store
-- [ ] **8.5** Sign-out + delete-account flows (App Store requirement)
-- [ ] **8.6** TestFlight build #2 — verify reinstall = no data loss
+- [x] **8.1** Auth — email + password via `supabase.auth.signInWithPassword`; `getSession()` on boot + `onAuthStateChange` listener trigger `backgroundSync()` on `INITIAL_SESSION` / `SIGNED_IN`. Sessions persisted via `ExpoSecureStoreAdapter` (chunked).
+- [x] **8.2** Schema additions in `supabase-schema.sql` — added missing profile/task columns + 5 new tables: `completions`, `chat_sessions` (jsonb messages array per session_key), `session_memories`, `themes` (singleton per user), `push_log`. All idempotent via `add column if not exists` / `create table if not exists`.
+- [x] **8.3** Sync engine for new entities in `src/services/sync.ts` — `pushCompletion/pullCompletions`, `pushChatSession/deleteChatSession/pullChatSessions`, `pushSessionMemory/pullSessionMemories`, `pushThemes/pullThemes`. Wired through `pullAll()` and `pushAll()`. Store actions (`logCompletion`, `setChatSession`, `appendChatSessionMessage`, `clearChatSession`, `setSessionMemory`, `setThemes`) call `syncIfAuthed` so every mutation pushes up.
+- [x] **8.4** Reinstall restore flow — `backgroundSync()` in `src/navigation/index.tsx` now merges the 4 new entity types into the store after pull (with `dedupeById` for completions). Reinstall = sign in → all chat history, completion log, session memories, themes hydrated.
+- [x] **8.5** Sign-out + delete-account flows. Sign out already shipped. Delete-account now uses `requestAccountDeletion()` in sync.ts → wipes user-owned rows, invokes new `delete-account` edge function (admin-deletes the auth.users row using service-role key), signs out. Settings UI relabelled "Delete account". Edge function in `supabase/functions/delete-account/index.ts` — Sam: deploy with `supabase functions deploy delete-account` and `supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...`.
+- [~] **8.6** TestFlight build #2 — code written, iOS buildNumber 4 / android versionCode 4, tsc clean. Sandbox couldn't `git add` due to a stale `.git/index.lock` + `HEAD.lock` on your Mac side of the FUSE mount. **Sam, from your Mac:**
+  1. `cd ~/Documents/Personal/Projects/ADHDToolkit/SynapseApp && rm -f .git/index.lock .git/HEAD.lock`
+  2. `git add -A && git commit -m "CP8 — Supabase data layer (D30 retention, account deletion)"`
+  3. `git push origin main`
+  4. In Supabase SQL Editor: paste full `supabase-schema.sql` (idempotent — safe to re-run; only the new ALTER/CREATE statements at the bottom apply)
+  5. `supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<your service role key>` (one-time; needed by `delete-account`)
+  6. `supabase functions deploy delete-account`
+  7. `eas build --profile production --platform ios --auto-submit`
 
 ---
 

@@ -203,23 +203,50 @@ export default function SettingsScreen() {
     // signed out) and an undo snackbar can't bring it back. Even here, we
     // consolidate to a single confirm — no nested "are you really sure?"
     // chain. One brake, no double-tax.
+    //
+    // CP8.5 — App Store guideline 5.1.1(v) compliance: this also nukes the
+    // auth.users row via the delete-account edge function. If the function
+    // isn't deployed yet (or unreachable), we fall back to the legacy wipe
+    // + sign-out path so the user is never blocked from leaving.
     Alert.alert(
-      'Delete all your data?',
-      'This will permanently remove your profile, projects, tasks, goals, and habits — from this device and our servers. You will be signed out. This cannot be undone.',
+      'Delete account & all data?',
+      'This permanently removes your account, profile, projects, tasks, goals, and habits — from this device and our servers. You will be signed out. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete everything', style: 'destructive', onPress: async () => {
+            // 1. Try the full account-deletion edge function path
+            let fullDeleteOk = false;
+            try {
+              const { requestAccountDeletion } = await import('../services/sync');
+              const r = await requestAccountDeletion();
+              fullDeleteOk = !!r.ok;
+            } catch (e) {
+              console.warn('[Settings] requestAccountDeletion error:', e);
+            }
+            // 2. Always wipe the local store + AsyncStorage. If the edge
+            //    function path failed (delete-account not deployed yet, or
+            //    network blip), this still leaves the device clean and
+            //    Supabase rows already deleted via deleteAllUserData().
             try {
               await wipeAllData();
             } catch (e) {
               console.warn('[Settings] wipeAllData error:', e);
             }
-            // Sign out so no background sync with the current session
-            // can resurrect data. The nav guard will route to Login.
+            // 3. Sign out so no background sync with the current session
+            //    can resurrect data. The nav guard will route to Login.
             try {
               await signOut();
             } catch (e) {
               console.warn('[Settings] signOut error:', e);
+            }
+            if (!fullDeleteOk) {
+              // Soft notice — the user is signed out and their data is gone,
+              // we just couldn't get the auth row scrubbed automatically.
+              // Surface a recourse path so they don't feel stranded.
+              setTimeout(() => Alert.alert(
+                'Mostly done',
+                'Your data is deleted and you are signed out. To remove the auth record itself, email samkhadra9@gmail.com and we will scrub it manually within 24h.',
+              ), 250);
             }
           }},
       ]
@@ -693,7 +720,7 @@ export default function SettingsScreen() {
               style={styles.resetRow}
               onPress={handleWipeData}
             >
-              <Text style={[styles.resetText, { color: '#DC2626' }]}>Delete all my data</Text>
+              <Text style={[styles.resetText, { color: '#DC2626' }]}>Delete account</Text>
               <Text style={styles.resetArrow}>›</Text>
             </TouchableOpacity>
           </View>

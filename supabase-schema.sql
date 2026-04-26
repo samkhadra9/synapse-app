@@ -151,3 +151,115 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- ============================================================
+-- CP8.2 — Migration additions (D30 retention foundation)
+-- ============================================================
+-- Reinstall = no data loss. Adds missing profile columns + new
+-- tables for the parts of the experience that were previously
+-- local-only (chat history, completion log, session memories,
+-- themes). All idempotent.
+-- ============================================================
+
+-- Profile additions — columns sync.ts already pushes that weren't
+-- in the original schema. add column if not exists is Postgres 9.6+.
+alter table public.profiles add column if not exists portrait                 jsonb;
+alter table public.profiles add column if not exists last_active_date         date;
+alter table public.profiles add column if not exists selected_calendar_name   text;
+alter table public.profiles add column if not exists week_template            jsonb default '[]';
+alter table public.profiles add column if not exists skeleton_built           boolean default false;
+alter table public.profiles add column if not exists weekly_review_day        int;
+alter table public.profiles add column if not exists weekly_review_time       text;
+alter table public.profiles add column if not exists proactive_push_enabled   boolean default true;
+alter table public.profiles add column if not exists capture_tour_seen_at     timestamptz;
+alter table public.profiles add column if not exists first_open_date          date;
+
+-- Task additions — sync.ts already pushes these
+alter table public.tasks    add column if not exists area_id                  uuid references public.areas on delete set null;
+alter table public.tasks    add column if not exists is_inbox                 boolean default false;
+alter table public.tasks    add column if not exists reason                   text;
+
+-- COMPLETIONS — the "what I did" log (Phase 6 + CP5.1)
+-- One row per completion entry. Used by DayEndReflection and the
+-- portrait/themes extractor. Survives reinstall.
+create table if not exists public.completions (
+  id        uuid primary key,
+  user_id   uuid references auth.users on delete cascade not null,
+  at        timestamptz not null,
+  source    text not null,                 -- 'task' | 'chat' | 'deepwork'
+  text      text not null,
+  task_id   uuid                            -- soft ref; tasks may be deleted/recreated
+);
+create index if not exists completions_user_at_idx on public.completions (user_id, at desc);
+
+-- CHAT SESSIONS — keyed by '${mode}:${windowKey}', e.g. 'dump:2026-04-26'
+-- The whole message array lives as jsonb on a single row per session.
+-- Cheap to read/write whole, simple to merge (last-write-wins on
+-- updated_at), no need for per-message rows.
+create table if not exists public.chat_sessions (
+  user_id     uuid references auth.users on delete cascade not null,
+  session_key text not null,
+  messages    jsonb not null default '[]',
+  updated_at  timestamptz not null default now(),
+  primary key (user_id, session_key)
+);
+create index if not exists chat_sessions_updated_idx on public.chat_sessions (user_id, updated_at desc);
+
+-- SESSION MEMORIES — CP7.2 per-session running summaries.
+-- Aged out at 7d locally (pruneSessionMemories); keep server copy
+-- for the same window so reinstall in <7d retrieves them.
+create table if not exists public.session_memories (
+  user_id     uuid references auth.users on delete cascade not null,
+  session_key text not null,
+  mode        text not null,
+  summary     text not null,
+  user_turns  int  not null default 0,
+  updated_at  timestamptz not null,
+  primary key (user_id, session_key)
+);
+create index if not exists session_memories_updated_idx on public.session_memories (user_id, updated_at desc);
+
+-- THEMES — CP7.3 single-row-per-user background themes. We keep
+-- only the latest snapshot; the extractor overwrites on each refresh.
+create table if not exists public.themes (
+  user_id    uuid references auth.users on delete cascade primary key,
+  avoidance  jsonb not null default '[]',
+  wins       jsonb not null default '[]',
+  snags      jsonb not null default '[]',
+  summary    text  not null default '',
+  updated_at timestamptz not null
+);
+
+-- PUSH LOG — proactive-push history. Local notification scheduling
+-- uses iOS-side dedup; this table is for cross-device "did we send
+-- one today" + future analytics. One row per attempted decision.
+create table if not exists public.push_log (
+  id          uuid primary key,
+  user_id     uuid references auth.users on delete cascade not null,
+  decided_at  timestamptz not null,
+  should_ping boolean not null,
+  message     text,
+  delivered   boolean default false
+);
+create index if not exists push_log_user_decided_idx on public.push_log (user_id, decided_at desc);
+
+-- RLS — same "own X" policy shape as the rest of the schema
+alter table public.completions       enable row level security;
+alter table public.chat_sessions     enable row level security;
+alter table public.session_memories  enable row level security;
+alter table public.themes            enable row level security;
+alter table public.push_log          enable row level security;
+
+do $$ begin
+  drop policy if exists "own completions"      on public.completions;
+  drop policy if exists "own chat_sessions"    on public.chat_sessions;
+  drop policy if exists "own session_memories" on public.session_memories;
+  drop policy if exists "own themes"           on public.themes;
+  drop policy if exists "own push_log"         on public.push_log;
+end $$;
+
+create policy "own completions"      on public.completions      for all using (auth.uid() = user_id);
+create policy "own chat_sessions"    on public.chat_sessions    for all using (auth.uid() = user_id);
+create policy "own session_memories" on public.session_memories for all using (auth.uid() = user_id);
+create policy "own themes"           on public.themes           for all using (auth.uid() = user_id);
+create policy "own push_log"         on public.push_log         for all using (auth.uid() = user_id);

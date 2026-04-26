@@ -37,3 +37,6 @@ GoogleService-Info.plist
 
 # OS
 Thumbs.db
+
+# CP7.6 eval harness output — timestamped JSON dumps
+eval-output/

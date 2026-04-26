@@ -25,7 +25,10 @@ import type {
   LifeGoal,
   UserProfile,
   DeepWorkSession,
+  CompletionEntry,
+  ChatMessage,
 } from '../store/useStore';
+import type { SessionMemory, ThemesEntry } from './sessionMemory';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -410,6 +413,169 @@ export async function pullDeepWorkSessions(): Promise<DeepWorkSession[]> {
   }));
 }
 
+// ── CP8.3 — Completions ───────────────────────────────────────────────────────
+
+/** Push a single completion to Supabase. Skips entries with non-UUID ids
+ *  (defensive — `logCompletion` always uses uid() but legacy persisted
+ *  state from before the rebuild may have non-UUID ids floating around). */
+export async function pushCompletion(c: CompletionEntry): Promise<void> {
+  if (!isValidUUID(c.id)) { console.warn('[sync] skipping completion with non-UUID id:', c.id); return; }
+  const uid = await getUserId();
+  const { error } = await supabase.from('completions').upsert({
+    id:      c.id,
+    user_id: uid,
+    at:      c.at,
+    source:  c.source,
+    text:    c.text,
+    task_id: c.taskId && isValidUUID(c.taskId) ? c.taskId : null,
+  });
+  if (error) console.error('[sync] pushCompletion:', error.message);
+}
+
+export async function pullCompletions(): Promise<CompletionEntry[]> {
+  const uid = await getUserId();
+  const { data, error } = await supabase
+    .from('completions')
+    .select('*')
+    .eq('user_id', uid)
+    .order('at', { ascending: true })
+    .limit(500);   // mirrors the local 500-entry trim
+  if (error || !data) return [];
+  return data.map(r => ({
+    id:     r.id,
+    at:     r.at,
+    source: r.source,
+    text:   r.text,
+    taskId: r.task_id ?? undefined,
+  }));
+}
+
+// ── CP8.3 — Chat sessions ─────────────────────────────────────────────────────
+//
+// One row per session key. The whole messages[] is stored as jsonb.
+// Last-write-wins: every append mutation pushes the full array up.
+// Cheap enough for a chat-sized history; if a session ever balloons
+// past ~500 messages we'll need to switch to a per-message table.
+
+/** Strip heavy attachment payload before serialising to the server, mirroring
+ *  the local persistence rule (see appendChatSessionMessage). The metadata
+ *  (kind, name, mimeType, sizeBytes) survives so chips render on resume. */
+function lightenForSync(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map(m =>
+    m.attachment?.b64
+      ? { ...m, attachment: { ...m.attachment, b64: undefined } }
+      : m
+  );
+}
+
+export async function pushChatSession(key: string, messages: ChatMessage[]): Promise<void> {
+  const uid = await getUserId();
+  const { error } = await supabase.from('chat_sessions').upsert({
+    user_id:     uid,
+    session_key: key,
+    messages:    lightenForSync(messages),
+    updated_at:  new Date().toISOString(),
+  });
+  if (error) console.error('[sync] pushChatSession:', error.message);
+}
+
+export async function deleteChatSession(key: string): Promise<void> {
+  const uid = await getUserId();
+  const { error } = await supabase
+    .from('chat_sessions')
+    .delete()
+    .eq('user_id', uid)
+    .eq('session_key', key);
+  if (error) console.error('[sync] deleteChatSession:', error.message);
+}
+
+export async function pullChatSessions(): Promise<Record<string, ChatMessage[]>> {
+  const uid = await getUserId();
+  const { data, error } = await supabase
+    .from('chat_sessions')
+    .select('session_key, messages, updated_at')
+    .eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+    .limit(60);
+  if (error || !data) return {};
+  const out: Record<string, ChatMessage[]> = {};
+  for (const row of data) {
+    if (Array.isArray(row.messages)) {
+      out[row.session_key] = row.messages as ChatMessage[];
+    }
+  }
+  return out;
+}
+
+// ── CP8.3 — Session memories (CP7.2) ──────────────────────────────────────────
+
+export async function pushSessionMemory(memory: SessionMemory): Promise<void> {
+  const uid = await getUserId();
+  const { error } = await supabase.from('session_memories').upsert({
+    user_id:     uid,
+    session_key: memory.key,
+    mode:        memory.mode,
+    summary:     memory.summary,
+    user_turns:  memory.userTurns,
+    updated_at:  memory.updatedAt,
+  });
+  if (error) console.error('[sync] pushSessionMemory:', error.message);
+}
+
+export async function pullSessionMemories(): Promise<Record<string, SessionMemory>> {
+  const uid = await getUserId();
+  const { data, error } = await supabase
+    .from('session_memories')
+    .select('*')
+    .eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+    .limit(50);
+  if (error || !data) return {};
+  const out: Record<string, SessionMemory> = {};
+  for (const r of data) {
+    out[r.session_key] = {
+      key:       r.session_key,
+      mode:      r.mode ?? 'chat',
+      summary:   r.summary ?? '',
+      updatedAt: r.updated_at,
+      userTurns: r.user_turns ?? 0,
+    };
+  }
+  return out;
+}
+
+// ── CP8.3 — Themes (CP7.3, singleton per user) ────────────────────────────────
+
+export async function pushThemes(themes: ThemesEntry): Promise<void> {
+  const uid = await getUserId();
+  const { error } = await supabase.from('themes').upsert({
+    user_id:    uid,
+    avoidance:  themes.avoidance ?? [],
+    wins:       themes.wins      ?? [],
+    snags:      themes.snags     ?? [],
+    summary:    themes.summary   ?? '',
+    updated_at: themes.updatedAt,
+  });
+  if (error) console.error('[sync] pushThemes:', error.message);
+}
+
+export async function pullThemes(): Promise<ThemesEntry | null> {
+  const uid = await getUserId();
+  const { data, error } = await supabase
+    .from('themes')
+    .select('*')
+    .eq('user_id', uid)
+    .single();
+  if (error || !data) return null;
+  return {
+    updatedAt: data.updated_at,
+    avoidance: data.avoidance ?? [],
+    wins:      data.wins      ?? [],
+    snags:     data.snags     ?? [],
+    summary:   data.summary   ?? '',
+  };
+}
+
 // ── Pull All (hydrate on login) ───────────────────────────────────────────────
 
 export interface PullResult {
@@ -420,6 +586,11 @@ export interface PullResult {
   habits:           Habit[];
   goals:            LifeGoal[];
   deepWorkSessions: DeepWorkSession[];
+  // CP8.3 — D30 retention foundation
+  completions:      CompletionEntry[];
+  chatSessions:     Record<string, ChatMessage[]>;
+  sessionMemories:  Record<string, SessionMemory>;
+  themes:           ThemesEntry | null;
 }
 
 /**
@@ -427,18 +598,28 @@ export interface PullResult {
  * Returns empty arrays if no data exists yet (new user).
  */
 export async function pullAll(): Promise<PullResult> {
-  const [profile, areas, projects, tasks, habits, goals, deepWorkSessions] =
-    await Promise.all([
-      pullProfile(),
-      pullAreas(),
-      pullProjects(),
-      pullTasks(),
-      pullHabits(),
-      pullGoals(),
-      pullDeepWorkSessions(),
-    ]);
+  const [
+    profile, areas, projects, tasks, habits, goals, deepWorkSessions,
+    completions, chatSessions, sessionMemories, themes,
+  ] = await Promise.all([
+    pullProfile(),
+    pullAreas(),
+    pullProjects(),
+    pullTasks(),
+    pullHabits(),
+    pullGoals(),
+    pullDeepWorkSessions(),
+    // CP8.3 — D30 retention foundation
+    pullCompletions(),
+    pullChatSessions(),
+    pullSessionMemories(),
+    pullThemes(),
+  ]);
 
-  return { profile, areas, projects, tasks, habits, goals, deepWorkSessions };
+  return {
+    profile, areas, projects, tasks, habits, goals, deepWorkSessions,
+    completions, chatSessions, sessionMemories, themes,
+  };
 }
 
 // ── Push All (full upload — use sparingly, e.g. after onboarding) ─────────────
@@ -451,6 +632,11 @@ export async function pushAll(store: {
   habits:           Habit[];
   goals:            LifeGoal[];
   deepWorkSessions: DeepWorkSession[];
+  // CP8.3 — D30 retention. All optional so legacy callers still work.
+  completions?:     CompletionEntry[];
+  chatSessions?:    Record<string, ChatMessage[]>;
+  sessionMemories?: Record<string, SessionMemory>;
+  themes?:          ThemesEntry | null;
 }): Promise<void> {
   await pushProfile(store.profile);
   try {
@@ -461,6 +647,11 @@ export async function pushAll(store: {
       ...store.habits.map(pushHabit),
       ...store.goals.map(pushGoal),
       ...store.deepWorkSessions.map(pushDeepWorkSession),
+      // CP8.3 — best-effort uploads of the new entities
+      ...(store.completions     ?? []).map(pushCompletion),
+      ...Object.entries(store.chatSessions     ?? {}).map(([k, msgs]) => pushChatSession(k, msgs)),
+      ...Object.values(store.sessionMemories   ?? {}).map(pushSessionMemory),
+      ...(store.themes ? [pushThemes(store.themes)] : []),
     ]);
   } catch (e: any) {
     console.error('[sync] pushAll partial failure:', e?.message ?? e);
@@ -472,8 +663,12 @@ export async function pushAll(store: {
 
 export async function deleteAllUserData(): Promise<void> {
   const uid = await getUserId();
-  // Most tables use user_id; profiles uses id as primary key
-  const userIdTables = ['areas', 'projects', 'tasks', 'habits', 'goals', 'deep_work_sessions'];
+  // Most tables use user_id; profiles uses id as primary key.
+  // CP8.3 — added completions, chat_sessions, session_memories, themes, push_log
+  const userIdTables = [
+    'areas', 'projects', 'tasks', 'habits', 'goals', 'deep_work_sessions',
+    'completions', 'chat_sessions', 'session_memories', 'themes', 'push_log',
+  ];
   await Promise.all([
     ...userIdTables.map(table =>
       supabase.from(table).delete().eq('user_id', uid).then(({ error }) => {
@@ -484,4 +679,36 @@ export async function deleteAllUserData(): Promise<void> {
       if (error) console.warn('[sync] deleteAllUserData failed for profiles:', error.message);
     }),
   ]);
+}
+
+// ── CP8.5 — Account deletion (App Store requirement) ──────────────────────────
+//
+// Two-step: scrub user-owned rows, then sign out. Note: actually deleting
+// the auth.users row requires the service-role key and lives in the
+// `delete-account` edge function (separately deployed). The client just
+// fires that and signs out — RLS prevents any further access regardless.
+
+export async function requestAccountDeletion(): Promise<{ ok: boolean; message?: string }> {
+  // 1. Wipe user-owned rows from all tables (best-effort)
+  try {
+    await deleteAllUserData();
+  } catch (e: any) {
+    console.warn('[sync] deleteAllUserData errored, continuing:', e?.message ?? e);
+  }
+  // 2. Invoke the edge function that removes the auth.users row
+  try {
+    const { error } = await supabase.functions.invoke('delete-account', { body: {} });
+    if (error) {
+      // Function may not be deployed yet — fall back to sign-out + email
+      // support. RLS still keeps the orphaned auth row inaccessible.
+      console.warn('[sync] delete-account function failed:', error.message);
+      return { ok: false, message: error.message };
+    }
+  } catch (e: any) {
+    console.warn('[sync] delete-account function unreachable:', e?.message ?? e);
+    return { ok: false, message: e?.message };
+  }
+  // 3. Local sign-out
+  await supabase.auth.signOut().catch(() => {});
+  return { ok: true };
 }

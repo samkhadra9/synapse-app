@@ -495,6 +495,25 @@ async function backgroundSync() {
     if (result.goals.length > 0)            useStore.setState({ goals: result.goals });
     if (result.deepWorkSessions.length > 0) useStore.setState({ deepWorkSessions: result.deepWorkSessions });
 
+    // CP8.4 — Reinstall restore: merge the D30 retention entities. We always
+    // assign these even when local already has copies, because chat history,
+    // completion log, session memories, and themes are *additive truth*: if
+    // the server has 50 chat sessions and local has 3 (fresh install), we
+    // want all 50; if local has 5 and server has 4 (offline appended), the
+    // server-side last-write-wins push fixes it on next sync.
+    if (result.completions.length > 0) useStore.setState(s => ({
+      completions: dedupeById([...s.completions, ...result.completions]).slice(-500),
+    }));
+    if (Object.keys(result.chatSessions).length > 0) useStore.setState(s => ({
+      // Server rows replace local entries on key collision (server is canonical
+      // because every append already pushed up).
+      chatSessions: { ...s.chatSessions, ...result.chatSessions },
+    }));
+    if (Object.keys(result.sessionMemories).length > 0) useStore.setState(s => ({
+      sessionMemories: { ...s.sessionMemories, ...result.sessionMemories },
+    }));
+    if (result.themes) useStore.setState({ themes: result.themes });
+
     // Scrub any leftover duplicate tasks after server replace (can happen if a
     // prior session imported iOS reminders and they got replayed). Safe no-op
     // when there's nothing to dedup.
@@ -514,11 +533,28 @@ async function backgroundSync() {
         habits:           fresh.habits,
         goals:            fresh.goals,
         deepWorkSessions: fresh.deepWorkSessions,
+        // CP8.4 — first-sync uploads of D30 retention entities
+        completions:      fresh.completions,
+        chatSessions:     fresh.chatSessions,
+        sessionMemories:  fresh.sessionMemories,
+        themes:           fresh.themes,
       }).catch(e => console.warn('[nav] upload failed:', e));
     }
   } catch (e) {
     console.warn('[nav] background sync failed (will retry on next launch):', e);
   }
+}
+
+/** Keep first occurrence of each id; preserves order for stable rendering. */
+function dedupeById<T extends { id: string }>(arr: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const x of arr) {
+    if (seen.has(x.id)) continue;
+    seen.add(x.id);
+    out.push(x);
+  }
+  return out;
 }
 
 function AppNavigator() {
