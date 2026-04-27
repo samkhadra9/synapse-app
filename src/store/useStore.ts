@@ -689,7 +689,29 @@ export const useStore = create<SolasState>()(
       signOut: async () => {
         const { supabase } = await import('../lib/supabase');
         await supabase.auth.signOut();
-        set({ session: null });
+        // Clear all user-scoped local state so a subsequent sign-in (as
+        // the same OR a different account) doesn't hydrate the previous
+        // account's data from AsyncStorage. Cloud data is preserved —
+        // signing back in re-pulls everything via backgroundSync. Device
+        // preferences (appTheme, autoDark) are intentionally kept.
+        await AsyncStorage.removeItem('synapse-v2-storage');
+        set({
+          session:           null,
+          profile:           defaultProfile,
+          areas:             [],
+          projects:          [],
+          tasks:             [],
+          habits:            defaultHabits,
+          goals:             [],
+          dailyLogs:         [],
+          deepWorkSessions:  [],
+          chatSessions:      {},
+          sessionLog:        [],
+          completions:       [],
+          sessionMemories:   {},
+          themes:            null,
+          dailyUsage:        { day: '', inputTokens: 0, outputTokens: 0 },
+        } as any);
       },
 
       // ── Profile ───────────────────────────────────────────────────────────────
