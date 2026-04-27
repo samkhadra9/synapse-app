@@ -128,6 +128,39 @@ proactive surfaces ride on it.
   4. `git push origin main`
   5. `eas build --profile production --platform ios --auto-submit` → TestFlight #4
 
+- [~] **11a.6** Share Extension TestFlight fix. EAS build #16 succeeded
+       (.ipa generated) but Apple App Store Connect rejected the submission:
+       `Invalid Info.plist value. The value for the key 'NSExtensionActivationRule'
+       in bundle Aiteall.app/PlugIns/AiteallShare.appex is invalid.`
+
+       Root cause: `@bacons/apple-targets` v4.0.6 ships a default share
+       Info.plist with `NSExtensionActivationRule` set to the string
+       `"TRUEPREDICATE"` (build/target.js L425-432), which Apple no longer
+       accepts. Our `targets/share/expo-target.config.js` declares the
+       correct dict form, but the package only writes Info.plist when
+       absent (build/with-widget.js L184-189) — it never merges the
+       config infoPlist field into an existing file. `targets/*/Info.plist`
+       was gitignored, so on Sam's Mac the locally-corrected file masked
+       the bug, but EAS clones a fresh checkout and the @bacons default
+       generated the bad string form.
+
+       Fix:
+       - Edited `targets/share/Info.plist` to dict form
+         (`NSExtensionActivationSupportsText` true,
+         `NSExtensionActivationSupportsWebURLWithMaxCount` 1,
+         `NSExtensionActivationSupportsWebPageWithMaxCount` 1).
+       - Un-gitignored that one file via `!targets/share/Info.plist`
+         negation in `.gitignore` (with a comment explaining why), so the
+         corrected plist ships to EAS. `@bacons` will see the file exists
+         on EAS too and leave it alone.
+       - Bumped iOS buildNumber 6→7, Android versionCode 6→7.
+
+       **Sam, from your Mac:**
+  1. `cd ~/Documents/Personal/Projects/ADHDToolkit/SynapseApp && rm -f .git/index.lock .git/HEAD.lock`
+  2. `git add -A && git commit -F .commit-message-share-fix.txt && rm .commit-message-share-fix.txt`
+  3. `git push origin main`
+  4. `eas build --profile production --platform ios --auto-submit` → TestFlight #4 (real this time)
+
        Wave success metric (replaces CP10 triplet):
        - **Floor:** day-4 retention (need users opening the app to ask anything).
        - **Primary:** day-7+ felt-state question — *"Did you ever feel relieved

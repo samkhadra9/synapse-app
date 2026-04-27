@@ -1,0 +1,45 @@
+CP11a.6 — Fix Share Extension NSExtensionActivationRule rejection
+
+EAS build #16 produced a valid .ipa but Apple App Store Connect
+rejected the TestFlight submission with:
+
+  Invalid Info.plist value. The value for the key
+  'NSExtensionActivationRule' in bundle
+  Aiteall.app/PlugIns/AiteallShare.appex is invalid.
+
+Root cause: @bacons/apple-targets v4.0.6 generates a default share
+Info.plist that sets NSExtensionActivationRule to the string
+"TRUEPREDICATE" (see node_modules/@bacons/apple-targets/build/target.js
+lines 425-432). Apple no longer accepts the string form here — it must
+be a dictionary listing the supported activation types.
+
+Our targets/share/expo-target.config.js already declares the correct
+dict form, but the package's writer only emits Info.plist when the
+file is absent (build/with-widget.js lines 184-189); it never merges
+the config infoPlist field into an existing file. Locally on the Mac,
+the targets/share/Info.plist had been hand-corrected, but
+.gitignore matched targets/*/Info.plist so the fix never reached EAS.
+EAS clones a fresh checkout, the @bacons default kicks in, and the
+appex ends up with the bad string form.
+
+Changes:
+- targets/share/Info.plist now committed (dict form):
+    NSExtensionActivationSupportsText = true
+    NSExtensionActivationSupportsWebURLWithMaxCount = 1
+    NSExtensionActivationSupportsWebPageWithMaxCount = 1
+- .gitignore: keeps the wildcard ignore but adds
+  `!targets/share/Info.plist` to un-ignore exactly that file, with
+  a comment explaining why we're tracking it. @bacons will see the
+  file exists on EAS and leave it alone (per its own writer guard).
+- app.json: iOS buildNumber 6 → 7, Android versionCode 6 → 7.
+- CHECKPOINTS.md: documented as 11a.6 with the diagnosis and fix path.
+
+This unblocks the CP11a wave. Re-run `eas build --profile production
+--platform ios --auto-submit` to ship TestFlight #4 for real.
+
+Also bundled in this commit: a small but real bug fix in deleteTask.
+Previously, deleting a task that was paired with an iOS Reminder left
+the Reminder behind in the system Reminders app, so its alarm could
+fire later with no in-app way to dismiss it. deleteTask now marks the
+paired reminder complete (best-effort) before removing the task. tsc
+still clean.

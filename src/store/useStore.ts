@@ -891,6 +891,16 @@ export const useStore = create<SolasState>()(
         }
       },
       deleteTask: (id) => {
+        // If the task is paired with an iOS Reminder, mark the reminder
+        // complete first so its alarm can't fire after the task is gone.
+        // Best-effort: silently no-ops if the reminder was already removed
+        // or Reminders permission was revoked.
+        const task = get().tasks.find(t => t.id === id);
+        if (task?.reminderId) {
+          import('../services/calendar')
+            .then(cal => cal.completeReminder(task.reminderId!))
+            .catch(() => {});
+        }
         set((s) => ({ tasks: s.tasks.filter(t => t.id !== id) }));
         syncIfAuthed(s => s.deleteTask(id), get().session);
       },

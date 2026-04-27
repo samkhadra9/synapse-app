@@ -23,7 +23,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.synapseadhd.app",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "appleTeamId": "3XUT32U7BT",
       "entitlements": {
         "com.apple.security.application-groups": [
@@ -53,7 +53,7 @@
     },
     "android": {
       "package": "com.synapseadhd.app",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#12121B"

@@ -14,8 +14,14 @@ web-build/
 # Authoritative iOS extension source lives in targets/ (widget, share, siri).
 ios/
 android/
-# @bacons/apple-targets — these are generated at prebuild time per target
+# @bacons/apple-targets — these are generated at prebuild time per target.
+# NOTE: We track targets/share/Info.plist explicitly because @bacons v4.0.6's
+# default share Info.plist sets NSExtensionActivationRule to the string
+# "TRUEPREDICATE", which Apple App Store Connect rejects. The package only
+# writes Info.plist if the file is absent (build/with-widget.js L184-189),
+# so committing a corrected dict-form plist makes @bacons leave it alone.
 targets/*/Info.plist
+!targets/share/Info.plist
 targets/*/Assets.xcassets/
 targets/*/generated.entitlements
 *.jks
