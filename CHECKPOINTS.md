@@ -63,22 +63,107 @@ D30 retention foundation. Reinstall = no data loss.
 
 ## CP9 — Original CP6 carryover (deferred presence moves)
 
-- [ ] **9.1** Pause mode — "I'm cooked" → 2h all-quiet + soft re-entry
-- [ ] **9.2** Portrait forking — Work-self / Life-self portraits, switchable
-- [ ] **9.3** Read-aloud for chat replies (TTS, mute per session)
-- [ ] **9.4** Streak-without-counting (gentle line, not number)
-- [ ] **9.5** Re-entry script after Pause expires
+- [x] **9.1** Pause mode — "I'm cooked" → 2h all-quiet + soft re-entry
+- [x] **9.2** Portrait forking — Work-self / Life-self portraits, switchable
+- [x] **9.3** Read-aloud for chat replies (TTS, mute per session)
+- [x] **9.4** Streak-without-counting (gentle line, not number)
+- [x] **9.5** Re-entry script after Pause expires
 
 ---
 
 ## CP10 — TestFlight ready (final polish)
 
-- [ ] **10.1** Crash-free session audit (Sentry)
-- [ ] **10.2** Cold-start latency budget (<2s to interactive)
-- [ ] **10.3** Empty-state copy pass (every screen with zero data)
-- [ ] **10.4** Accessibility pass (Dynamic Type, VoiceOver labels)
-- [ ] **10.5** Privacy nutrition + data-deletion docs for App Store
-- [ ] **10.6** TestFlight build #3 — invite the wave
+- [x] **10.1** Crash-free session audit (lightweight error boundary + diagnostics buffer; Sentry deferred)
+- [x] **10.2** Cold-start latency budget (<2s to interactive) — defer side-effect installers via InteractionManager
+- [x] **10.3** Empty-state copy pass (every screen with zero data)
+- [x] **10.4** Accessibility pass (Dynamic Type, VoiceOver labels) — must-fix touch targets + TextInput labels
+- [x] **10.5** Privacy nutrition + data-deletion docs for App Store (PRIVACY.md)
+- [x] **10.6** TestFlight build #3 — invite the wave (iOS buildNumber=5, Android versionCode=5)
+
+---
+
+## CP11 — The Anticipator Pass (the temporal-holding thesis)
+
+> Aiteall is a temporal holding system for humans who cannot reliably hold
+> time in their head. CP1–10 made the app calm. CP11 makes the app *hold*
+> the day, the week, and consequences across time — expressed through
+> language, never imposed through interface.
+
+Split into two waves so the temporal model gets calibrated before
+proactive surfaces ride on it.
+
+### ✅ CP11a — Wave A: passive temporal intelligence (shipped, build pending Sam's hands)
+
+- [x] **11a.1** Build `buildWeekAheadContext()` — pure data service in
+       `src/services/calendar.ts`. Pulls 7 days of calendar events,
+       overlays per-day skeleton blocks, computes committed + habitual
+       minutes per day, lists deadline tasks within the window, and
+       highlights what's left today. Output is plain prompt text with
+       three confidence tiers (committed/habitual/claimed) and a notes
+       block teaching the model how to talk about each.
+- [x] **11a.2** Wired week-ahead context into the dump-mode useEffect in
+       `ChatScreen.tsx` (Promise.all alongside `buildTodayCalendarContext`)
+       and added a TEMPORAL POSTURE section to the system prompt. The
+       prompt teaches when to reach for it (when-questions, deadline
+       carry-overs, heavy-day/light-day spotting, re-entry) and when not
+       (no calendar dumps, no scolding).
+- [x] **11a.3** Evening flow: step 4 now reads the WEEK AHEAD → TOMORROW
+       section and surfaces the *shape* of tomorrow in one natural
+       sentence ("tomorrow's a 7am run, then meetings 10–12, open after")
+       before asking "what's the one thing tomorrow?". Skipped silently
+       when both Committed and Habitual are empty.
+- [x] **11a.4** Re-entry temporal context. Added a "back after 4h+ gap
+       today" branch to HOW TO OPEN (uses CONTINUITY CONTEXT for the gap
+       signal, WEEK AHEAD → TODAY for the next-event-or-open-afternoon
+       cue) and updated the 3+ days branch to mention the shape of today
+       when it's worth saying.
+- [x] **11a.5** tsc clean. iOS buildNumber 6, Android versionCode 6.
+       ROADMAP.md updated. **Sandbox couldn't `git add` due to a stale
+       `.git/index.lock` (same FUSE issue as CP8.6).** Sam, from your Mac:
+  1. `cd ~/Documents/Personal/Projects/ADHDToolkit/SynapseApp && rm -f .git/index.lock .git/HEAD.lock`
+  2. If CP9+CP10 commit (`.commit-message.txt`) hasn't been made yet:
+     `git add -A && git commit -F .commit-message.txt && rm .commit-message.txt`
+     (otherwise skip — CP9+CP10 is already in)
+  3. `git add -A && git commit -F .commit-message-cp11a.txt && rm .commit-message-cp11a.txt`
+  4. `git push origin main`
+  5. `eas build --profile production --platform ios --auto-submit` → TestFlight #4
+
+       Wave success metric (replaces CP10 triplet):
+       - **Floor:** day-4 retention (need users opening the app to ask anything).
+       - **Primary:** day-7+ felt-state question — *"Did you ever feel relieved
+         that something you would have forgotten was already held by the app?"*
+
+### CP11b — Wave B: active anticipation (system-initiated)
+
+Held until CP11a calibrates with the wave. Sketched here so we don't
+forget the destination:
+
+- [ ] **11b.1** Per-slot Aiteall-native reminders ("your 10:30 block is
+       ready when you are"). Scheduled via `expo-notifications` when a
+       day plan is saved, cancelled when the slot is ticked or shifted.
+       Max 2–3 per day. Circuit breaker: dismiss-without-acting 3 times
+       in a row → quiet for the rest of the day.
+- [ ] **11b.2** Gap awareness in chat — proactive "you have a free 30
+       between meetings, want to use it?" Fired only when receptivity
+       signals say the user has bandwidth.
+- [ ] **11b.3** Consequence awareness — "next clean window for this is
+       Tuesday" said unprompted, with confidence hedging.
+- [ ] **11b.4** Continuity awareness — "you usually run here, want to
+       keep that?" Pattern-shift detection: 3 consecutive corrections
+       → treat the pattern as moved.
+- [ ] **11b.5** Verify + ship TestFlight #5.
+
+### Wave success metric (replaces the CP10 triplet)
+
+Layered:
+- **Floor (behavioural):** day-4 retention. You need users opening the
+  app to ask them anything. Drop capture-diversity and portrait-emergence
+  as wave-1 signals.
+- **Primary (felt-state):** one survey question on day 7+ —
+  *"Did you ever feel relieved that something you would have forgotten
+  was already held by the app?"* Maps directly onto the thesis success
+  condition. If retention is high but felt-state is no, we've built a
+  calm-but-empty app.
 
 ---
 

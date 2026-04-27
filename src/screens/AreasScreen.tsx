@@ -502,14 +502,28 @@ export default function AreasScreen({ navigation }: any) {
           showsVerticalScrollIndicator={false}
         >
           {activeAreas.length === 0 ? (
+            // CP10.3 — empty-state copy pass. Old version: "No areas yet" +
+            // "Add your first area" is directive and quietly shaming. The
+            // areas concept is also abstract — most ADHD users won't have
+            // formed an opinion about it on first open. We name the concept,
+            // give a soft suggestion (not a requirement), and offer a
+            // low-stakes affordance.
             <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No areas yet</Text>
+              <Text style={styles.emptyTitle}>Nothing here yet — and that's fine.</Text>
               <Text style={styles.emptyBody}>
-                Areas are the ongoing parts of your life — health, work, relationships.
-                They don't have an end date. They just matter.
+                Areas are the ongoing parts of your life — health, work,
+                relationships. They don't have an end date. They just matter.
+                You don't need them to use the app. Make one when something
+                feels worth a name.
               </Text>
-              <TouchableOpacity style={styles.emptyBtn} onPress={openAdd} activeOpacity={0.8}>
-                <Text style={styles.emptyBtnText}>Add your first area</Text>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={openAdd}
+                activeOpacity={0.8}
+                accessibilityLabel="Add an area"
+                accessibilityRole="button"
+              >
+                <Text style={styles.emptyBtnText}>Name an area</Text>
               </TouchableOpacity>
             </View>
           ) : (

@@ -217,6 +217,14 @@ export default function AmbientChatStrip({
   const s = useMemo(() => makeStyles(C), [C]);
   const anthropicKey = useStore(st => st.profile?.anthropicKey);
 
+  // CP9.1 — When paused, the strip stops doing its proactive thing. Read the
+  // pause window straight from the store so any "Lift" tap from another
+  // surface (Settings, the strip itself) flips the UI immediately.
+  const pauseModeUntil = useStore(st => st.profile.pauseModeUntil);
+  const setPauseMode = useStore(st => st.setPauseMode);
+  const pauseUntilMs = pauseModeUntil ? Date.parse(pauseModeUntil) : 0;
+  const isPaused = Number.isFinite(pauseUntilMs) && pauseUntilMs > Date.now();
+
   const [state, setState] = useState<StripState>('proactive');
   const [proactiveMsg, setProactiveMsg] = useState<string | null>(null);
   const [proactiveLoading, setProactiveLoading] = useState(true);
@@ -231,6 +239,12 @@ export default function AmbientChatStrip({
 
   // ── Generate proactive opening on mount ───────────────────────────────────
   useEffect(() => {
+    // Pause mode — no AI call, no static fallback, just sit quiet.
+    if (isPaused) {
+      setProactiveLoading(false);
+      setProactiveMsg(null);
+      return;
+    }
     let cancelled = false;
     setProactiveLoading(true);
 
@@ -267,7 +281,7 @@ export default function AmbientChatStrip({
     generate();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anthropicKey, primaryMIT?.id, calEvents.length, new Date().getHours()]);  // Regenerate when MIT, events, key, or hour-of-day changes
+  }, [anthropicKey, primaryMIT?.id, calEvents.length, new Date().getHours(), isPaused]);  // Regenerate when MIT, events, key, hour-of-day, or pause state changes
 
   // Cleanup abort flag on unmount
   useEffect(() => {
@@ -326,6 +340,36 @@ export default function AmbientChatStrip({
     navigation.navigate('Chat', { mode: 'dump', initialMessage: textToCarry });
   }
 
+  // ── PAUSED STATE (CP9.1) ──────────────────────────────────────────────────
+  // When the user said "I'm cooked", the strip stops talking. We render a
+  // single, quiet line with the time the world resumes + a soft "lift early"
+  // affordance. No chips. No AI call. No nudge to engage.
+  if (isPaused) {
+    const reentryDate = new Date(pauseUntilMs);
+    const reentry = format(reentryDate, 'h:mm a');
+    return (
+      <View style={s.proactiveContainer}>
+        <View style={s.proactiveHeader}>
+          <View style={s.sparkleWrap}>
+            <Ionicons name="moon-outline" size={14} color={C.textTertiary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.proactiveText}>
+              Quiet until {reentry}. Nothing's piled up — same as you left it.
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => setPauseMode(null)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={s.dismissText}>Lift</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   // ── PROACTIVE STATE ───────────────────────────────────────────────────────
   if (state === 'proactive') {
     const hasMIT = primaryMIT !== null;
@@ -356,7 +400,9 @@ export default function AmbientChatStrip({
             style={s.editBtn}
             onPress={expand}
             activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Edit message"
+            accessibilityRole="button"
           >
             <Ionicons name="create-outline" size={15} color={C.textTertiary} />
           </TouchableOpacity>
@@ -426,6 +472,7 @@ export default function AmbientChatStrip({
               placeholder="Ask anything…"
               placeholderTextColor={C.textTertiary}
               multiline
+              accessibilityLabel="Ask anything"
             />
             <TouchableOpacity
               style={[s.sendBtn, !input.trim() && s.sendBtnDisabled]}

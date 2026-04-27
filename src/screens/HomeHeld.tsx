@@ -25,6 +25,8 @@ import { Spacing, Radius, useColors } from '../theme';
 import { useStore } from '../store/useStore';
 import { RootStackParams } from '../navigation';
 import DayEndReflection from '../components/DayEndReflection';
+// CP9.4 — gentle "you've shown up" line, no number-as-trophy.
+import { computeShowingUpStreak } from '../services/streak';
 
 type Nav = NativeStackNavigationProp<RootStackParams>;
 
@@ -46,8 +48,16 @@ export default function HomeHeld() {
 
   const profile       = useStore(st => st.profile);
   const tasks         = useStore(st => st.tasks);
+  const completions   = useStore(st => st.completions);
   const lastPortrait  = profile.portrait.lastAnyUpdate;
   const firstName     = (profile.name || '').split(' ')[0];
+  // CP9.4 — quiet showing-up line. We compute it inside useMemo so the
+  // string only re-derives when completions change, not on every parent
+  // render. Returns null when there's nothing to say (no shame on gaps).
+  const streakLine = useMemo(
+    () => computeShowingUpStreak(completions).line,
+    [completions],
+  );
 
   const inboxCount  = tasks.filter(t => t.isInbox && !t.completed).length;
   const todayCount  = tasks.filter(
@@ -150,6 +160,13 @@ export default function HomeHeld() {
           </TouchableOpacity>
         </View>
 
+        {/* CP9.4 — gentle streak line. No number-as-trophy, no flame, no
+            reset-shame. If nothing to say, render nothing — silence beats
+            performative encouragement. */}
+        {streakLine && (
+          <Text style={s.streakLine}>{streakLine}</Text>
+        )}
+
         <Text style={s.footer}>
           You don't have to plan before you talk. Just start.
         </Text>
@@ -246,6 +263,16 @@ function makeStyles(C: any) {
       textAlign: 'center',
       // CP2.5: let the reassurance line sit on its own island.
       marginTop: Spacing.xl,
+    },
+    streakLine: {
+      // CP9.4 — sits above the footer, slightly more present than tertiary
+      // copy because it's the only earned signal on screen, but quiet enough
+      // to never feel like a metric demanding attention.
+      fontSize: 12,
+      fontStyle: 'italic',
+      color: C.textSecondary,
+      textAlign: 'center',
+      marginTop: Spacing.lg,
     },
   });
 }

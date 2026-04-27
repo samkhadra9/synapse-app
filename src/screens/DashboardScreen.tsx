@@ -30,6 +30,8 @@ import TheOneBlock from '../components/TheOneBlock';
 import { useFifteen } from '../services/fifteen';
 import AmbientChatStrip from '../components/AmbientChatStrip';
 import { done as hapticDone } from '../services/haptics';
+// CP9.4 — gentle "shown up X days running" line, derived from completions log.
+import { computeShowingUpStreak } from '../services/streak';
 // CP1.5: DriftNudge import dropped — no longer rendered.
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -577,6 +579,14 @@ function TodayTimelinePage({
     focusTaskId: s.focusTaskId,
     setFocusTask: s.setFocusTask,
   }));
+
+  // CP9.4 — quiet "shown up X days running" line. Pulled separately so the
+  // bigger destructure above doesn't churn this string on unrelated rerenders.
+  const completions = useStore(s => s.completions);
+  const streakLine = useMemo(
+    () => computeShowingUpStreak(completions).line,
+    [completions],
+  );
 
   // Option C: reconcile iOS Calendar → DayPlan on focus and on app foreground.
   // Pulls back any time-shifts or deletions the user made externally (e.g.
@@ -1370,6 +1380,15 @@ function TodayTimelinePage({
 
       {/* CP3.0 — MomentumCelebration render removed; completion is a
           soft haptic tick (handleToggleTask → hapticDone). */}
+
+      {/* CP9.4 — gentle showing-up line. Sits at the foot of the Today
+          scroll, below all task surfaces, so it reads as a quiet observation
+          after the user has scrolled through their day — not a number above
+          the fold demanding attention. Hidden when there's no streak (gap
+          of 2+ days resets to silence, no shame). */}
+      {streakLine && (
+        <Text style={tl.streakLine}>{streakLine}</Text>
+      )}
     </ScrollView>
   );
 }
@@ -1389,6 +1408,9 @@ function makeTl(C: any) { return StyleSheet.create({
   pageHeader:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.sm },
   pageTitle:    { fontSize: 32, fontWeight: '800', color: C.textPrimary, letterSpacing: -1, lineHeight: 36 },
   pageSubtitle: { fontSize: 13, color: C.textTertiary, fontWeight: '500', marginTop: 2 },
+  // CP9.4 — quiet streak line at the foot of the today scroll. Italic +
+  // tertiary color so it never competes with task surfaces or the ambient strip.
+  streakLine:   { fontSize: 12, fontStyle: 'italic', color: C.textTertiary, textAlign: 'center', marginTop: Spacing.lg, paddingHorizontal: Spacing.lg },
   dateRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   dateText:  { fontSize: 15, fontWeight: '600', color: C.textPrimary },
   datePlusBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },

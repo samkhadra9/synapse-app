@@ -66,10 +66,23 @@ export default function UndoSnackbar() {
     >
       <View style={s.pill}>
         <Text numberOfLines={1} style={s.label}>{entry.label}</Text>
-        <TouchableOpacity onPress={run} hitSlop={8} activeOpacity={0.7}>
+        <TouchableOpacity
+          onPress={run}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          activeOpacity={0.7}
+          accessibilityLabel="Undo"
+          accessibilityRole="button"
+        >
           <Text style={s.undoText}>Undo</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={dismiss} hitSlop={8} activeOpacity={0.7} style={s.closeBtn}>
+        <TouchableOpacity
+          onPress={dismiss}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          activeOpacity={0.7}
+          style={s.closeBtn}
+          accessibilityLabel="Dismiss"
+          accessibilityRole="button"
+        >
           <Ionicons name="close" size={14} color={C.textInverse} />
         </TouchableOpacity>
       </View>

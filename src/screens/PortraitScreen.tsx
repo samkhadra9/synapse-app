@@ -26,7 +26,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import { formatDistanceToNow } from 'date-fns';
 import { Spacing, Radius, useColors } from '../theme';
-import { useStore, PortraitSectionKey } from '../store/useStore';
+import { useStore, PortraitSectionKey, makeEmptyPortrait } from '../store/useStore';
 import { portraitToMarkdown, recentPortraitChanges, refreshPortrait } from '../services/portraitV2';
 
 // ── Section metadata ──────────────────────────────────────────────────────────
@@ -78,10 +78,23 @@ export default function PortraitScreen() {
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(C), [C]);
 
-  const profile             = useStore(st => st.profile);
-  const portrait            = useStore(st => st.profile.portrait);
-  const updatePortraitSection = useStore(st => st.updatePortraitSection);
-  const userAnthropicKey    = profile.anthropicKey;
+  const profile                  = useStore(st => st.profile);
+  // CP9.2 — pick the active portrait based on the lens. Both portraits
+  // exist independently; switching the tab rotates which one we render
+  // (and which one the Refresh / save-edit pipeline writes into).
+  const lens                     = (profile.portraitLens ?? 'work') as 'work' | 'life';
+  const workPortrait             = useStore(st => st.profile.portrait);
+  const rawLifePortrait          = useStore(st => st.profile.lifePortrait);
+  const lifePortrait             = useMemo(
+    () => rawLifePortrait ?? makeEmptyPortrait(),
+    [rawLifePortrait],
+  );
+  const portrait                 = lens === 'life' ? lifePortrait : workPortrait;
+  const updatePortraitSection    = useStore(st => st.updatePortraitSection);
+  const updateLifePortraitSection = useStore(st => st.updateLifePortraitSection);
+  const setPortraitLens          = useStore(st => st.setPortraitLens);
+  const writeSection             = lens === 'life' ? updateLifePortraitSection : updatePortraitSection;
+  const userAnthropicKey         = profile.anthropicKey;
 
   const [editingKey, setEditingKey] = useState<PortraitSectionKey | null>(null);
   const [editDraft, setEditDraft]   = useState('');
@@ -100,10 +113,10 @@ export default function PortraitScreen() {
   const saveEdit = useCallback(() => {
     if (!editingKey) return;
     const text = editDraft.trim();
-    updatePortraitSection(editingKey, { text, source: 'user' });
+    writeSection(editingKey, { text, source: 'user' });
     setEditingKey(null);
     setEditDraft('');
-  }, [editingKey, editDraft, updatePortraitSection]);
+  }, [editingKey, editDraft, writeSection]);
 
   const cancelEdit = useCallback(() => {
     setEditingKey(null);
@@ -139,11 +152,20 @@ export default function PortraitScreen() {
           timestamp: new Date().toISOString(),
         },
       ];
+      // CP9.2 — Refresh routes to the active lens. We hand portraitV2 the
+      // selected portrait + a write function, so it doesn't need to know
+      // which slot it's filling.
+      const activePortrait = lens === 'life'
+        ? (st.profile.lifePortrait ?? makeEmptyPortrait())
+        : st.profile.portrait;
+      const activeWrite = lens === 'life'
+        ? st.updateLifePortraitSection
+        : st.updatePortraitSection;
       const written = await refreshPortrait(
         synthetic,
         {
-          portrait:              st.profile.portrait,
-          updatePortraitSection: st.updatePortraitSection,
+          portrait:              activePortrait,
+          updatePortraitSection: activeWrite,
         },
         userAnthropicKey,
       );
@@ -155,7 +177,7 @@ export default function PortraitScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [refreshing, userAnthropicKey]);
+  }, [refreshing, userAnthropicKey, lens]);
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
@@ -193,6 +215,32 @@ export default function PortraitScreen() {
               size={18}
               color={refreshing ? C.textTertiary : C.textSecondary}
             />
+          </TouchableOpacity>
+        </View>
+
+        {/* CP9.2 — Lens tabs (Work / Life). Two portraits, one tab control.
+            Switching the lens swaps which slot renders + which slot the
+            Refresh button writes into. */}
+        <View style={s.lensRow}>
+          <TouchableOpacity
+            style={[s.lensTab, lens === 'work' && s.lensTabActive]}
+            onPress={() => setPortraitLens('work')}
+            activeOpacity={0.78}
+            accessibilityLabel="Show work-self portrait"
+          >
+            <Text style={[s.lensTabText, lens === 'work' && s.lensTabTextActive]}>
+              Work-self
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.lensTab, lens === 'life' && s.lensTabActive]}
+            onPress={() => setPortraitLens('life')}
+            activeOpacity={0.78}
+            accessibilityLabel="Show life-self portrait"
+          >
+            <Text style={[s.lensTabText, lens === 'life' && s.lensTabTextActive]}>
+              Life-self
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -383,6 +431,34 @@ function makeStyles(C: any) {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: C.surfaceSecondary,
       alignItems: 'center', justifyContent: 'center',
+    },
+
+    // CP9.2 — lens tabs (Work / Life)
+    lensRow: {
+      flexDirection: 'row',
+      gap: 8,
+      paddingHorizontal: Spacing.base,
+      marginBottom: Spacing.base,
+    },
+    lensTab: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      borderColor: C.border,
+      backgroundColor: C.surface,
+    },
+    lensTabActive: {
+      backgroundColor: C.primary,
+      borderColor: C.primary,
+    },
+    lensTabText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: C.textSecondary,
+    },
+    lensTabTextActive: {
+      color: '#fff',
     },
 
     // Diff pill

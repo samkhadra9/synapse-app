@@ -26,6 +26,8 @@ import { useStore, Task } from '../store/useStore';
 import { RootStackParams } from '../navigation';
 import DayEndReflection from '../components/DayEndReflection';
 import { useFifteen } from '../services/fifteen';
+// CP9.4 — gentle showing-up line, derived from completions log.
+import { computeShowingUpStreak } from '../services/streak';
 
 type Nav = NativeStackNavigationProp<RootStackParams>;
 
@@ -53,12 +55,26 @@ export default function HomeNarrow() {
 
   const tasks    = useStore(st => st.tasks);
   const toggleTask = useStore(st => st.toggleTask);
+  // CP9.1 — pause mode swaps the focal card for a quiet card
+  const pauseModeUntil = useStore(st => st.profile.pauseModeUntil);
+  const setPauseMode = useStore(st => st.setPauseMode);
+  const pauseUntilMs = pauseModeUntil ? Date.parse(pauseModeUntil) : 0;
+  const isPaused = Number.isFinite(pauseUntilMs) && pauseUntilMs > Date.now();
 
   const oneThing = useMemo(() => pickOneThing(tasks), [tasks]);
   const todayLeft = tasks.filter(
     t => !t.completed && !t.isInbox && t.isToday,
   ).length;
   const laterCount = Math.max(0, todayLeft - (oneThing ? 1 : 0));
+
+  // CP9.4 — quiet showing-up line. Suppressed during pause mode (the pause
+  // card is the only thing that should speak when the user has asked us to
+  // be quiet).
+  const completions = useStore(st => st.completions);
+  const streakLine = useMemo(
+    () => (isPaused ? null : computeShowingUpStreak(completions).line),
+    [completions, isPaused],
+  );
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
@@ -74,6 +90,30 @@ export default function HomeNarrow() {
         {/* Day-end reflection (evening only, if completions exist) */}
         <DayEndReflection />
 
+        {/* CP9.1 — Pause mode: when the user's said "I'm cooked", we replace
+            the focal card entirely with a quiet card. No tasks, no chips,
+            no AI — just the time the world resumes and a way to lift early. */}
+        {isPaused ? (
+          <View style={s.pauseCard}>
+            <Text style={s.focusLabel}>Quiet</Text>
+            <Text style={s.focusText}>
+              Back at {format(new Date(pauseUntilMs), 'h:mm a')}.
+            </Text>
+            <Text style={s.focusReason}>
+              Nothing's piled up. Same list, same world, when you come back.
+            </Text>
+            <View style={s.focusActions}>
+              <TouchableOpacity
+                style={s.secondaryBtn}
+                onPress={() => setPauseMode(null)}
+                activeOpacity={0.75}
+              >
+                <Text style={s.secondaryBtnText}>Lift early</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+        <>
         {/* Eyebrow — why we simplified */}
         <View style={s.eyebrowRow}>
           <View style={s.eyebrowDot} />
@@ -184,6 +224,27 @@ export default function HomeNarrow() {
           </View>
           <Ionicons name="chevron-forward" size={16} color={C.textTertiary} />
         </TouchableOpacity>
+
+        {/* CP9.1 — Pause mode escape hatch.
+            Sits below the talk card so it's the gentlest, last-resort
+            affordance — not a primary action. Tap once: 2h all-quiet. */}
+        <TouchableOpacity
+          style={s.cookedRow}
+          onPress={() => setPauseMode(2)}
+          activeOpacity={0.7}
+          accessibilityLabel="Pause Aiteall for 2 hours"
+        >
+          <Ionicons name="moon-outline" size={13} color={C.textTertiary} />
+          <Text style={s.cookedText}>I'm cooked — quiet for 2h</Text>
+        </TouchableOpacity>
+
+        {/* CP9.4 — gentle streak line. No flame, no number-as-trophy.
+            Only renders when there's something to say; silence on gap. */}
+        {streakLine && (
+          <Text style={s.streakLine}>{streakLine}</Text>
+        )}
+        </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -313,6 +374,38 @@ function makeStyles(C: any) {
       fontSize: 12,
       color: C.textSecondary,
       lineHeight: 16,
+    },
+
+    // CP9.1 — Pause mode card (focal-card replacement during quiet window)
+    pauseCard: {
+      padding: Spacing.lg,
+      backgroundColor: C.surfaceSecondary,
+      borderRadius: Radius.xl,
+      borderWidth: 1,
+      borderColor: C.border,
+      marginBottom: Spacing.lg,
+    },
+    cookedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      alignSelf: 'center',
+      paddingVertical: Spacing.sm,
+      marginTop: Spacing.md,
+    },
+    cookedText: {
+      fontSize: 12,
+      color: C.textTertiary,
+    },
+    streakLine: {
+      // CP9.4 — sits below the cooked row, italicised and quiet. The only
+      // visible "earned" feedback in narrow mode; deliberately subordinate
+      // to the focal card and the talk-card.
+      fontSize: 12,
+      fontStyle: 'italic',
+      color: C.textSecondary,
+      textAlign: 'center',
+      marginTop: Spacing.lg,
     },
   });
 }

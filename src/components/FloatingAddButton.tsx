@@ -85,6 +85,7 @@ export default function FloatingAddButton() {
               onSubmitEditing={handleAdd}
               returnKeyType="done"
               autoFocus
+              accessibilityLabel="Capture a task"
             />
 
             {/* When row */}

@@ -31,6 +31,9 @@ import {
   scheduleWeeklyReview,
   addNotificationResponseListener,
   clearBadge,
+  cancelAllProactive,
+  schedulePauseReentry,
+  cancelPauseReentry,
 } from '../services/notifications';
 import * as Notifications from 'expo-notifications';
 import { runProactiveDecision, extractProactiveSeed } from '../services/proactivePush';
@@ -599,12 +602,47 @@ function AppNavigator() {
       if (s === 'active') {
         clearBadge();
         if (session) {
+          // CP9.5 — Re-entry script. If a pause window has expired, clear it
+          // and reschedule the dailies that we tore down at pause-start. The
+          // re-entry notification itself was scheduled in advance for the
+          // exact moment of expiry (handled in the pause useEffect below);
+          // here we just restore the steady state.
+          const p = useStore.getState().profile;
+          if (p.pauseModeUntil) {
+            const until = Date.parse(p.pauseModeUntil);
+            if (Number.isFinite(until) && until <= Date.now()) {
+              useStore.getState().setPauseMode(null);
+              scheduleDailyNotifications(p.morningTime, p.eveningTime).catch(() => {});
+              scheduleWeeklyReview(p.weeklyReviewDay, p.weeklyReviewTime).catch(() => {});
+            }
+          }
           runProactiveDecision().catch(() => { /* silent */ });
         }
       }
     });
     return () => sub.remove();
   }, [session]);
+
+  // CP9.1 — When the user toggles pause on/off, sync notification schedule.
+  // Entering pause: tear down recurring + queue the re-entry notification.
+  // Lifting pause: cancel the queued re-entry + re-schedule the dailies.
+  // Watching `pauseModeUntil` directly so any surface that flips it (Settings,
+  // HomeNarrow, AmbientChatStrip) drives the side-effect through one funnel.
+  useEffect(() => {
+    if (!session) return;
+    const until = profile.pauseModeUntil ? Date.parse(profile.pauseModeUntil) : 0;
+    const isPaused = Number.isFinite(until) && until > Date.now();
+
+    if (isPaused) {
+      cancelAllProactive().catch(() => {});
+      schedulePauseReentry(new Date(until)).catch(() => {});
+    } else {
+      cancelPauseReentry().catch(() => {});
+      // Lifted (manually or expired) — re-arm the steady state.
+      scheduleDailyNotifications(profile.morningTime, profile.eveningTime).catch(() => {});
+      scheduleWeeklyReview(profile.weeklyReviewDay, profile.weeklyReviewTime).catch(() => {});
+    }
+  }, [session, profile.pauseModeUntil, profile.morningTime, profile.eveningTime, profile.weeklyReviewDay, profile.weeklyReviewTime]);
 
   // Zero-config entry: the moment we have a session, schedule notifications and
   // pull iOS Reminders. No onboarding gate — the user landed in the app and

@@ -298,6 +298,17 @@ export async function runProactiveDecision(opts: { force?: boolean } = {}): Prom
     return { scheduled: false, reason: 'opted-out' };
   }
 
+  // CP9.1 — Pause mode. While the user has explicitly said "I'm cooked",
+  // we do NOT ping. We also tear down any push that might already be queued
+  // for today so a stale Haiku message can't fire mid-pause.
+  const pauseUntilMs = profile.pauseModeUntil ? Date.parse(profile.pauseModeUntil) : 0;
+  if (Number.isFinite(pauseUntilMs) && pauseUntilMs > Date.now()) {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(notificationId());
+    } catch { /* ignore — wasn't scheduled */ }
+    return { scheduled: false, reason: 'paused' };
+  }
+
   // Notification permission — don't prompt here; if not granted, skip silently.
   const perms = await Notifications.getPermissionsAsync();
   if (perms.status !== 'granted') {

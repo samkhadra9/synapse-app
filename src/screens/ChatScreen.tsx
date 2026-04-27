@@ -23,10 +23,13 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
+// CP9.3 — Read-aloud TTS for chat replies (per-session mute toggle).
+// expo-speech ships native AVSpeech / Android TTS; no permissions needed.
+import * as Speech from 'expo-speech';
 import { format, addDays } from 'date-fns';
 import { Colors, Spacing, Radius, useColors } from '../theme';
 import { useStore, ChatMessage, DomainKey, Task, Project, LifeGoal, UserProfile, Area, DayPlan, PlannedSlot } from '../store/useStore';
-import { buildTodayCalendarContext, buildSkeletonContext, writeDayPlanToCalendar, requestCalendarPermissions, findOrCreateSolasCalendar } from '../services/calendar';
+import { buildTodayCalendarContext, buildSkeletonContext, buildWeekAheadContext, writeDayPlanToCalendar, requestCalendarPermissions, findOrCreateSolasCalendar } from '../services/calendar';
 import { portraitToString } from '../services/portrait';
 import { fetchAnthropic } from '../lib/anthropic';
 // CP6.1 — PDF picker, CP6.3 — Image picker → Claude document/image content blocks
@@ -371,7 +374,8 @@ HOW TO OPEN (pick ONE based on state, then stop and wait for their answer):
 - First message of the day AND it's morning → "Morning, ${firstName}. What's in your head right now?" Then help them plan (see MORNING FLOW below).
 - First message AND it's afternoon/midday → "Hey ${firstName} — what's on your mind?" Then triage dump → structure.
 - First message AND it's evening → "How did today actually go?" One question. Gentle. Then wind-down (see EVENING FLOW below).
-- They haven't been here in 3+ days (detect from from-earlier/stale context above) → "Good to see you. Let's not worry about the backlog. What's one thing, if you did it today, would make you feel like you've moved forward?" No guilt, no catch-up.
+- Back after a 4h+ gap today (CONTINUITY CONTEXT shows hours_ago between 4 and 24) → soft re-entry. Before asking anything, glance at WEEK AHEAD → TODAY: if there's something concrete in front of them (next committed event in the next ~90 minutes, or remaining today count), name it in one sentence so they don't have to context-switch alone. Examples: "You've got ~40 minutes before the 2pm call." "Nothing locked in this afternoon — what wants attention?" Then ONE gentle question. Skip the temporal cue if there's nothing meaningful in front of them.
+- They haven't been here in 3+ days (detect from CONTINUITY CONTEXT) → "Good to see you. Let's not worry about the backlog." Then, if WEEK AHEAD shows today is genuinely open or genuinely heavy, mention the shape in one sentence ("today's pretty open" / "you've got a couple things locked in"). Then: "What's one thing, if you did it today, would make you feel like you've moved forward?" No guilt, no catch-up.
 - They sound frozen / overwhelmed / in analysis paralysis ("I don't know where to start", "too much", "can't think", "stuck") → switch to FATIGUE POSTURE (see below). Do not offer options. Give them one task.
 - Everything else → just listen. Let them dump. Sort afterwards.
 
@@ -387,8 +391,24 @@ EVENING FLOW (when it's evening and the day is closing):
 1. Open warm and short. "How did today go?" One question.
 2. Based on their answer: acknowledge a good day + ask what's worth carrying forward, OR acknowledge a rough day without judgment + ask what got in the way.
 3. One line of brain dump: "Anything you need to capture before you close out?"
-4. Close with tomorrow's one thing: "What's the one thing tomorrow, if you did it, would make tomorrow feel like it mattered?" Emit it as a task with dueDate:"tomorrow", isTheOne:true, isMIT:true.
-5. Keep this to 4–5 exchanges max. Do NOT checklist every unfinished task. Do not say "Great job" or "Nice work" or anything similarly performative — the fact of being here at the end of the day is the acknowledgement.
+4. BEFORE asking about tomorrow's one thing, look at the WEEK AHEAD → TOMORROW section above and surface the *shape* of tomorrow in one natural sentence. Not a list, not a dump. Examples: "Tomorrow's a 7am run, then meetings 10–12, open after." "Tomorrow looks open — no committed events." "Tomorrow's heavy after lunch but the morning's clear." Hedge habitual blocks ("you usually run 7am"), be definite about committed ones ("you've got the 10am call"). Skip this if both Committed and Habitual are empty — just go to step 5.
+5. Close with tomorrow's one thing: "Given that, what's the one thing tomorrow, if you did it, would make tomorrow feel like it mattered?" Emit it as a task with dueDate:"tomorrow", isTheOne:true, isMIT:true.
+6. Keep this to 4–5 exchanges max. Do NOT checklist every unfinished task. Do not say "Great job" or "Nice work" or anything similarly performative — the fact of being here at the end of the day is the acknowledgement.
+
+TEMPORAL POSTURE (CP11a — when to reach for the WEEK AHEAD block):
+- You hold the day, the week, and the consequence-arc on ${firstName}'s behalf. They cannot reliably hold time in their head; that is your job. Express this through language, never as a list.
+- Reach for it when:
+  · They ask a "when" question ("when can I do this", "do I have time for X").
+  · You're proposing a deadline shift or carry-over ("if not today, what's the next clean window?").
+  · You've spotted that today is heavy and tomorrow is open — surface that *briefly*, not as a checklist.
+  · They're re-entering after a gap and need to know what's in front of them.
+- Confidence tiers from the WEEK AHEAD block:
+  · Committed (calendar) → speak directly: "you've got the 2pm meeting".
+  · Habitual (skeleton) → hedge: "you usually run Tuesday morning", "if today follows the pattern".
+  · Claimed (deadlines)  → optimistic: "you said this is for Wednesday".
+  · Open hours are approximate (events + skeleton can overlap). Use as direction, not arithmetic.
+- DON'T list the week as a calendar dump. One natural sentence beats a wall of text. ("Tomorrow's lighter — could land it before lunch.")
+- DON'T scold or moralise. "You haven't moved on this for 4 days" → no. "Tuesday morning has the cleanest run at this" → yes.
 
 FATIGUE POSTURE (triggered by overwhelm signals):
 - Do NOT ask what they want to work on. You already have their context.
@@ -738,6 +758,7 @@ function EditableTaskRow({ action, onChange, onRemove, mitCount }: {
             onBlur={() => { onChange({ ...action, text: draft }); setEditing(false); }}
             returnKeyType="done"
             onSubmitEditing={() => { onChange({ ...action, text: draft }); setEditing(false); }}
+            accessibilityLabel="Edit task text"
           />
         ) : (
           <TouchableOpacity onPress={() => setEditing(true)} activeOpacity={0.7}>
@@ -1137,26 +1158,33 @@ export default function ChatScreen({ navigation, route }: any) {
     [mode, contextBlock, profile.name, calendarContext, profile.portrait, continuityBlock, runningMemoryBlock, themesBlock],
   );
 
-  // Fetch today's calendar + reminders + skeleton blocks for the universal
-  // dump mode (the prompt decides internally whether it's morning-planning
-  // vs. evening wind-down vs. a midday drop-in — it needs the live device
-  // data regardless of phase so it can reference actual events by name).
+  // Fetch today's calendar + reminders + skeleton blocks + the 7-day temporal
+  // shape for the universal dump mode (the prompt decides internally whether
+  // it's morning-planning vs. evening wind-down vs. a midday drop-in — it
+  // needs the live device data regardless of phase so it can reference actual
+  // events by name).
+  //
+  // CP11a.2 — also includes the week-ahead context with confidence tiers
+  // (committed/habitual/claimed) so the model can hold *forward time*, not
+  // just today. Lets the assistant say "next clean window for that is
+  // Tuesday morning" instead of "I don't know your week".
   useEffect(() => {
     if (mode === 'dump') {
-      buildTodayCalendarContext()
-        .then(ctx => {
-          // Also inject today's skeleton blocks (synchronous)
-          const skeletonCtx = buildSkeletonContext(profile.weekTemplate ?? []);
-          const combined = [skeletonCtx, ctx].filter(Boolean).join('\n\n');
+      const skeletonCtx = buildSkeletonContext(profile.weekTemplate ?? []);
+      Promise.all([
+        buildTodayCalendarContext().catch(() => ''),
+        buildWeekAheadContext(profile.weekTemplate ?? [], tasks).catch(() => ''),
+      ])
+        .then(([todayCtx, weekAheadCtx]) => {
+          const combined = [skeletonCtx, todayCtx, weekAheadCtx].filter(Boolean).join('\n\n');
           setCalendarContext(combined);
         })
         .catch(() => {
-          // Fall back to skeleton only if calendar fails
-          const skeletonCtx = buildSkeletonContext(profile.weekTemplate ?? []);
+          // Fall back to skeleton only if everything fails
           if (skeletonCtx) setCalendarContext(skeletonCtx);
         });
     }
-  }, [mode, profile.weekTemplate]);
+  }, [mode, profile.weekTemplate, tasks]);
 
   // Seed messages from the persisted session (if any). Empty → fresh session.
   const [messages,        setMessages]        = useState<ChatMessage[]>(() => getChatSession(sessionKey));
@@ -1180,6 +1208,11 @@ export default function ChatScreen({ navigation, route }: any) {
   const [recording,       setRecording]       = useState<Audio.Recording | null>(null);
   const [isRecording,     setIsRecording]     = useState(false);
   const [transcribing,    setTranscribing]    = useState(false);
+  // CP9.3 — Read-aloud TTS for assistant replies. Per-session mute toggle in
+  // header (default: muted — speech is opt-in, ADHD users hate surprise audio).
+  // We start muted and persist the choice for the lifetime of this screen
+  // instance only; new chat sessions start muted again.
+  const [isSpeechMuted, setIsSpeechMuted] = useState(true);
   // CP6.1 — file the user has attached but not yet sent. Sits in a chip
   // above the composer until they hit send (then it rides the next user
   // turn as a Claude `document` content block).
@@ -1370,6 +1403,12 @@ export default function ChatScreen({ navigation, route }: any) {
     return () => { cancelled = true; sub.remove(); };
   }, [mode]);
 
+  // CP9.3 — Stop any in-flight TTS when leaving the chat screen so users
+  // aren't followed by voice into the next screen.
+  useEffect(() => {
+    return () => { try { Speech.stop(); } catch {} };
+  }, []);
+
   async function startConversation() {
     await sendToLLM([]);
   }
@@ -1390,6 +1429,14 @@ export default function ChatScreen({ navigation, route }: any) {
     // app backgrounded, crash) don't lose context.
     // (For CP6.1: store strips heavy `attachment.b64` before persistence.)
     appendChatSessionMessage(sessionKey, msg);
+    // CP9.3 — Read aloud assistant replies if user has unmuted this session.
+    // Stops any in-flight utterance so back-to-back replies don't pile up.
+    if (role === 'assistant' && !isSpeechMuted && content.trim()) {
+      try {
+        Speech.stop();
+        Speech.speak(content, { language: 'en', rate: 1.0, pitch: 1.0 });
+      } catch { /* TTS is non-critical — never block chat on speech errors */ }
+    }
     return msg;
   }
 
@@ -2260,48 +2307,74 @@ export default function ChatScreen({ navigation, route }: any) {
             <Text style={styles.headerTitle}>{meta.title}</Text>
             <Text style={styles.headerSub}>{meta.subtitle}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.offRecordBtn}
-            onPress={() => {
-              if (isOffRecord) {
-                // Turn it back on — "come back on record".
-                Alert.alert(
-                  'Back on record?',
-                  "I'll start learning from this session again. That means updating your Portrait, spotting projects, and logging what you did.",
-                  [
-                    { text: 'Keep off', style: 'cancel' },
-                    {
-                      text: 'Back on record',
-                      onPress: () => setOffRecord(0),
-                    },
-                  ],
-                );
-              } else {
-                Alert.alert(
-                  'Go off record?',
-                  "For 3 hours I won't update your Portrait, spot new projects, or log what you said. The words stay here, on your phone.",
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Go off record',
-                      onPress: () => setOffRecord(180),
-                    },
-                  ],
-                );
-              }
-            }}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            {isOffRecord ? (
-              <View style={styles.offRecordChip}>
-                <Ionicons name="eye-off-outline" size={14} color={C.textSecondary} />
-                <Text style={styles.offRecordChipText}>off record</Text>
-              </View>
-            ) : (
-              <Ionicons name="eye-outline" size={20} color={C.textTertiary} />
-            )}
-          </TouchableOpacity>
+          <View style={styles.headerRightGroup}>
+            {/* CP9.3 — Read-aloud toggle. Default muted; tapping unmutes for
+                the rest of this session. Tapping again mutes + cancels any
+                in-flight utterance. */}
+            <TouchableOpacity
+              style={styles.speakerBtn}
+              onPress={() => {
+                setIsSpeechMuted(prev => {
+                  const next = !prev;
+                  if (next) { try { Speech.stop(); } catch {} }
+                  return next;
+                });
+              }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel={isSpeechMuted ? 'Read replies aloud' : 'Mute read-aloud'}
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name={isSpeechMuted ? 'volume-mute-outline' : 'volume-high-outline'}
+                size={20}
+                color={isSpeechMuted ? C.textTertiary : C.primary}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.offRecordBtn}
+              onPress={() => {
+                if (isOffRecord) {
+                  // Turn it back on — "come back on record".
+                  Alert.alert(
+                    'Back on record?',
+                    "I'll start learning from this session again. That means updating your Portrait, spotting projects, and logging what you did.",
+                    [
+                      { text: 'Keep off', style: 'cancel' },
+                      {
+                        text: 'Back on record',
+                        onPress: () => setOffRecord(0),
+                      },
+                    ],
+                  );
+                } else {
+                  Alert.alert(
+                    'Go off record?',
+                    "For 3 hours I won't update your Portrait, spot new projects, or log what you said. The words stay here, on your phone.",
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Go off record',
+                        onPress: () => setOffRecord(180),
+                      },
+                    ],
+                  );
+                }
+              }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              {isOffRecord ? (
+                <View style={styles.offRecordChip}>
+                  <Ionicons name="eye-off-outline" size={14} color={C.textSecondary} />
+                  <Text style={styles.offRecordChipText}>off record</Text>
+                </View>
+              ) : (
+                <Ionicons name="eye-outline" size={20} color={C.textTertiary} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         <FlatList
@@ -2553,6 +2626,7 @@ export default function ChatScreen({ navigation, route }: any) {
             returnKeyType="send"
             blurOnSubmit={false}
             editable={!loading && !isRecording}
+            accessibilityLabel="Message"
           />
 
           <TouchableOpacity
@@ -2591,9 +2665,21 @@ function makeStyles(C: any) {
     headerTitle:  { fontSize: 15, fontWeight: '700', color: C.textPrimary, letterSpacing: -0.2 },
     headerSub:    { fontSize: 12, color: C.textTertiary, marginTop: 2 },
 
-    // Off-record toggle — right-side header slot (60px wide to mirror
-    // the back button for visual balance). Either a subtle eye icon or
-    // a small chip when the user has paused background learning.
+    // CP9.3 — Right-side header group: speaker (TTS) + off-record toggle.
+    // We keep the right slot ~60px wide; speaker icon adds another ~28px
+    // when present, balanced against the leftside back button + headerCenter.
+    headerRightGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    speakerBtn: {
+      width: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    // Off-record toggle — right-side header slot. Either a subtle eye
+    // icon or a small chip when the user has paused background learning.
     offRecordBtn: {
       width: 60,
       alignItems: 'flex-end',

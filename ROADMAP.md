@@ -781,3 +781,134 @@ gets to test the full capture surface (PDF + image + paste +
 widget + Siri + share + paperclip) before we move on to CP7's brain
 upgrade.
 
+### Checkpoint 11a — The Anticipator Pass, Wave A (passive temporal intelligence)
+
+The thesis crystallised in conversation: Aiteall is a temporal holding
+system for humans who cannot reliably hold time in their head. CP1–10
+made the app calm; CP11 makes the app *hold* the day, the week, and
+consequences across time — expressed through language, never imposed
+through interface. Wave A is the speaks-when-spoken-to half:
+calibrate the temporal model first, then in CP11b layer proactive
+surfaces on top.
+
+**CP11a.1 — `buildWeekAheadContext()`.** New pure-data service appended
+to `src/services/calendar.ts`. Pulls 7 days of calendar events with
+`fetchEventsForRange(today, today+7)` (filters out `[Aiteall]`-prefixed
+events the same way `getTodayCalendarEvents` does, to avoid
+double-counting our own skeleton-projected events), groups by local-time
+date via `ymd()` (no `toISOString()` — that shifts TZ and would put a
+9pm Tuesday event onto Wednesday for users east of UTC), overlays the
+weekly skeleton's blocks per `dayOfWeek`, computes committed and
+habitual minutes per day, and emits a plain-text block.
+
+The output has three parts. **TODAY** and **TOMORROW** get the full
+treatment: every committed event with title and time, every habitual
+block with type and the 🔒 marker for protected ones, and a rough
+open-hours estimate (`max(0, 960 - committedMins - habitualMins)`,
+floor-rounded to whole hours, called out as approximate because we
+don't dedupe overlap between calendar events and skeleton blocks — that
+arithmetic gets wrong fast). **REST OF THE WEEK** is compact: one line
+per day with a heaviness label (`open`/`light`/`moderate`/`busy`/
+`packed`) plus event and habitual-block counts. Then **DEADLINE TASKS**
+within the 7-day window (capped at 12 lines), **REMAINING TODAY** with
+the-one called out by name when present, and a final **CONFIDENCE
+NOTES** block that is the actual point of the whole thing — it teaches
+the model that committed = real, habitual = "you usually" with a hedge,
+claimed = optimistic, open hours are direction not arithmetic. Without
+that confidence-tier instruction the model would treat skeleton
+projections as facts and start scolding ("you missed your run") which
+is exactly the failure mode we're trying to prevent.
+
+The `WAKE_HOUR = 7` / `SLEEP_HOUR = 23` / `WAKING_MINUTES_PER_DAY = 960`
+constants are tuned to the typical adult day, not edge-case rangers
+working night shifts; the heaviness thresholds (480/300/150/60) were
+picked so that a typical 9-to-5 with two skeleton blocks lands in
+"busy", a clear day with a habitual run lands in "light", and a fully
+booked workday with personal commitments lands in "packed". Numbers
+are intentionally coarse — the prompt translates the *label*, not the
+minutes.
+
+**CP11a.2 — Wire into chat + teach the model.** `ChatScreen.tsx`'s
+dump-mode useEffect was extended to fan out: `Promise.all` runs
+`buildTodayCalendarContext()` and `buildWeekAheadContext(weekTemplate,
+tasks)` in parallel, then `[skeletonCtx, todayCtx, weekAheadCtx]
+.filter(Boolean).join('\n\n')` flows into the same `calendarContext`
+state that the system prompt already injects under `LIVE DEVICE DATA`.
+Adding `tasks` to the dependency array is the move that makes
+deadline-tasks update reactively when the user creates or completes
+tasks mid-session — small but important, otherwise the model would
+keep referencing a Wednesday deadline that the user just ticked off.
+
+The system prompt got a new **TEMPORAL POSTURE** section between the
+EVENING FLOW and FATIGUE POSTURE blocks. It's the explicit grant of
+authority: "you hold the day, the week, and the consequence-arc on
+${firstName}'s behalf — they cannot reliably hold time in their head;
+that is your job. Express this through language, never as a list."
+Then four bullets on when to reach for the WEEK AHEAD block (when
+questions, deadline carry-overs, heavy/light spotting, re-entry), the
+confidence tiers in three short rules with example phrasings, and two
+hard DON'Ts ("don't list the week as a calendar dump", "don't scold or
+moralise" with a counter-example: 'you haven't moved on this for 4
+days' → no, 'Tuesday morning has the cleanest run at this' → yes). The
+posture section is the difference between the model having data and
+the model knowing what to *do* with the data.
+
+**CP11a.3 — Tomorrow snapshot in the evening flow.** EVENING FLOW
+step 4 was rewritten so that *before* asking "what's the one thing
+tomorrow?", the model glances at WEEK AHEAD → TOMORROW and surfaces
+the shape in one natural sentence. Three example shapes are given in
+the prompt so the model has a calibrated target — "Tomorrow's a 7am
+run, then meetings 10–12, open after." vs. "Tomorrow looks open — no
+committed events." vs. "Tomorrow's heavy after lunch but the morning's
+clear." The hedging rule is explicit: definite for committed events
+("you've got the 10am call"), tentative for habitual blocks ("you
+usually run 7am"). And the silent-skip rule: if both Committed and
+Habitual are empty for tomorrow, skip the cue and go straight to "what's
+the one thing?" — better silence than "tomorrow has nothing" which
+sounds judgmental.
+
+The ask itself was reworded from "What's the one thing tomorrow…" to
+"Given that, what's the one thing tomorrow…" — the "given that" is the
+load-bearing word. It tells the user the question is grounded in the
+shape they just heard, not a generic ritual. ADHD users feel the
+difference between an assistant that knows their week and an assistant
+that performs caring about it.
+
+**CP11a.4 — Re-entry temporal context.** HOW TO OPEN gained a "back
+after a 4h+ gap today" branch. It's a two-input branch: CONTINUITY
+CONTEXT (already in the prompt, gives the gap signal in hours) tells
+the model how long it's been; WEEK AHEAD → TODAY tells it what's
+actually in front of the user right now. The prompt teaches: name the
+next concrete thing in the next ~90 minutes if it exists, or name the
+open afternoon if there isn't one, then ask one gentle question. The
+existing "3+ days" branch was extended to optionally mention the shape
+of today when it's worth saying ("today's pretty open" or "you've got
+a couple things locked in") before the no-catch-up question. The
+conditional matters — saying "today's open" to someone returning after
+a week is reassuring; saying nothing is fine; saying "you have nothing
+on" is a vacuum that ADHD brains will fill with self-blame.
+
+The pause-expired path (CP9.5) flows through the same chat surface, so
+there's no separate prompt branch needed — the continuity block reports
+the gap, the WEEK AHEAD block reports what's in front of them, and the
+4h+ branch picks both up. That's the whole point of building this as
+context-and-posture rather than mode-switching: every re-entry path
+gets the same temporal awareness for free.
+
+**CP11a.5 — Verify and ship.** `npx tsc --noEmit` clean. iOS
+`buildNumber` bumped 5 → 6, Android `versionCode` 5 → 6. CHECKPOINTS.md
+updated, this ROADMAP.md entry written, commit staged. Sam: same shape
+as CP10 — `git push origin main` then `eas build --profile production
+--platform ios --auto-submit` from the Mac to fire TestFlight #4.
+
+The wave success metric (replacing the old CP10 triplet) is layered:
+a behavioural floor of day-4 retention (you need users opening the app
+to ask them anything at all), and a primary felt-state question on
+day 7+ — *"Did you ever feel relieved that something you would have
+forgotten was already held by the app?"* Maps directly onto the thesis
+success condition. If retention is high but felt-state is no, we've
+built a calm-but-empty app and CP11b would be premature. CP11b (active
+anticipation: per-slot reminders, gap awareness, consequence awareness,
+continuity awareness) is sketched in CHECKPOINTS.md but explicitly
+deferred until CP11a calibrates with the wave.
+

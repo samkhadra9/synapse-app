@@ -8,7 +8,7 @@
 import * as Calendar from 'expo-calendar';
 import { Platform } from 'react-native';
 import { format } from 'date-fns';
-import { Project, TimeBlock, TimeBlockType } from '../store/useStore';
+import { Project, Task, TimeBlock, TimeBlockType } from '../store/useStore';
 
 const CALENDAR_NAME = 'Aiteall';
 const CALENDAR_COLOR = '#1A5C4A'; // matches Colors.primary
@@ -720,4 +720,263 @@ export async function createCalendarEventForTask(
   } catch {
     return null;
   }
+}
+
+// ── CP11a.1 — Week-ahead temporal context ─────────────────────────────────────
+
+/**
+ * Builds a prompt-friendly description of the next 7 days so the model can
+ * speak about *when* something can fit, not just *what* exists.
+ *
+ * Confidence tiers (the model is taught about these in the system prompt):
+ *   • COMMITTED — hard calendar events. Speak with confidence ("you've got
+ *     a meeting at 10").
+ *   • HABITUAL — items from the weekly skeleton. Tentative ("you usually
+ *     run Tuesday morning"). Skeleton blocks are projections of habit, not
+ *     facts.
+ *   • CLAIMED  — task `date` deadlines. Optimistic ("you said this is
+ *     for Wednesday"). Often slips.
+ *
+ * Output is plain text suitable for direct inclusion in the system prompt.
+ * No markdown headers — terse line-prefixed sections so the model scans them.
+ */
+const WAKE_HOUR = 7;
+const SLEEP_HOUR = 23;
+const WAKING_MINUTES_PER_DAY = (SLEEP_HOUR - WAKE_HOUR) * 60; // 960
+
+function ymd(d: Date): string {
+  // Local-time YYYY-MM-DD (toISOString would shift TZ).
+  const y = d.getFullYear();
+  const m = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const SHORT_WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function timeStringToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** Heaviness label from committed+habitual minutes (out of waking ~960). */
+function heavinessLabel(minutes: number): string {
+  if (minutes >= 480) return 'packed';        // 8h+ booked
+  if (minutes >= 300) return 'busy';          // 5h+
+  if (minutes >= 150) return 'moderate';      // 2.5h+
+  if (minutes >= 60)  return 'light';
+  return 'open';
+}
+
+interface DaySlice {
+  date:       string;
+  dow:        number;          // 0=Sun … 6=Sat
+  label:      string;          // "today", "tomorrow", "Wed Apr 29", etc.
+  events:     TodayEvent[];    // committed (calendar)
+  skeleton:   TimeBlock[];     // habitual (skeleton)
+  committedMins: number;
+  habitualMins:  number;
+}
+
+async function fetchEventsForRange(start: Date, end: Date): Promise<TodayEvent[]> {
+  try {
+    const hasPermission = await requestCalendarPermissions();
+    if (!hasPermission) return [];
+
+    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+    const calIds    = calendars.map(c => c.id);
+    if (calIds.length === 0) return [];
+
+    const events = await Calendar.getEventsAsync(calIds, start, end);
+
+    return events
+      .filter(e => !e.title?.startsWith('[Aiteall]'))
+      .map(e => {
+        const startD = typeof e.startDate === 'string' ? new Date(e.startDate) : e.startDate;
+        const endD   = typeof e.endDate   === 'string' ? new Date(e.endDate)   : e.endDate;
+        const dateStr = ymd(startD);
+        const formatTime = (d: Date) => {
+          const h = d.getHours();
+          const m = d.getMinutes();
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+          return `${hour.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`;
+        };
+        return {
+          title:    e.title ?? '(no title)',
+          start:    e.allDay ? 'all-day' : formatTime(startD),
+          end:      e.allDay ? undefined : formatTime(endD),
+          allDay:   !!e.allDay,
+          calendar: calendars.find(c => c.id === e.calendarId)?.title ?? '',
+          // attach ISO so we can group by date / compute mins
+          _date:        dateStr,
+          _startMin:    e.allDay ? 0 : startD.getHours() * 60 + startD.getMinutes(),
+          _endMin:      e.allDay ? 0 : endD.getHours()   * 60 + endD.getMinutes(),
+        } as TodayEvent & { _date: string; _startMin: number; _endMin: number };
+      });
+  } catch (e) {
+    console.warn('[calendar] fetchEventsForRange failed:', e);
+    return [];
+  }
+}
+
+export async function buildWeekAheadContext(
+  weekTemplate: TimeBlock[],
+  tasks:        Task[],
+): Promise<string> {
+  // Build a 7-day window: today through today+6, in local time.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + 7);
+  horizon.setHours(23, 59, 59, 999);
+
+  const allEvents = await fetchEventsForRange(today, horizon) as Array<
+    TodayEvent & { _date: string; _startMin: number; _endMin: number }
+  >;
+
+  // Group events by date.
+  const eventsByDate = new Map<string, typeof allEvents>();
+  for (const e of allEvents) {
+    const arr = eventsByDate.get(e._date) ?? [];
+    arr.push(e);
+    eventsByDate.set(e._date, arr);
+  }
+
+  // Build per-day slices.
+  const slices: DaySlice[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const dateStr = ymd(d);
+    const dow = d.getDay();
+
+    const dayEvents = (eventsByDate.get(dateStr) ?? []).sort((a, b) => {
+      if (a.allDay && !b.allDay) return 1;
+      if (!a.allDay && b.allDay) return -1;
+      return a._startMin - b._startMin;
+    });
+    const skeleton = (weekTemplate ?? [])
+      .filter(b => b.dayOfWeek.includes(dow))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    const committedMins = dayEvents.reduce((sum, e) => {
+      if (e.allDay) return sum + WAKING_MINUTES_PER_DAY;
+      return sum + Math.max(0, e._endMin - e._startMin);
+    }, 0);
+    const habitualMins = skeleton.reduce((sum, b) => sum + b.durationMinutes, 0);
+
+    let label: string;
+    if (i === 0) label = 'today';
+    else if (i === 1) label = 'tomorrow';
+    else label = `${SHORT_WEEKDAY[dow]} ${d.toLocaleString('en-US', { month: 'short', day: 'numeric' })}`;
+
+    slices.push({
+      date: dateStr, dow, label,
+      events: dayEvents, skeleton,
+      committedMins, habitualMins,
+    });
+  }
+
+  // ── Render ──
+  const lines: string[] = ['WEEK AHEAD (next 7 days, including today):'];
+
+  // Helper: detail rendering for a single day (used for today + tomorrow).
+  const detailForDay = (d: DaySlice): string[] => {
+    const out: string[] = [];
+    if (d.events.length === 0 && d.skeleton.length === 0) {
+      out.push('  (no committed events, no habitual blocks — open day)');
+      return out;
+    }
+    if (d.events.length > 0) {
+      out.push('  Committed (calendar):');
+      d.events.forEach(e => {
+        if (e.allDay) {
+          out.push(`    • ${e.title} (all-day)`);
+        } else {
+          out.push(`    • ${e.title} — ${e.start}${e.end ? ` to ${e.end}` : ''}`);
+        }
+      });
+    }
+    if (d.skeleton.length > 0) {
+      out.push('  Habitual (skeleton — usually):');
+      d.skeleton.forEach(b => {
+        const endTime = addMinutes(b.startTime, b.durationMinutes);
+        out.push(
+          `    • ${b.label} (${BLOCK_TYPE_LABELS[b.type]}) — ${formatHHMM(b.startTime)} to ${formatHHMM(endTime)}${b.isProtected ? ' 🔒' : ''}`,
+        );
+      });
+    }
+    // Rough open-hours estimate (very tentative — does not dedupe overlap).
+    const totalBooked = Math.min(WAKING_MINUTES_PER_DAY, d.committedMins + d.habitualMins);
+    const openHours = Math.max(0, Math.round((WAKING_MINUTES_PER_DAY - totalBooked) / 60));
+    out.push(`  Rough open hours: ~${openHours}h (committed + habitual may overlap; treat as approximate)`);
+    return out;
+  };
+
+  // TODAY (detailed)
+  const todaySlice = slices[0];
+  lines.push('');
+  lines.push(`TODAY (${todaySlice.date}, ${SHORT_WEEKDAY[todaySlice.dow]}):`);
+  lines.push(...detailForDay(todaySlice));
+
+  // TOMORROW (detailed)
+  const tomorrowSlice = slices[1];
+  lines.push('');
+  lines.push(`TOMORROW (${tomorrowSlice.date}, ${SHORT_WEEKDAY[tomorrowSlice.dow]}):`);
+  lines.push(...detailForDay(tomorrowSlice));
+
+  // Day 3 → Day 7 (compact)
+  lines.push('');
+  lines.push('REST OF THE WEEK (compact):');
+  for (let i = 2; i < 7; i++) {
+    const d = slices[i];
+    const totalBooked = Math.min(WAKING_MINUTES_PER_DAY, d.committedMins + d.habitualMins);
+    const heaviness = heavinessLabel(totalBooked);
+    const evCount = d.events.length;
+    const skCount = d.skeleton.length;
+    lines.push(
+      `  • ${d.label}: ${heaviness} (${evCount} event${evCount === 1 ? '' : 's'}, ${skCount} habitual block${skCount === 1 ? '' : 's'})`,
+    );
+  }
+
+  // DEADLINE TASKS — within the 7-day window (CLAIMED tier).
+  const horizonDateStr = ymd(horizon);
+  const todayStr = ymd(today);
+  const deadlineTasks = (tasks ?? [])
+    .filter(t => !t.completed && t.date && t.date >= todayStr && t.date <= horizonDateStr)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (deadlineTasks.length > 0) {
+    lines.push('');
+    lines.push('DEADLINE TASKS (claimed — user said these are for that day, not enforced):');
+    deadlineTasks.slice(0, 12).forEach(t => {
+      const sliceForDate = slices.find(s => s.date === t.date);
+      const dayLabel = sliceForDate ? sliceForDate.label : t.date;
+      const est = t.estimatedMinutes ? ` (~${t.estimatedMinutes}m)` : '';
+      lines.push(`  • ${dayLabel}: ${t.text}${est}`);
+    });
+    if (deadlineTasks.length > 12) {
+      lines.push(`  …and ${deadlineTasks.length - 12} more`);
+    }
+  }
+
+  // REMAINING TODAY — open tasks claimed for today, prominent for re-entry.
+  const remainingToday = (tasks ?? [])
+    .filter(t => !t.completed && t.date === todayStr);
+  if (remainingToday.length > 0) {
+    lines.push('');
+    const theOne = remainingToday.find(t => t.isTheOne);
+    lines.push(`REMAINING TODAY: ${remainingToday.length} open${theOne ? ` (the one: "${theOne.text}")` : ''}`);
+  }
+
+  // CONFIDENCE NOTES — teach the model how to talk about each tier.
+  lines.push('');
+  lines.push('CONFIDENCE NOTES (how to reference this in your reply):');
+  lines.push('  • Committed = real calendar events. Speak with confidence.');
+  lines.push('  • Habitual  = patterns from the weekly skeleton. Hedge — "you usually", "if today follows the pattern". Skeleton is a habit, not a fact.');
+  lines.push('  • Claimed   = task deadlines. Optimistic — the user said it; reality often slips. Mention without nagging.');
+  lines.push('  • Open hours are approximate (events + skeleton may overlap). Use as direction, not arithmetic.');
+  lines.push('  • Use this to find next valid windows ("next clean window for that is Tuesday morning") — not to scold or list.');
+
+  return lines.join('\n');
 }

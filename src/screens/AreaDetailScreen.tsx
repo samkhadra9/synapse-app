@@ -157,7 +157,13 @@ export default function AreaDetailScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Back"
+            accessibilityRole="button"
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
             <Ionicons name="chevron-back" size={24} color={C.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Area not found</Text>
@@ -245,7 +251,13 @@ export default function AreaDetailScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Back"
+            accessibilityRole="button"
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
             <Ionicons name="chevron-back" size={24} color={C.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>{area.name}</Text>

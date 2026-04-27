@@ -49,7 +49,9 @@ export default function FifteenBanner() {
           onPress={stop}
           activeOpacity={0.75}
           style={s.stopBtn}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityLabel="Finish 15-minute session"
+          accessibilityRole="button"
         >
           <Text style={s.stopText}>Done</Text>
         </TouchableOpacity>

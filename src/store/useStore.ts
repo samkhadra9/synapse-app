@@ -347,8 +347,20 @@ export interface UserProfile {
   selectedCalendarName?: string;
   weekTemplate: TimeBlock[];
   skeletonBuilt: boolean;
-  /** Structured portrait — the "You" tab. See Portrait type above. */
+  /** Structured portrait — the "You" tab. See Portrait type above.
+   *  Treated as the **work-self** portrait when CP9.2 lens is active. */
   portrait: Portrait;
+  /**
+   * CP9.2 — Life-self portrait. Same shape as `portrait`, mirrors the
+   * editing/refresh pipeline but represents the user outside-of-work
+   * (relationships, health, creative, the rest of life). Local-only for
+   * the v1 build — server schema column will land in a follow-up
+   * migration; until then it persists in AsyncStorage and is not
+   * cross-device. Default = empty portrait, lazily created.
+   */
+  lifePortrait?: Portrait;
+  /** CP9.2 — Which portrait the You tab is currently showing. */
+  portraitLens?: 'work' | 'life';
   lastActiveDate?: string; // YYYY-MM-DD — used for lapse detection
   /** When the user first opened the app — drives the day-3-to-7 emergence moment */
   firstOpenDate?: string;  // YYYY-MM-DD
@@ -362,6 +374,16 @@ export interface UserProfile {
   offRecordUntil?: string;     // ISO timestamp
   /** CP5.2 — proactive push opt-out. Default = enabled. Explicit `false` disables. */
   proactivePushEnabled?: boolean;
+  /**
+   * CP9.1 — Pause mode ("I'm cooked"). When set in the future, the app:
+   *   - cancels recurring daily notifications (morning brief / midday / evening)
+   *   - skips proactive Haiku-authored pushes
+   *   - dims/replaces the AmbientChatStrip with a "back at HH:mm" line
+   *   - suppresses drift / lapse nudges
+   * On foreground after expiry, the navigation root clears it and fires the
+   * CP9.5 re-entry notification, then reschedules the dailies.
+   */
+  pauseModeUntil?: string;     // ISO timestamp
   /**
    * CP6.4 — capture-surfaces onboarding tour seen marker. ISO timestamp.
    * Null/undefined = never seen → eligible for the tour after first chat.
@@ -546,6 +568,19 @@ interface SolasState {
   touchLastActive: () => void;
   /** Mark "off record" window — extractor pauses until then */
   setOffRecord: (minutes: number) => void;
+
+  /** CP9.1 — Pause mode. `null` clears it; otherwise sets pauseModeUntil = now + hours */
+  setPauseMode: (hours: number | null) => void;
+  /** Convenience: returns true if profile.pauseModeUntil is in the future */
+  isPaused: () => boolean;
+
+  /** CP9.2 — update a life-portrait section (mirror of updatePortraitSection). */
+  updateLifePortraitSection: (
+    key: PortraitSectionKey,
+    patch: Partial<PortraitSection>,
+  ) => void;
+  /** CP9.2 — flip which portrait is showing on the You tab. */
+  setPortraitLens: (lens: 'work' | 'life') => void;
 
   /** Today's AI-generated day plan (reactive calendar) */
   dayPlan?: DayPlan;
@@ -1247,6 +1282,34 @@ export const useStore = create<SolasState>()(
         syncIfAuthed(s => s.pushProfile(updated), get().session);
       },
 
+      // CP9.2 — life-portrait section update (mirror of updatePortraitSection
+      // but writes to lifePortrait, lazily creating an empty one). Local-only
+      // for v1; pushProfile doesn't currently include lifePortrait pending
+      // schema migration.
+      updateLifePortraitSection: (key, patch) => {
+        const now = new Date().toISOString();
+        const current = get().profile.lifePortrait ?? makeEmptyPortrait();
+        const merged: Portrait = {
+          ...current,
+          [key]: {
+            ...current[key],
+            ...patch,
+            lastUpdated: now,
+          },
+          lastAnyUpdate: now,
+        };
+        const updated = { ...get().profile, lifePortrait: merged };
+        set({ profile: updated });
+        // Not synced — see field comment in UserProfile.
+      },
+
+      // CP9.2 — flip which portrait the You tab renders.
+      setPortraitLens: (lens) => {
+        const updated = { ...get().profile, portraitLens: lens };
+        set({ profile: updated });
+        syncIfAuthed(s => s.pushProfile(updated), get().session);
+      },
+
       touchLastActive: () => {
         const today   = new Date().toISOString().slice(0, 10);
         const patch: Partial<UserProfile> = { lastActiveDate: today };
@@ -1264,6 +1327,24 @@ export const useStore = create<SolasState>()(
         set({ profile: updated });
         // Intentionally NOT synced — "off record" is a privacy request and
         // we don't want the server tracking it either.
+      },
+
+      // CP9.1 — Pause mode. `null` clears the pause window; otherwise we set
+      // `pauseModeUntil` to now + N hours. Synced because pause should survive
+      // a reinstall — if the user said "leave me alone for 2h" and then reopens
+      // the app on another device, the same calm should hold.
+      setPauseMode: (hours) => {
+        const until = hours == null ? undefined : new Date(Date.now() + hours * 3600_000).toISOString();
+        const updated: UserProfile = { ...get().profile, pauseModeUntil: until };
+        set({ profile: updated });
+        syncIfAuthed(s => s.pushProfile(updated), get().session);
+      },
+
+      isPaused: () => {
+        const u = get().profile.pauseModeUntil;
+        if (!u) return false;
+        const t = Date.parse(u);
+        return Number.isFinite(t) && t > Date.now();
       },
 
       setWeekTemplate: (blocks) => {

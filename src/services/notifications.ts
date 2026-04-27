@@ -235,6 +235,68 @@ export async function cancelWeeklyReview(): Promise<void> {
   }
 }
 
+// ── CP9.1 — Pause mode (quiet window) ─────────────────────────────────────────
+//
+// When the user taps "I'm cooked", we tear down all the recurring + one-off
+// nudges and queue a single warm "you're back" notification at the end of the
+// pause window. The store keeps the truth (`profile.pauseModeUntil`); this
+// module just translates that window into scheduled notifications.
+
+const PAUSE_REENTRY_ID = 'aiteall-pause-reentry';
+
+/**
+ * Cancel every recurring + one-off nudge so the user is genuinely undisturbed
+ * during the pause window. We do NOT cancel onboarding reminders — those are
+ * the user's own scheduled commitment to themselves and shouldn't be silenced
+ * by a transient "I'm cooked" tap.
+ */
+export async function cancelAllProactive(): Promise<void> {
+  await Promise.allSettled([
+    Notifications.cancelScheduledNotificationAsync(DAILY_MORNING_ID),
+    Notifications.cancelScheduledNotificationAsync(DAILY_MIDDAY_ID),
+    Notifications.cancelScheduledNotificationAsync(DAILY_EVENING_ID),
+    Notifications.cancelScheduledNotificationAsync(WEEKLY_REVIEW_ID),
+    Notifications.cancelScheduledNotificationAsync('synapse-morning-brief'),
+    Notifications.cancelScheduledNotificationAsync('synapse-drift-nudge'),
+  ]);
+}
+
+/**
+ * Schedule the single "you're back" notification at the moment the pause
+ * window expires. Quiet copy — this is a re-entry, not a re-engagement push.
+ *
+ * Idempotent: cancels any existing re-entry first so a re-tap on "I'm cooked"
+ * just resets the timer.
+ */
+export async function schedulePauseReentry(reentryAt: Date): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(PAUSE_REENTRY_ID);
+  } catch { /* not scheduled — fine */ }
+
+  const now = new Date();
+  if (reentryAt <= now) return; // Past, nothing to schedule
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: PAUSE_REENTRY_ID,
+    content: {
+      title: 'Welcome back.',
+      body: "Whenever you're ready. Nothing's piled up — same as you left it.",
+      data: { screen: 'Home', reentry: true },
+      sound: false,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: reentryAt,
+    } as Notifications.DateTriggerInput,
+  });
+}
+
+export async function cancelPauseReentry(): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(PAUSE_REENTRY_ID);
+  } catch { /* not scheduled — fine */ }
+}
+
 // ── Forgiveness / Lapse Recovery Notifications ────────────────────────────────
 // Scheduled once when a lapse is detected. Cancelled if user returns.
 
